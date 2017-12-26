@@ -2,7 +2,7 @@ package wedo.openaf;
 
 /**
  * 
- * @author Nuno Aguiar <nuno.aguiar@wedotechnologies.com>
+ * @author Nuno Aguiar
  *
  */
 
@@ -185,5 +185,10 @@ public class DB extends ScriptableObject {
 	@JSFunction
 	public void h2StopServer() {
 		coreDB.h2StopServer();
+	}
+
+	@JSFunction
+	public void convertDates(boolean toggle) {
+		coreDB.convertDates(toggle);
 	}
 }

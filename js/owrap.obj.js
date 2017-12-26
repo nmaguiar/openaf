@@ -1,5 +1,5 @@
 // OpenWrap v2
-// Author: nuno.aguiar@wedotechnologies.com
+// Author: Nuno Aguiar
 // Obj
 // 
 
@@ -125,7 +125,106 @@ OpenWrap.obj.prototype.__getObj4Path = function(anObj, aPath) {
     }
 
     return obj;
-}
+};
+
+/**
+ * <odoc>
+ * <key>ow.obj.flatten(arrayOfMaps, aSeparator, aNADefault) : Array</key>
+ * Converts any structured arrayOfMaps into a flat array of maps with only one level of keys. The map key path will be converted
+ * into a single key using aSeparator (defaults to "_") and the value will be represented as aNADefault (defaults to "") when no 
+ * value or key exists in other entries. For each array entry a new array element will be created replicated all other keys.
+ * Usefull to convert data to output into CSV for example.
+ * </odoc>
+ */
+OpenWrap.obj.prototype.flatten = function(data, aSeparator, aNADefault) {
+	if (!isArray(data)) throw "ow.obj.flatten: need an array of data.";
+	if (isUnDef(aSeparator)) aSeparator = "_";
+	if (isUnDef(aNADefault)) aNADefault = "";
+	loadLodash();
+
+	function getFlatUniqKey(aK, aP) {
+		var key = "";
+		if (isDef(aP)) {
+			key = aP.replace(/\./g, aSeparator) + (isNumber(aK) ? "" : aSeparator + aK.replace(/\./g, aSeparator));
+		} else {
+			key = aK.replace(/\./g, aSeparator);
+		}
+	
+		return key.replace(/\["?\d+"?\]/g, "").replace(new RegExp("^" + aSeparator), "");
+	}
+	
+	function getFlatKeys(anArrayOfMaps) {
+		var keys = [];
+		anArrayOfMaps.forEach((r) => {
+			traverse(r, (aK, aV, aP, aO) => {
+				if (!isObject(aV)) keys.push(getFlatUniqKey(aK, aP));
+			});
+		});
+	
+		return _.uniq(keys);
+	}
+	
+	function genFlatMap(flatKeys) {
+		var res = {};
+	
+		for(var i in flatKeys) {
+			res[flatKeys[i]] = aNADefault;
+		}
+	
+		return res;
+	}
+
+	var keys = getFlatKeys(data);
+	var resData = [];
+
+	_trav = (aM, aD, aP) => {
+		var _keys = Object.keys(aD);
+		var parent = isUnDef(aP) ? "" : aP;
+		var m = aM;
+		var res = [];
+
+		// First pass to get non-objects
+		for(let j in _keys) {
+			if (!isObject(aD[_keys[j]])) {
+				m[getFlatUniqKey(_keys[j], parent)] = aD[_keys[j]];
+			} 
+		}
+
+		// Second pass for maps
+		for(let j in _keys) {
+			if (isObject(aD[_keys[j]]) && !isArray(aD[_keys[j]])) {
+				var newParent = parent + ((isNaN(Number(_keys[j]))) ? "." + _keys[j] : "");
+				res = res.concat(_trav(aM, aD[_keys[j]], newParent));
+			}
+		}
+
+		// Third pass for arrays
+		for(let j in _keys) {
+			if (isArray(aD[_keys[j]])) {
+				var newParent = parent + ((isNaN(Number(_keys[j]))) ? "." + _keys[j] : "");
+				for(let l in aD[_keys[j]]) {
+					var nm = clone(m);
+					if (isObject(aD[_keys[j]][l])) {
+						res = res.concat(_trav(nm, aD[_keys[j]][l], newParent));
+					} else {
+						nm[_keys[j]] = aD[_keys[j]][l];
+						res.push(nm);
+					}
+				}
+			}
+		}
+		
+		if (res.length == 0) res = [ m ];
+
+		return _.flattenDeep(res);
+	};
+
+	for(var i in data) {
+		resData = resData.concat(_trav(genFlatMap(keys), data[i]));
+	}
+
+	return _.flattenDeep(resData);
+};
 
 /**
  * <odoc>
@@ -1117,6 +1216,60 @@ OpenWrap.obj.prototype.fromJson = function(json) {
 	return res.create(json);
 };
 
+/**
+ * <odoc>
+ * <key>ow.obj.diff(aOriginalJSON, aFinalJSON, optionsMap) : String</key>
+ * Produces a string representation with the difference between aOriginalJSON and aFinalJSON.\
+ * If optionsMap.printColor = true it will be immediately print with ANSI colors if available.\
+ * If optionsMap.justAnsi it won't print and just produce the ANSI color codes.\
+ * If optionsMap.justChanges = true only the changed lines will be represented with the rest.\
+ * If optionsMap.justDiff = true only the changed lines will be included.
+ * </odoc>
+ */
+OpenWrap.obj.prototype.diff = function(aOrig, aFinal, optionsMap) {
+	if (isUnDef(this.__diffColorFormat)) {
+		this.__diffColorFormat = {
+			addedJustChanges: "BOLD,BLACK",
+			removed: "RED,BOLD",
+			added: "GREEN,BOLD",
+			removedJustChanges: "WHITE"
+		};
+	}
+
+	loadDiff();
+	var ar = JsDiff.diffJson(aOrig, aFinal); 
+
+	if (isUnDef(optionsMap) || !(isObject(optionsMap))) optionsMap = { printColor: false, justChanges: false, justAnsi: false, justDiff: false };
+	
+	if (optionsMap.printColor) ansiStart();
+	var s = "";
+	for(var i in ar) {
+		var color;
+		if (optionsMap.printColor || optionsMap.justAnsi) {
+		    color = (ar[i].added) ? (optionsMap.justChanges ? this.__diffColorFormat.addedJustChanges : this.__diffColorFormat.added) 
+								  : (ar[i].removed && !optionsMap.justChanges) ? this.__diffColorFormat.removed 
+													                           : this.__diffColorFormat.removedJustChanges;
+		}
+
+		var value = (ar[i].added) ? ar[i].value.replace(/(.*)\n/gm, " +$1\n")
+								  : (ar[i].removed) ? (optionsMap.justChanges ? "" : ar[i].value.replace(/(.*)\n/gm, " -$1\n"))
+													: ((optionsMap.justDiff) ? "" : ar[i].value.replace(/(.*)\n/gm, "  $1\n"));
+
+		value = value.replace(/^([^ +-])/mg, "  $1");
+
+		if (optionsMap.printColor || optionsMap.justAnsi) 
+			s = s + String(ansiColor(color, value));
+		else
+			s = s + value;
+	}
+	if (optionsMap.printColor) { 
+		print(s);
+		ansiStop();
+ 	} else {
+		return s; 
+	}
+};
+
 OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
 	this.__lps = {};
 	//this.__h = new Packages.org.apache.http.impl.client.HttpClients.createDefault();
@@ -1369,7 +1522,7 @@ OpenWrap.obj.prototype.rest = {
  		try {
  			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "GET", undefined, aRequestMap, undefined, _t);
  		} catch(e) {
-			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
+			e.message = "Exception " + e.message + "; error = " + stringify(h.getErrorResponse(true));
 			throw e;
  		}
 	},
@@ -1553,6 +1706,23 @@ OpenWrap.obj.prototype.rest = {
 		}
 		
 		return surl;
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.obj.rest.writeQuery(aMap) : String</key>
+	 * Given aMap will return a URL query string. Example:\
+	 * "http://some.thing/other/stuff?" + ow.obj.rest.writeQuery({ a: 1, b: 2}));\
+	 * \
+	 * </odoc>
+	 */
+	writeQuery: function(aMap) {
+		var str = [];
+        for(var p in aMap)
+            if (aMap.hasOwnProperty(p)) {
+            str.push(encodeURIComponent(p) + "=" + encodeURIComponent(aMap[p]));
+            }
+        return str.join("&");
 	}
 };
 
@@ -1741,5 +1911,70 @@ OpenWrap.obj.prototype.pmSchema = {
 		
 		return out;
 	}
-}
+};
 
+/**
+ * <odoc>
+ * <key>ow.obj.getPath(aObject, aPath) : Object</key>
+ * Given aObject it will try to parse the aPath a retrive the corresponding object under that path. Example:\
+ * \
+ * var a = { a : 1, b : { c: 2, d: [0, 1] } };\
+ * \
+ * print(ow.obj.getPath(a, "b.c")); // 2\
+ * sprint(ow.obj.getPath(a, "b.d")); // [0, 1]\
+ * print(ow.obj.getPath(a, "b.d[0]")); // 0\
+ * \
+ * </odoc>
+ */
+OpenWrap.obj.prototype.getPath = function(aObj, aPath) {
+	if (!isObject(aObj)) return undefined;
+
+	aPath = aPath.replace(/\[(\w+)\]/g, '.$1');
+	aPath = aPath.replace(/^\./, '');       
+	
+    var a = aPath.split('.');
+    for (var i = 0, n = a.length; i < n; ++i) {
+        var k = a[i];
+        if (k in aObj) {
+            aObj = aObj[k];
+        } else {
+            return;
+        }
+    }
+    return aObj;
+};
+
+/**
+ * <odoc>
+ * <key>ow.obj.setPath(aObject, aPath, aNewValue) : Object</key>
+ * Given aObject it will try to parse the aPath a set the corresponding object under that path to aNewValue. Example:\
+ * \
+ * var a = { a : 1, b : { c: 2, d: [0, 1] } };\
+ * \
+ * sprint(ow.obj.setPath(a, "b.c", 123); // { a : 1, b : { c: 123, d: [0, 1] } }\
+ * \
+ * </odoc>
+ */
+OpenWrap.obj.prototype.setPath = function(aObj, aPath, aValue) {
+    if (!isObject(aObj)) return undefined;
+    var orig = aObj;
+
+	aPath = aPath.replace(/\[(\w+)\]/g, '.$1');
+	aPath = aPath.replace(/^\./, '');       
+	
+    var a = aPath.split('.');
+    var prev, prevK;
+    for (var i = 0, n = a.length; i < n; ++i) {
+		var k = a[i];
+		prev = aObj;
+		prevK = k;
+        if (k in aObj) {
+            aObj = aObj[k];
+        } else {
+			aObj[k] = {};
+			aObj = aObj[k];
+        }
+    }
+    prev[prevK] = aValue;
+    return orig;
+};

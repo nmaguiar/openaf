@@ -31,7 +31,7 @@ import wedo.openaf.SimpleLog.logtype;
 
 /**
  * 
- * @author Nuno Aguiar <nuno.aguiar@wedotechnologies.com>
+ * @author Nuno Aguiar
  * 
  */
 public class AFCmdOS extends AFCmdBase  {
@@ -630,7 +630,7 @@ public class AFCmdOS extends AFCmdBase  {
 			}
 			
 			Object res = null;
-			if (injectscript || filescript || injectcode) {
+			if (injectscript || filescript || injectcode || processScript) {
 				Context cxl = (Context) jse.enterContext();
 				org.mozilla.javascript.Script compiledScript = cxl.compileString(includeScript + script, scriptfile, 1, null);
 				res = compiledScript.exec(cxl, (Scriptable) jse.getGlobalscope());

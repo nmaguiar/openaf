@@ -368,17 +368,22 @@ function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi) {
 	return output;
 }
 
-var __con;
+var __con, __conStatus;
 function __initializeCon() {
+	if (isDef(__conStatus)) return __conStatus;
+
 	if (isUnDef(__con)) {
 		plugin("Console");
 		try {
 			__con = (new Console()).getConsoleReader();
+			__conStatus = true;
 			return true;
 		} catch(e) {
+			__conStatus = false;
 			return false;
 		}
 	} else {
+		__conStatus = true;
 		return true;
 	}
 }
@@ -424,7 +429,10 @@ function ansiStart(force) {
 	var con = __con;
 	var ansis = force || (con.getTerminal().isAnsiSupported() && (java.lang.System.console() != null));
 	var jansi = JavaImporter(Packages.org.fusesource.jansi);
-	if (ansis) jansi.AnsiConsole.systemInstall();
+	if (ansis) {
+		java.lang.System.out.flush(); java.lang.System.err.flush();
+		jansi.AnsiConsole.systemInstall();
+	}
 }
 
 /**
@@ -438,7 +446,10 @@ function ansiStop(force) {
 	var con = __con;
 	var ansis = force || (con.getTerminal().isAnsiSupported() && (java.lang.System.console() != null));
 	var jansi = JavaImporter(Packages.org.fusesource.jansi);
-	if (ansis) jansi.AnsiConsole.systemUninstall();
+	if (ansis) {
+		jansi.AnsiConsole.systemUninstall();
+		java.lang.System.out.flush(); java.lang.System.err.flush();
+	}
 }
 
 /**
@@ -497,7 +508,8 @@ function beautifier(aobj) {
  */
 function stringify(aobj, replacer, space) {
 	if (aobj instanceof java.lang.Object) aobj = String(aobj);
-	if (isUndefined(space)) space = "  ";
+	if (isUnDef(space)) space = "  ";
+	if (isUnDef(replacer)) replacer = (k, v) => { return isJavaObject(v) ? String(v) : v; };
 	try {
 		return JSON.stringify(aobj, replacer, space);
 	} catch(e) {
@@ -604,8 +616,12 @@ function templify(aTemplateString, someData) {
  * Shortcut for af.sleep function. Will pause execution for a given period of time expressed in milliseconds.
  * </odoc>
  */
-function sleep(millis) {
-	af.sleep(millis);
+function sleep(millis, alternative) {
+	if (alternative) {
+		af.sleep(millis);
+	} else {
+		java.util.concurrent.TimeUnit.MILLISECONDS.sleep(millis);			
+	}
 }
 
 /**
@@ -657,10 +673,12 @@ function __initializeLogPromise() {
 			addOnOpenAFShutdown(() => {
 				$doWait(__logPromise);
 			});
+			return true;
 		} else {
-			if (__logPromise.size > __logPromise.asyncLevel) {
+			if (__logPromise.executors.size() > __logPromise.asyncLevel) {
 				$doWait(__logPromise);
 			}
+			return false;
 		}
 	}
 }
@@ -758,12 +776,13 @@ function log(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();
 	}
 	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offInfo)) ? false : true;
 	if (go) {
+		if (isUnDef(__con)) __initializeCon();
 		var f = () => {
 			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
 			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
@@ -775,7 +794,7 @@ function log(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();
 	}
@@ -815,12 +834,13 @@ function lognl(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();
 	}
 	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offInfo)) ? false : true;
 	if (go) {
+		if (isUnDef(__con)) __initializeCon();
 		var f = () => {
 			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
 			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
@@ -832,7 +852,7 @@ function lognl(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();	
 		
@@ -872,12 +892,13 @@ function logErr(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();
 	}
 	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offError)) ? false : true;
 	if (go) {
+		if (isUnDef(__con)) __initializeCon();
 		var f = () => {
 			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
 			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
@@ -889,7 +910,7 @@ function logErr(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();		
 
@@ -918,12 +939,13 @@ function logWarn(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();
 	}
 	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offWarn)) ? false : true;
 	if (go) {
+		if (isUnDef(__con)) __initializeCon();
 		var f = () => {
 			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
 			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
@@ -935,7 +957,7 @@ function logWarn(msg) {
 		};
 		if (isDef(__logFormat) && __logFormat.async) {
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f);
+			__logPromise = __logPromise.then(f, ()=>{});
 		} else 
 			f();		
 	}		
@@ -1287,27 +1309,59 @@ function load(aScript) {
 	var error = "";
 	
 	try {
-		af.load(aScript);
+		try {
+			af.load(aScript);
+		} catch(e) {
+			if (e.message == "\"exports\" is not defined.") {
+				var exp = require(aScript);
+				global[io.fileInfo(aScript).filename.replace(/\.js$/, "")] = exp;
+				return aScript;
+			} else {
+				throw e;
+			}
+		}
 		return aScript;
 	} catch(e0) {
-		if (e0.message.match(/FileNotFoundException/)) {
-			error = e0;
+		if (e0.message.match(/FileNotFoundException/) || e0.message == "\"exports\" is not defined.") {
+			error = e0; var exp;
 			try {
-				af.load(aScript + ".js")
+				if (e0.message == "\"exports\" is not defined.") {
+					exp = require(aScript + ".js");
+					global[io.fileInfo(aScript).filename.replace(/\.js$/, "")] = exp;
+					return aScript;
+				} else {
+					af.load(aScript + ".js");
+					return aScript;
+				}
 			} catch(e) {
-				if (e0.message.match(/FileNotFoundException/)) {
-					error = e0;
+				if (e.message.match(/FileNotFoundException/) || e.message == "\"exports\" is not defined.") {
+					error = e;
 					var paths = getOPackPaths();
 					paths["__default"] = java.lang.System.getProperty("java.class.path") + "::js";
 			
-					for(i in paths) {
+					for(var i in paths) {
 						try {
 							paths[i] = paths[i].replace(/\\+/g, "/");
-							paths[i] = paths[i].replace(/\/+/g, "/");
-							af.load(paths[i] + "/" + aScript);
-							return aScript;
+							if (e0.message == "\"exports\" is not defined.") {
+								exp = require(paths[i] + "/" + aScript);
+								global[aScript.replace(/\.js$/, "")] = exp;
+								return aScript;
+							} else {
+								af.load(paths[i] + "/" + aScript);
+								return aScript;
+							}
 						} catch(e) {
-							error = e;
+							if (e.message == "\"exports\" is not defined.") {
+								try {
+									exp = require(paths[i] + "/" + aScript);
+									global[aScript.replace(/\.js$/, "")] = exp;
+									return aScript;
+								} catch(e1) {
+									error = e1;
+								}
+							} else {
+								error = e;
+							}
 						}
 					}
 			
@@ -1315,9 +1369,12 @@ function load(aScript) {
 						af.load(__loadedfrom.replace(/[^\/]+$/, "") + aScript);
 						return aScript;
 					}
+				} else {
+					throw e;
 				}
+				
 			}
-		} else {
+		} else { 
 			throw e0;
 		}
 	}
@@ -2296,6 +2353,26 @@ function isNumber(obj) {
 
 /**
  * <odoc>
+ * <key>isDate(aObj) : boolean</key>
+ * Returns true if aObj is a date, false otherwise
+ * </odoc>
+ */
+function isDate(obj) { 
+	return (null != obj) && !isNaN(obj) && ("undefined" !== typeof obj.getDate); 
+}
+
+/**
+ * <odoc>
+ * <key>isJavaObject(aObj) : boolean</key>
+ * Returns true if aObj is a Java object, false otherwise
+ * </odoc>
+ */
+function isJavaObject(obj) {
+	return Object.prototype.toString.call(obj) === '[object JavaObject]';
+}
+
+/**
+ * <odoc>
  * <key>loadLib(aLib, forceReload, aFunction) : boolean</key>
  * Loads the corresponding javascript library and keeps track if it was already loaded or not (in __loadedLibs).
  * Optionally you can force reload and provide aFunction to execute after the successful loading.
@@ -2717,7 +2794,7 @@ function loadUnderscore() {
 
 /**
  * <odoc>
- * <key>loadFuse</key>
+ * <key>loadFuse()</key>
  * Loads the FuseJS javascript library into scope.\
  * \
  * See more in: http://fusejs.io/
@@ -2726,6 +2803,17 @@ function loadUnderscore() {
 function loadFuse() {
 	var res = loadCompiledLib("fusejs_js");
 	if (res) pods.declare("FuseJS", loadFuse());
+}
+
+/**
+ * <odoc>
+ * <key>loadDiff()</key>
+ * Loads the JsDiff javascript library into scope (check https://github.com/kpdecker/jsdiff).
+ * </odoc>
+ */
+function loadDiff() {
+	var res = loadCompiledLib("diff_js");
+	if (res) pods.declare("JsDiff", loadDiff());
 }
 
 /**
@@ -2908,12 +2996,14 @@ function loadDBInMem(aDB, aFilename) {
  * </odoc>
  */
 function traverse(aObject, aFunction, aParent) {
-	var keys = Object.keys(aObject);
+	var keys = (isJavaObject(aObject)) ? [] : Object.keys(aObject);
 	var parent = isUnDef(aParent) ? "" : aParent;
 
 	for(var i in keys) {
 		if (isObject(aObject[keys[i]])) {
-			var newParent = parent + ((isNaN(Number(keys[i]))) ? "." + keys[i] : "[\"" + keys[i] + "\"]");
+			var newParent = parent + ((isNaN(Number(keys[i]))) ? 
+							"." + keys[i] : 
+							(isNumber(keys[i]) ? "[" + keys[i] + "]" : "[\"" + keys[i] + "\"]"));
 			traverse(aObject[keys[i]], aFunction, newParent, aObject);
 		}
 		
@@ -3037,24 +3127,25 @@ function checkLatestVersion() {
 
 /**
  * <odoc>
- * <key>sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory) : String</key>
+ * <key>sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap) : String</key>
  * Tries to execute commandArguments (either a String or an array of strings) in the operating system as a shortcut for 
  * AF.sh except that it will run them through the OS shell. Optionally aStdIn can be provided, aTimeout can be defined 
  * for the execution and if shouldInheritIO is true the stdout, stderr and stdin will be inherit from OpenAF. If 
  * shouldInheritIO is not defined or false it will return the stdout of the command execution. It's possible also to 
  * provide a different working aDirectory.
  * The variables __exitcode and __stderr can be checked for the command exit code and the stderr output correspondingly.
+ * In alternative if returnMap = true a map will be returned with stdout, stderr and exitcode.
  * </odoc>
  */
-function sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory) {
+function sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap) {
 	if (typeof commandArguments == "string") {
 		if (java.lang.System.getProperty("os.name").match(/Windows/)) {
-			return af.sh(["cmd", "/c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory);
+			return af.sh(["cmd", "/c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap);
 		} else {
-			return af.sh(["/bin/sh", "-c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory);
+			return af.sh(["/bin/sh", "-c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap);
 		}
 	} else {
-		return af.sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory);
+		return af.sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap);
 	}
 }
 
@@ -3763,29 +3854,27 @@ function __getThreadPool() {
 
 /**
  * <odoc>
- * <key>oPromise(aFunction) : oPromise</key>
+ * <key>oPromise(aFunction, aRejFunction) : oPromise</key>
  * Custom Promise-like implementation. If you provide aFunction, this aFunction will be executed async in a thread and oPromise
  * object will be immediatelly returned. Optionally this aFunction can receive a resolve and reject functions for to you use inside
  * aFunction to provide a result with resolve(aResult) or an exception with reject(aReason). If you don't call theses functions the
  * returned value will be used for resolve or any exception thrown will be use for reject. You can use the "then" method to add more
  * aFunction that will execute once the previous as executed successfully (in a stack fashion). The return/resolve value from the 
  * previous function will be passed as the value for the second. You can use the "catch" method to add aFunction that will receive
- * a string or exception for any exception thrown with the reject functions.  
+ * a string or exception for any exception thrown with the reject functions. You can also provide a aRejFunction that works like a "catch"
+ * method as previously described.
  * </odoc>
  */
-var oPromise = function(aFunction) {
-    this.states = {
-        NEW: 0, FULFILLED: 1, PREFAILED: 2, FAILED: 3
-    };
+var oPromise = function(aFunction, aRejFunction) {
+	this.states = {
+		NEW: 0, FULFILLED: 1, PREFAILED: 2, FAILED: 3
+	};
 
-    this.state = this.states.NEW;
-    this.executing = false;
-    this.executors = new java.util.concurrent.ConcurrentLinkedQueue();
-	this.rejects = new java.util.concurrent.ConcurrentLinkedQueue();
+	this.state = this.states.NEW;
+	this.executing = false;
+	this.executors = new java.util.concurrent.ConcurrentLinkedQueue();
 
-    if (isDef(aFunction) && isFunction(aFunction)) {
-		this.__async(aFunction);
-	}
+	this.then(aFunction, aRejFunction);
 };
 
 /**
@@ -3796,15 +3885,13 @@ var oPromise = function(aFunction) {
  * reason as parameter.
  * </odoc>
  */
-oPromise.prototype.then = function(aResolveFunction, aRejectFunction) {
-	if (isDef(aRejectFunction) && isFunction(aRejectFunction)) this.rejects.add(aRejectFunction);
-    if (isDef(aResolveFunction) && isFunction(aResolveFunction)) { 
-		this.state = this.states.NEW;
-		this.executors.add(aResolveFunction);
-		this.__runExecutor();
+oPromise.prototype.then = function(aResolveFunc, aRejectFunc) {
+	if (isDef(aRejectFunc) && isFunction(aRejectFunc)) this.executors.add({ type: "reject", func: aRejectFunc });
+	if (isDef(aResolveFunc) && isFunction(aResolveFunc)) {
+		this.executors.add({ type: "exec", func: aResolveFunc});
+		this.__exec();
 	}
-
-    return this;
+	return this;
 };
 
 /**
@@ -3815,13 +3902,11 @@ oPromise.prototype.then = function(aResolveFunction, aRejectFunction) {
  * </odoc>
  */
 oPromise.prototype.catch = function(onReject) {
-    if (isDef(onReject) && isFunction(onReject)) {
-		this.rejects.add(onReject);
-
-		this.__runReject();
+	if (isDef(onReject) && isFunction(onReject)) {
+		this.executors.add({ type: "reject", func: onReject });
+		this.__exec();
 	}
-
-    return this;
+	return this;
 };
 
 /**
@@ -3832,20 +3917,20 @@ oPromise.prototype.catch = function(onReject) {
  * </odoc>
  */
 oPromise.prototype.all = function(anArray) {
-    if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
+	if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
 
 	var parent = this;
 
-    this.__async((res, rej) => {
-        var shouldStop = false;
-        var values = [];
+	this.then((res, rej) => {
+		var shouldStop = false;
+		var values = [];
 		
 		try {
 			while(!shouldStop) {
 				for(var iii in anArray) {
 					if (anArray[iii] != null) {
 						if (anArray[iii] instanceof oPromise) {
-							if (isDef(anArray[iii].__f) && anArray[iii].__f.isDone()) {
+							if (!anArray[iii].executing) {
 								switch(anArray[iii].state) {
 								case anArray[iii].states.NEW:
 									shouldStop = false;
@@ -3880,9 +3965,9 @@ oPromise.prototype.all = function(anArray) {
 		}
 
 		return values;
-    });
+	});
 
-    return this;
+	return this;
 };
 
 /**
@@ -3893,20 +3978,20 @@ oPromise.prototype.all = function(anArray) {
  * </odoc>
  */
 oPromise.prototype.race = function(anArray) {
-    if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
+	if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
 	
 	var parent = this;
 
-    this.__async((res, rej) => {
-        var shouldStop = false;
-        var c = 0;
+	this.then((res, rej) => {
+		var shouldStop = false;
+		var c = 0;
 		
 		try {
 			while(!shouldStop) {
 				for(var i in anArray) {
 					if (anArray[i] != null) {
 						if (anArray[i] instanceof oPromise) {
-							if (isDef(anArray[i].__f) && anArray[i].__f.isDone()) {
+							if (!anArray[i].executing) {
 								switch(anArray[i].state) {
 								case anArray[i].states.NEW:
 									shouldStop = false;				
@@ -3939,126 +4024,107 @@ oPromise.prototype.race = function(anArray) {
 		}
 		res();
 		return this;
-    });
+	});
 
-    return this;    
+	return this;    
 };
 
-oPromise.prototype.__runReject = function() {
-	while(this.rejects.size() > 0 && 
-	      (this.state == this.states.PREFAILED || this.state == this.states.FAILED)) {
-		var func = this.rejects.poll();
-		if (isDef(func) && isFunction(func)) {
-			this.__async(func, this.reason, true);
-			//func(this.reason);
-		}
-	} 
-
-	return this;	
-}
-
-oPromise.prototype.__runExecutor = function() {
-	while(this.executors.size() > 0 && this.state == this.states.NEW) {
-		var func = this.executors.poll();
-		if (this.state != this.states.PREFAILED) this.state = this.states.NEW;
-		if (isDef(func) && isFunction(func)) {
-			this.__async(func, this.value);
-		}
-	} 
-
-	return this;
-}
-
 oPromise.prototype.reject = function(aReason) {
-    if (this.state != this.states.NEW && this.state != this.states.PREFAILED) return this;
-
 	this.reason = aReason;
 	this.state = this.states.PREFAILED;
 
-	this.__runReject(aReason);
-
-    return this;
+	return this;
 };
 
 oPromise.prototype.resolve = function(aValue) {
-    if (this.state != this.states.NEW) return this;
-    this.value = isUnDef(aValue) ? null : aValue;
-
-	this.__runExecutor(aValue);
-
-    return this;
+	if (this.state == this.states.FULFILLED) this.state = this.states.NEW;
+	this.value = isUnDef(aValue) ? null : aValue;
+	return this;
 };
 
-oPromise.prototype.__async = function(aFunction, aValue, isFail) {
-	var thisOP = this; 
-	var prevf;
+oPromise.prototype.__exec = function() {
+	var thisOP = this;
+	do {
+		this.__f = __getThreadPool().submit(new java.lang.Runnable({
+			run: () => {
+				var ignore = false;
+				sync(() => { if (thisOP.executing) ignore = true; else thisOP.executing = true; }, thisOP.executing);
+				if (ignore) return;
 
-	if (isDef(thisOP.__f)) prevf = thisOP.__f;
+				while (thisOP.executors.size() > 0) {
+					var f = thisOP.executors.poll();
+					// Exec
+					if (thisOP.state != thisOP.states.PREFAILED && thisOP.state != thisOP.states.FAILED && f != null && isDef(f) && f.type == "exec" && isDef(f.func) && isFunction(f.func)) {
+						var res, done = false;
+						try {
+							var checkResult = true;
+							if (isDef(thisOP.value)) {
+								res = f.func(thisOP.value);
+							} else {
+								res = f.func(function (v) { checkResult = false; thisOP.resolve(v); },
+											 function (r) { checkResult = false; thisOP.reject(r); });
+							}
 
-    this.__f = __getThreadPool().submit(new java.lang.Runnable({
-		run: () => {
-            var res; 
-
-			if (isDef(prevf)) {
-				prevf.join();
-				if (thisOP.state != thisOP.states.PREFAILED && thisOP.state != thisOP.states.FAILED) 
-					aValue = thisOP.value;
-				/*else
-					aValue = thisOP.reason;*/
-			}
-			var isRun = true;
-            try {
-				thisOP.executing = true;
-				if (!isFail) {
-					if (thisOP.state == thisOP.states.NEW || thisOP.state == thisOP.states.FULFILLED) {
-						if (isDef(aValue)) {
-							res = aFunction(thisOP.value);
-						} else {
-							res = aFunction((v) => { thisOP.resolve(v); isRun = false; }, (r) => { thisOP.reject(r); isRun = false; });
-						}
-						if (isDef(res) && res != null && 
-							(thisOP.state == thisOP.states.NEW || thisOP.state == thisOP.states.FULFILLED) && 
-							isRun) {
-							res = thisOP.resolve(res);
-							isRun = false;
+							if (checkResult &&
+								isDef(res) &&
+								res != null &&
+								(thisOP.state == thisOP.states.NEW || thisOP.state == thisOP.states.FULFILLED)) {
+								res = thisOP.resolve(res);
+							}
+						} catch (e) {
+							thisOP.reject(e);
 						}
 					}
-				} else {
-					res = aFunction(thisOP.reason);
+					// Reject
+					if (thisOP.state == thisOP.states.PREFAILED || thisOP.state == thisOP.states.FAILED) {
+						while (f != null && isDef(f) && f.type != "reject" && isDef(f.func) && isFunction(f.func)) {
+							f = thisOP.executors.poll();
+						}
+
+						if (f != null && isDef(f) && isDef(f.func) && isFunction(f.func)) {
+							try {
+								f.func(thisOP.reason);
+								thisOP.state = thisOP.states.FULFILLED;
+							} catch (e) {
+								thisOP.state = thisOP.states.FAILED;
+								throw e;
+							}
+						} else {
+							if (isUnDef(f) || f == null) thisOP.state = thisOP.states.FAILED;
+						}
+					}
 				}
-            } catch(e) {
-                if (isRun) thisOP.reject(e);
-            } 
 
-			thisOP.executing = false;
-			if (thisOP.state == thisOP.states.PREFAILED && thisOP.rejects.isEmpty()) {
-				thisOP.state = thisOP.states.FAILED;
+				sync(() => { thisOP.executing = false; }, thisOP.executing);
+
+				if (thisOP.state == thisOP.states.NEW && thisOP.executors.isEmpty()) {
+					thisOP.state = thisOP.states.FULFILLED;
+				}
+
+				if (thisOP.state == thisOP.states.PREFAILED && thisOP.executors.isEmpty()) {
+					thisOP.state = thisOP.states.FAILED;
+				}
 			}
-			if (thisOP.state == thisOP.states.NEW && thisOP.executors.isEmpty() && !isFail) {
-				thisOP.state = thisOP.states.FULFILLED;
-			};
+		}));
 
-			return res;
-		}
-	}));
-    
-    return this;
+	} while (isUnDef(this.__f) || this.__f == null || !this.executors.isEmpty());
 };
 
 /**
  * <odoc>
- * <key>$do(aFunction) : oPromise</key>
+ * <key>$do(aFunction, aRejFunction) : oPromise</key>
  * Instantiates and returns a oPromise. If you provide aFunction, this aFunction will be executed async in a thread and oPromise
  * object will be immediatelly returned. Optionally this aFunction can receive a resolve and reject functions for to you use inside
  * aFunction to provide a result with resolve(aResult) or an exception with reject(aReason). If you don't call theses functions the
  * returned value will be used for resolve or any exception thrown will be use for reject. You can use the "then" method to add more
  * aFunction that will execute once the previous as executed successfully (in a stack fashion). The return/resolve value from the 
  * previous function will be passed as the value for the second. You can use the "catch" method to add aFunction that will receive
- * a string or exception for any exception thrown with the reject functions.  
+ * a string or exception for any exception thrown with the reject functions. You can also provide aRejFunction to work as a "catch"
+ * method as previously described before.
  * </odoc>
  */
-var $do = function(aFunction) {
-    return new oPromise(aFunction);
+var $do = function(aFunction, aRejFunction) {
+    return new oPromise(aFunction, aRejFunction);
 };
 
 /**
@@ -4085,23 +4151,31 @@ var $doFirst = function(anArray) {
 
 /**
  * <odoc>
- * <key>$doWait(aPromise, aWaitTimeout, aTimeout) : oPromise</key>
- * Blocks until aPromise is fullfilled or rejected. Optionally you can specify aTimeout between checks and/or a block timeout (with aWaitTimeout).
+ * <key>$doWait(aPromise, aWaitTimeout) : oPromise</key>
+ * Blocks until aPromise is fullfilled or rejected. Optionally you can specify aWaitTimeout between checks.
  * Returns aPromise.
  * </odoc>
  */
 var $doWait = function(aPromise, aWaitTimeout) {
 	if (isDef(aWaitTimeout)) {
 		var init = now();
-		while((aPromise.state != aPromise.states.FULFILLED || aPromise.state != aPromise.states.FAILED) &&
-			  (isUnDef(aPromise.__f) || !aPromise.__f.isDone()) &&
+		while(aPromise.state != aPromise.states.FULFILLED && 
+			  aPromise.state != aPromise.states.FAILED &&
+			  (isUnDef(aPromise.__f) || aPromise.executing) &&
 		      ((now() - init) < aWaitTimeout)) {
-			aPromise.__f.join();	
+			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
+		}
+		while(aPromise.executing && ((now() - init) < aWaitTimeout)) {
+			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
 		}
 	} else {
-		while((aPromise.state != aPromise.states.FULFILLED || aPromise.state != aPromise.states.FAILED) &&
-			(isUnDef(aPromise.__f) || !aPromise.__f.isDone())) {
-			aPromise.__f.join();
+		while(aPromise.state != aPromise.states.FULFILLED && 
+			  aPromise.state != aPromise.states.FAILED &&
+			  (isUnDef(aPromise.__f) || aPromise.executing)) {
+			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
+		}
+		while(aPromise.executing) {
+			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
 		}
 	}
 
@@ -4112,14 +4186,21 @@ var $doWait = function(aPromise, aWaitTimeout) {
 // -------
 
 //$do(() => { __initializeCon(); });
-__initializeCon();
+//__initializeCon();
 
 // Set logging to ERROR 
 {
-   let i = Packages.org.slf4j.LoggerFactory.getLogger(Packages.ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).getLoggerContext().getLoggerList().iterator();
-   while(i.hasNext()) { 
-      Packages.org.slf4j.LoggerFactory.getLogger(i.next().getName()).setLevel(Packages.ch.qos.logback.classic.Level.ERROR);
-   }
+	// Issue 34
+	if (java.lang.System.getProperty("java.util.logging.config.file") == null) {
+		java.lang.System.setProperty("java.util.logging.config.file", "");
+	}
+
+	try {
+		let i = Packages.org.slf4j.LoggerFactory.getLogger(Packages.ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).getLoggerContext().getLoggerList().iterator();
+		while (i.hasNext()) {
+			Packages.org.slf4j.LoggerFactory.getLogger(i.next().getName()).setLevel(Packages.ch.qos.logback.classic.Level.ERROR);
+		}
+	} catch (e) {}
 };
 
 // ---------------

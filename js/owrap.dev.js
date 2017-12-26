@@ -1,16 +1,276 @@
 // OpenWrap
-// Author: nmaguiar@gmail.com
+// Author: Nuno Aguiar
 // Dev
 
 OpenWrap.dev = function() {
 	return ow.dev;
 };
 
+OpenWrap.dev.prototype.loadPoolDB = function() {
+	ow.loadCh();
+	ow.loadObj();
+
+	ow.ch.__types.pooldb = {
+		__o: { },
+		create       : function(aName, shouldCompress, options) { 
+			this.__o[aName] = options || {};
+			
+			if (isUnDef(this.__o[aName].dbPool)) {
+				this.__o[aName].dbPool = ow.obj.pool.DB("org.h2.Driver", "jdbc:h2:mem:", "sa", "sa");
+			}
+
+			if (isUnDef(this.__o[aName].tableName)) {
+				throw "Need a specific options.tableName";
+			}
+		},
+		destroy      : function(aName) { },
+		size         : function(aName) { 
+			var parent = this, res;
+			this.__o[aName].dbPool.use((aDb) => {
+				res = Number(aDb.q("select count(*) C from " + parent.__o[aName].tableName).results[0].C);
+			});
+
+			return res;
+		},
+		forEach      : function(aName, aFunction, x) { },
+		getKeys      : function(aName, full) { },
+		getSortedKeys: function(aName, full) { },
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  { },
+		set          : function(aName, ak, av, aTimestamp) { },
+		setAll       : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) { },
+		get          : function(aName, aKey) { },
+		pop          : function(aName) { },
+		shift        : function(aName) { },
+		unset        : function(aName, aKey) { }
+	};
+};
+
+OpenWrap.dev.prototype.overridePromise = function () {
+	oPromise = function (aFunction, aRejFunction) {
+		this.states = {
+			NEW: 0, FULFILLED: 1, PREFAILED: 2, FAILED: 3
+		};
+
+		this.state = this.states.NEW;
+		this.executing = false;
+		this.executors = new java.util.concurrent.ConcurrentLinkedQueue();
+
+		this.then(aFunction, aRejFunction);
+	};
+
+	oPromise.prototype.then = function(aResolveFunc, aRejectFunc) {
+		if (isDef(aRejectFunc) && isFunction(aRejectFunc)) this.executors.add({ type: "reject", func: aRejectFunc });
+		if (isDef(aResolveFunc) && isFunction(aResolveFunc)) {
+			this.executors.add({ type: "exec", func: aResolveFunc});
+			this.__exec();
+		}
+		return this;
+	};
+
+	oPromise.prototype.catch = function(onReject) {
+		if (isDef(onReject) && isFunction(onReject)) {
+			this.executors.add({ type: "reject", func: onReject });
+			this.__exec();
+		}
+		return this;
+	};
+
+	oPromise.prototype.resolve = function(aValue) {
+		if (this.state == this.states.FULFILLED) this.state = this.states.NEW;
+		this.value = isUnDef(aValue) ? null : aValue;
+		return this;
+	};
+
+	oPromise.prototype.reject = function(aReason) {
+		this.reason = aReason;
+		this.state = this.states.PREFAILED;
+
+		return this;
+	};
+
+	oPromise.prototype.all = function(anArray) {
+		if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
+
+		var parent = this;
+	
+		this.then((res, rej) => {
+			var shouldStop = false;
+			var values = [];
+			
+			try {
+				while(!shouldStop) {
+					for(var iii in anArray) {
+						if (anArray[iii] != null) {
+							if (anArray[iii] instanceof oPromise) {
+								if (!anArray[iii].executing) {
+									switch(anArray[iii].state) {
+									case anArray[iii].states.NEW:
+										shouldStop = false;
+										break;
+									case anArray[iii].states.PREFAILED:
+										shouldStop = false;
+										break;
+									case anArray[iii].states.FAILED:
+										shouldStop = true;
+										rej(anArray[iii].reason);
+										break;
+									case anArray[iii].states.FULFILLED:
+										values.push(anArray[iii].value);
+										anArray = deleteFromArray(anArray, iii);
+										break;
+									}
+								} else {
+									shouldStop = false;
+								}
+							} else {
+								values.push(anArray[iii]);
+								anArray = deleteFromArray(anArray, iii);
+							}
+						}
+					}
+					if (anArray.length <= 0) shouldStop = true;
+				}
+			
+				res(values);
+			} catch(e) {
+				rej(e);
+			}
+	
+			return values;
+		});
+	
+		return this;
+	};
+
+	oPromise.prototype.race = function(anArray) {
+		if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
+	
+		var parent = this;
+
+		this.then((res, rej) => {
+			var shouldStop = false;
+			var c = 0;
+			
+			try {
+				while(!shouldStop) {
+					for(var i in anArray) {
+						if (anArray[i] != null) {
+							if (anArray[i] instanceof oPromise) {
+								if (!anArray[i].executing) {
+									switch(anArray[i].state) {
+									case anArray[i].states.NEW:
+										shouldStop = false;				
+										break;
+									case anArray[i].states.PREFAILED:
+										shouldStop = false;				
+										break;
+									case anArray[i].states.FAILED:
+										shouldStop = true;
+										rej(anArray[i].reason);
+										return this;
+									case anArray[i].states.FULFILLED:
+										shouldStop = true;
+										res(anArray[i].value);
+										return this;
+									}
+								} else {
+									shouldStop = false;
+								}
+							} else {
+								shoudStop = true;
+								res(anArray[i]);
+								return this;
+							}
+						}
+					}
+				}
+			} catch(e) {
+				rej(e);
+			}
+			res();
+			return this;
+		});
+	
+		return this;   
+	};
+
+	oPromise.prototype.__exec = function () {
+		// TBC  
+		var thisOP = this;
+		do {
+			this.__f = __getThreadPool().submit(new java.lang.Runnable({
+				run: () => {
+					var ignore = false;
+					sync(() => { if (thisOP.executing) ignore = true; else thisOP.executing = true; }, thisOP.executing);
+					if (ignore) return;
+
+					while (thisOP.executors.size() > 0) {
+						var f = thisOP.executors.poll();
+						// Exec
+						if (thisOP.state != thisOP.states.PREFAILED && thisOP.state != thisOP.states.FAILED && f != null && isDef(f) && f.type == "exec" && isDef(f.func) && isFunction(f.func)) {
+							var res, done = false;
+							try {
+								var checkResult = true;
+								if (isDef(thisOP.value)) {
+									res = f.func(thisOP.value);
+								} else {
+									res = f.func(function (v) { checkResult = false; thisOP.resolve(v); },
+									             function (r) { checkResult = false; thisOP.reject(r); });
+								}
+
+								if (checkResult &&
+									isDef(res) &&
+									res != null &&
+									(thisOP.state == thisOP.states.NEW || thisOP.state == thisOP.states.FULFILLED)) {
+									res = thisOP.resolve(res);
+								}
+							} catch (e) {
+								thisOP.reject(e);
+							}
+						}
+						// Reject
+						if (thisOP.state == thisOP.states.PREFAILED || thisOP.state == thisOP.states.FAILED) {
+							while (f != null && isDef(f) && f.type != "reject" && isDef(f.func) && isFunction(f.func)) {
+								f = thisOP.executors.poll();
+							}
+
+							if (f != null && isDef(f) && isDef(f.func) && isFunction(f.func)) {
+								try {
+									f.func(thisOP.reason);
+									thisOP.state = thisOP.states.FULFILLED;
+								} catch (e) {
+									thisOP.state = thisOP.states.FAILED;
+									throw e;
+								}
+							} else {
+								if (isUnDef(f) || f == null) thisOP.state = thisOP.states.FAILED;
+							}
+						}
+					}
+
+					sync(() => { thisOP.executing = false; }, thisOP.executing);
+
+					if (thisOP.state == thisOP.states.NEW && thisOP.executors.isEmpty()) {
+						thisOP.state = thisOP.states.FULFILLED;
+					}
+
+					if (thisOP.state == thisOP.states.PREFAILED && thisOP.executors.isEmpty()) {
+						thisOP.state = thisOP.states.FAILED;
+					}
+				}
+			}));
+
+		} while (isUnDef(this.__f) || this.__f == null || !this.executors.isEmpty());
+	};
+};
+
+/*
 OpenWrap.dev.prototype.overrideHTTP = function() {
 	HTTP = ow.dev.http;
 	printErr("OpenAF: using alternative HTTP plugin");
-}
+}*/
 
+/*
 OpenWrap.dev.prototype.addMVSCh = function() {
 	ow.loadCh();
 
@@ -50,8 +310,15 @@ OpenWrap.dev.prototype.addMVSCh = function() {
 			}
 
 			this.__m[aName] = options.map;
+
+			if (isDef(options.compact) && options.compact) {
+				this.__s[aName].compactMoveChuncks();
+			}
 		},
 		destroy      : function(aName) {
+			if (isDef(options.compact) && options.compact) {
+				this.__s[aName].compactMoveChuncks();
+			}			
 			this.__s[aName].close();
 		},
 		size         : function(aName) {
@@ -75,8 +342,17 @@ OpenWrap.dev.prototype.addMVSCh = function() {
 
 			return res;
 		},
-		getSortedKeys: function(aName, full) {},
-		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {},
+		getSortedKeys: function(aName, full) {
+			return this.getKeys(aName, full);
+		},
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			var res;
+			res = this.get(aName, aK);
+			if ($stream([res]).anyMatch(aMatch)) {
+				return this.set(aName, aK, aV, aTimestamp);
+			}
+			return undefined;		
+		},
 		set          : function(aName, ak, av, aTimestamp) {
 			var map = this.__s[aName].openMap(this.__m[aName]());
 
@@ -93,16 +369,25 @@ OpenWrap.dev.prototype.addMVSCh = function() {
 
 			return jsonParse(map.get(stringify(aKey)));
 		},
-		pop          : function(aName) {},
-		shift        : function(aName) {},
+		pop          : function(aName) {
+			var map = this.__s[aName].openMap(this.__m[aName]());
+			var aKey = map.lastKey();
+			return jsonParse(map.remove(aKey));	
+		},
+		shift        : function(aName) {
+			var map = this.__s[aName].openMap(this.__m[aName]());
+			var aKey = map.firstKey();
+			return jsonParse(map.remove(aKey));
+		},
 		unset        : function(aName, aKey) {
 			var map = this.__s[aName].openMap(this.__m[aName]());
 
-			return map.remove(stringify(aKey));
+			return jsonParse(map.remove(stringify(aKey)));
 		}
-	}
-}
+	};
+};*/
 
+/*
 OpenWrap.dev.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
 	this.__lps = {};
 	//this.__h = new Packages.org.apache.http.impl.client.HttpClients.createDefault();
@@ -340,3 +625,4 @@ OpenWrap.dev.prototype.http.prototype.wsConnect = function(anURL, onConnect, onM
 		(isNumber(aTimeout)) ? new java.lang.Long(aTimeout) : Packages.org.mozilla.javascript.Undefined.instance, 
 		(isUnDef(supportSelfSigned)) ? false : supportSelfSigned);
 };
+*/

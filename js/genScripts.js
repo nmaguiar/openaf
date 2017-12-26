@@ -1,5 +1,5 @@
 //
-// Author: nuno.aguiar@wedotechnologies.com
+// Author: Nuno Aguiar
 
 // VARIABLES
 // ---------
@@ -114,7 +114,9 @@ function generateUnixScript(options){
   s = s + "OPENAF_DIR=\"" + classPath + "\"\n";
   s = s + "\n";
   s = s + "\"$JAVA_HOME\"/bin/java " + javaargs + " -Djline.terminal=jline.UnixTerminal -jar $OPENAF_DIR " + options + "\n";
+  s = s + "EXITCODE=$?\n";
   s = s + "stty icanon echo 2>/dev/null\n";
+  s = s + "exit $EXITCODE\n";
   return s;
 }
 
@@ -177,6 +179,10 @@ try {
   if (windows == 1) io.writeFileString(curDir + "\\ojob.bat", winJobBat);
   if (windows == 1) io.writeFileString(curDir + "\\openaf-console.bat", winConsoleBat);
   if (windows == 1) io.writeFileString(curDir + "\\openaf-console-ps.bat", winConsolePSBat);
+  if (windows == 1) {
+    io.writeFileBytes(curDir + "\\openaf.ico", io.readFileBytes(getOpenAFJar() + "::fonts/openaf.ico"));
+    sh("powershell \"$sh=New-Object -COM WScript.Shell;$s=$sh.CreateShortcut('" + curDir + "\\OpenAF CONSOLE.lnk');$s.TargetPath='" + curDir + "\\openaf-console-ps.bat';$s.Description='OpenAF-console';$s.IconLocation='" + curDir + "\\openaf.ico';$s.WorkingDirectory='" + curDir + "';$s.save()\"", undefined, undefined, true);
+  }
   io.writeFileString(curDir + "/openaf", unixScript);
   io.writeFileString(curDir + "/openaf-sb", unixSB);
   io.writeFileString(curDir + "/opack", unixPackScript);

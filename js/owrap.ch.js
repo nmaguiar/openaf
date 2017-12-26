@@ -1,10 +1,10 @@
 // OpenWrap v2
-// Author: nuno.aguiar@wedotechnologies.com
+// Author: Nuno Aguiar
 // Channels
 
 OpenWrap.ch = function() {
 	return ow.ch;
-}
+};
 
 OpenWrap.ch.prototype.subscribers = {};
 OpenWrap.ch.prototype.jobs = {};
@@ -337,9 +337,9 @@ OpenWrap.ch.prototype.__types = {
 		},
 		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  { 
 			var res;
-			res = this.get(aName, aKey);
+			res = this.get(aName, aK);
 			if ($stream([res]).anyMatch(aMatch)) {
-				return this.set(aName, aKey, aValue, aTimestamp);
+				return this.set(aName, aK, aV, aTimestamp);
 			}
 			return undefined;
 		},
@@ -491,8 +491,20 @@ OpenWrap.ch.prototype.__types = {
 			return ow.obj.rest.jsonRemove(this.__channels[aName].url, { "o": "e", "k": aK, "t": aTimestamp }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout);
 		}
 	},
-	// ElasticSearch channel implementation
-	//
+	/**
+	 * <odoc>
+	 * <key>ow.ch.types.elasticsearch</key>
+	 * This OpenAF implementation connects to an ElasticSearch (ES) server/cluster. The creation options are:\
+	 * \
+	 *    - index (String/Function) The ES index to use or a function to return the name (see also ow.ch.utils.getElasticIndex).\
+	 *    - idKey (String) The ES key id field. Defaults to '_id'.\
+	 *    - url (String) The HTTP(S) URL to access the ES server/cluster.\
+	 *    - user (String) Optionally provide a user name to access the ES server/cluster.\
+	 *    - pass (String) Optionally provide a password to access the ES server/cluster (encrypted or not).\
+	 * \
+	 * The getAll/getKeys functions accept an extra argument to provide a ES query map to restrict the results.
+	 * </odoc>
+	 */
 	elasticsearch: {
 		__channels: {},
 		create       : function(aName, shouldCompress, options) {
@@ -582,7 +594,7 @@ OpenWrap.ch.prototype.__types = {
 			throw "Channel operation not supported in Elastic Search";
 		},
 		set          : function(aName, aK, aV, aTimestamp) {
-			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex();
+			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex(aK);
 			url += "/" + this.__channels[aName].idKey;
 			
 			if (isDef(aK) && isObject(aK) && isDef(aK[this.__channels[aName].idKey])) { 
@@ -605,7 +617,7 @@ OpenWrap.ch.prototype.__types = {
 			
 			for(var i in aVs) {
 				ops += stringify({ index: {
-					_index: this.__channels[aName].fnIndex(), 
+					_index: this.__channels[aName].fnIndex(aKs[i]), 
 					_type : this.__channels[aName].idKey,
 					_id   : aVs[i][this.__channels[aName].idKey] 
 				}}, undefined, "") + "\n" + 
@@ -624,7 +636,7 @@ OpenWrap.ch.prototype.__types = {
 			}		
 		},
 		get          : function(aName, aK) {
-			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex();
+			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex(aK);
 			url += "/" + this.__channels[aName].idKey;
 			
 			if (isDef(aK) && isObject(aK) && isDef(aK[this.__channels[aName].idKey])) { 
@@ -657,7 +669,7 @@ OpenWrap.ch.prototype.__types = {
 			return aK;
 		},
 		unset        : function(aName, aK, aTimestamp) {
-			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex();
+			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex(aK);
 			url += "/" + this.__channels[aName].idKey;
 			
 			if (isDef(aK) && isObject(aK) && isDef(aK[this.__channels[aName].idKey])) { 
@@ -674,8 +686,142 @@ OpenWrap.ch.prototype.__types = {
 			return res;	
 		}
 	},
-	// Ignite channel implementation
-	//
+	/**
+	 * <odoc>
+	 * <key>ow.ch.types.mvs</key>
+	 * The channel type mvs uses H2 MVStore to keep key/value structures either in memory or in files.
+	 * The creation options are:\
+	 * \
+	 *    - file (String) If not defined it will default to the in-memory implementation otherwise a file.\
+	 *    - shouldCompress (Boolean) Specifies if it should compress the entire structure or not.\
+	 *    - compact (Boolean) Upon channel create/destroy it will try to run a compact operation over the file to save space.\
+	 *    - map (String/Function) The map name (defaults to 'default'). If defined as a function it will receive the key as argument if possible (only for get/set/unset/setall)
+	 * for sharding proposes.\
+	 * \
+	 * The map will be created if it doesn't exist.\
+	 * </odoc>
+	 */
+	mvs: {
+		create       : function(aName, shouldCompress, options) {
+			if (isUnDef(options)) options = {};
+			if (isUnDef(options.file)) options.file = undefined;
+
+			if (isUnDef(this.__s)) this.__s = {};
+			if (isUnDef(this.__f)) this.__f = {};
+			if (isUnDef(this.__m)) this.__m = {};
+
+			var existing = false, absFile;
+			if (isDef(options.file)) {
+				absFile = String((new java.io.File(options.file)).getAbsoluteFile());
+			} else {
+				absFile = "memory";
+			}
+			if (isUnDef(this.__f[absFile])) {
+				this.__s[aName] = Packages.org.h2.mvstore.MVStore.Builder();
+				if (absFile != "memory") this.__s[aName] = this.__s[aName].fileName(absFile);
+				if (shouldCompress) this.__s[aName] = this.__s[aName].compress();
+				this.__s[aName] = this.__s[aName].open();
+
+				this.__f[absFile] = this.__s[aName];
+			} else {
+				existing = true;
+				this.__s[aName] = this.__f[absFile];
+			}
+
+			if (isUnDef(options.map)) {
+				options.map = function() { return "default"; };
+			} else {
+				if (isString(options.map)) {
+					options.map = new Function("return '" + options.map + "';");
+				}
+			}
+
+			this.__m[aName] = options.map;
+
+			if (isDef(options.compact) && options.compact) {
+				this.__s[aName].compactMoveChuncks();
+			}
+		},
+		destroy      : function(aName) {
+			if (isDef(options.compact) && options.compact) {
+				this.__s[aName].compactMoveChuncks();
+			}			
+			this.__s[aName].close();
+		},
+		size         : function(aName) {
+			var map = this.__s[aName].openMap(this.__m[aName]());
+			return map.sizeAsLong();
+		},
+		forEach      : function(aName, aFunction, x) {
+			var aKs = this.getKeys(aName, x);
+
+			for(let i in aKs) {
+				aFunction(aKs[i], this.get(aName, aKs[i], x));
+			}
+		},
+		getKeys      : function(aName, full) {
+			var res = [];
+			var map = this.__s[aName].openMap(this.__m[aName](full));
+
+			for(let i = 0; i < this.size(aName); i++) {
+				res.push(jsonParse(map.getKey(i)));
+			}
+
+			return res;
+		},
+		getSortedKeys: function(aName, full) {
+			return this.getKeys(aName, full);
+		},
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			var res;
+			res = this.get(aName, aK);
+			if ($stream([res]).anyMatch(aMatch)) {
+				return this.set(aName, aK, aV, aTimestamp);
+			}
+			return undefined;		
+		},
+		set          : function(aName, ak, av, aTimestamp) {
+			var map = this.__s[aName].openMap(this.__m[aName](ak));
+
+			map.put(stringify(ak), stringify(av));
+			this.__s[aName].commit();
+		},
+		setAll       : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
+			for(let i in anArrayOfMapData) {
+				this.set(aName, ow.loadObj().filterKeys(anArrayOfKeys, anArrayOfMapData[i]), anArrayOfMapData[i], aTimestamp);
+			}
+		},
+		get          : function(aName, aKey) {
+			var map = this.__s[aName].openMap(this.__m[aName](aKey));
+
+			return jsonParse(map.get(stringify(aKey)));
+		},
+		pop          : function(aName) {
+			var map = this.__s[aName].openMap(this.__m[aName]());
+			var aKey = map.lastKey();
+			return jsonParse(map.remove(aKey));	
+		},
+		shift        : function(aName) {
+			var map = this.__s[aName].openMap(this.__m[aName]());
+			var aKey = map.firstKey();
+			return jsonParse(map.remove(aKey));
+		},
+		unset        : function(aName, aKey) {
+			var map = this.__s[aName].openMap(this.__m[aName](aKey));
+
+			return jsonParse(map.remove(stringify(aKey)));
+		}
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.ch.types.ignite</key>
+	 * This channel type will use an Ignite Data Grid. The creation options are:\
+	 * \
+	 *    - ignite (Ignite) Use a previously instantiated Ignite plugin (defaults to a new instance).\
+	 *    - gridName (String) Use a specific Ignite grid name.\
+	 * \
+	 * </odoc>
+	 */
 	ignite: {
 		create       : function(aName, shouldCompress, options) {
 			plugin("Ignite");
@@ -801,9 +947,11 @@ OpenWrap.ch.prototype.getVersion = function(aName) {
  */
 OpenWrap.ch.prototype.waitForJobs = function(aName, aTimeout) {
 	if (isUnDef(aTimeout)) aTimeout = 2500;
-	for(var i in ow.ch.jobs[aName]) {
-		if (ow.ch.jobs[aName][i] != null)
-			ow.ch.jobs[aName][i].waitForThreads(aTimeout);
+	while(this.jobs[aName].length > 0) {
+		for(var i in ow.ch.jobs[aName]) {
+			if (ow.ch.jobs[aName][i] != null)
+				ow.ch.jobs[aName][i].waitForThreads(aTimeout);
+		}
 	}
 	return this;
 },
@@ -831,7 +979,7 @@ OpenWrap.ch.prototype.stopAllJobs = function(aName) {
 OpenWrap.ch.prototype.list = function() {
 	return Object.keys(this.channels);
 };
-	
+	 
 /**
  * <odoc>
  * <key>ow.ch.destroy(aName) : ow.ch</key>
@@ -856,6 +1004,10 @@ OpenWrap.ch.prototype.destroy = function(aName) {
 	return this;
 };
 	
+OpenWrap.ch.prototype.close = function(aName) {
+	return this.destroy(aName);
+};
+
 /**
  * <odoc>
  * <key>ow.ch.size(aName) : Number</key>
@@ -1203,7 +1355,7 @@ OpenWrap.ch.prototype.get = function(aName, aKey, x) {
  */
 OpenWrap.ch.prototype.pop = function(aName) {
 	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
-	
+
 	var res, out;
 	if (this.size(aName) > 0) {
 //		switch(this.channels[aName]) {
@@ -1275,7 +1427,7 @@ OpenWrap.ch.prototype.getSet = function(aName, aMatch, aKey, aValue, aTimestamp,
  */
 OpenWrap.ch.prototype.shift = function(aName) {
 	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
-	
+
 	var res, out;
 	if (this.size(aName) > 0) {
 //		switch(this.channels[aName]) {
@@ -1410,7 +1562,7 @@ OpenWrap.ch.prototype.utils = {
 			} catch(e) {
 				aErrorFunc(e);
 			}
-		}
+		};
 	},
 	
 	/**
@@ -1425,7 +1577,7 @@ OpenWrap.ch.prototype.utils = {
 		if (isUnDef(numberOfKeys)) numberOfKeys = 100;
 		return function(aC, aO, aK, aV) {
 			sync(function() {
-				if ($ch(aTargetCh).size() > numberOfKeys) {
+				while ($ch(aTargetCh).size() > numberOfKeys) {
 					$ch(aTargetCh).shift();
 				}
 			}, this);
@@ -1569,7 +1721,7 @@ OpenWrap.ch.prototype.utils = {
 		if (isUnDef(aFormat)) aFormat = "yyyy.MM.dd";
 		return function() {
 			return aPrefix + "-" + ow.loadFormat().fromDate(new Date(), aFormat);
-		}
+		};
 	}
 };
 
@@ -1761,6 +1913,24 @@ OpenWrap.ch.prototype.persistence = {
 
 OpenWrap.ch.prototype.server = {
 	__counter: {},
+    __log: () => {},
+
+	/**
+	 * <odoc>
+	 * <key>ow.ch.server.setLog(aLogFunction)</key>
+	 * Sets aLogFunction to act as audit for external communication to access a channel. The aLogFunction
+	 * will be called passing, as a single argument, a map with:\
+	 *    - name    (the channel name)\
+	 *    - op      (the operation can be AUTH_OK, AUTH_NOT_OK, GET, SET, REMOVE or CREATE)\
+	 *    - request (the HTTP request map)\
+	 * \
+	 * The request, when available, will include an entry with the current user.\
+	 * \
+	 * </odoc>
+	 */
+	setLog: function(aLogFunction) {
+		this.__log = aLogFunction;
+	},
 
 	/**
 	 * <odoc>
@@ -1806,7 +1976,16 @@ OpenWrap.ch.prototype.server = {
 		if (isDef(aAuthFunc)) {
 			routes[aPath] = function(r) { 
 				return ow.server.httpd.authBasic(aName, hs, r, 
-						aAuthFunc, 
+						(u, p, s, r) => {
+							var res = aAuthFunc(u, p, s, r);
+							r.user = u;
+							if (res) {
+								ow.ch.server.__log({ name: aName, request: r, op: "AUTH_OK" });
+							} else {
+								ow.ch.server.__log({ name: aName, request: r, op: "AUTH_NOT_OK" });
+							}
+							return res;
+						}, 
 						function(hss, rr) { 
 							if (isUnDef(rr.channelPermission)) rr.channelPermission = "rw";
 							return ow.ch.server.routeProcessing(aPath, rr, aName, uuid);
@@ -1986,13 +2165,14 @@ OpenWrap.ch.prototype.server = {
 		return ow.server.rest.reply(aURI, aRequest, 
 			function(i, d) { 
 				// Create
+				ow.ch.server.__log({ request: aRequest, name: aName, op: "CREATE" });
 				try {
 					if (isDef(aRequest.channelPermission) && 
 						aRequest.channelPermission.indexOf("w") < 0)
 						return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": -1, "r": {} };
 					var c = restSet(i, d);
 					if (isUnDef(c)) return {};
-					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r }
+					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r };
 				} catch(e) {
 					recordError("create", undefined, i, d, e);
 					return {};
@@ -2000,13 +2180,14 @@ OpenWrap.ch.prototype.server = {
 			}, 
 			function(i) {	
 				// Get
+				ow.ch.server.__log({ request: aRequest, name: aName, op: "GET" });
 				try {
 					if (isDef(aRequest.channelPermission) && 
 						aRequest.channelPermission.indexOf("r") < 0)
 						return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": -1, "r": {} };
 					var c = restGet(i);
 					if (isUnDef(c)) return {};					
-					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r }
+					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r };
 				} catch(e) {
 					recordError("get", undefined, i, d, e);
 					return {};
@@ -2014,13 +2195,14 @@ OpenWrap.ch.prototype.server = {
 			}, 
 			function(i, d) {
 				// Set
+				ow.ch.server.__log({ request: aRequest, name: aName, op: "SET" });
 				try {
 					if (isDef(aRequest.channelPermission) && 
 						aRequest.channelPermission.indexOf("w") < 0)
 						return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": -1, "r": {} };
 					var c = restSet(i, d);
 					if (isUnDef(c)) return {};				
-					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r }
+					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r };
 				} catch(e) {
 					recordError("set", undefined, i, d, e);
 					return {};
@@ -2028,13 +2210,14 @@ OpenWrap.ch.prototype.server = {
 			}, 
 			function(i) {
 				// Remove
+				ow.ch.server.__log({ request: aRequest, name: aName, op: "REMOVE" });
 				try {
 					if (isDef(aRequest.channelPermission) && 
 						aRequest.channelPermission.indexOf("w") < 0)
 						return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": -1, "r": {} };
 					var c = restUnset(i);
 					if (isUnDef(c)) return {};
-					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r }
+					return { "l": $ch(aName).size(), "v": $ch(aName).getVersion(), "c": c.c, "r": c.r };
 				} catch(e) {
 					recordError("remove", undefined, i, d, e);
 					return {};

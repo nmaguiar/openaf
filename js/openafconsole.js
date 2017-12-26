@@ -230,7 +230,7 @@ function __scope(aRegExpRestriction, retList) {
 	var objects = af.getScopeIds();
 	var ret = [];
 
-	for(i in objects.sort()) {
+	for(let i in objects.sort()) {
 		if (aRegExpRestriction.length > 0 &&
 		    !objects[i].match(new RegExp(aRegExpRestriction, "i"))) continue;
 		if (retList)
@@ -395,6 +395,25 @@ function __beautify(aFlag) {
 		__outputConsoleComments("Output beautify of commands is disabled.");
 }
 
+function __diff(aString) {
+	ow.loadObj();
+
+	let i = aString.split(/ with(Full|Changes|New)? /);
+	let m = { printColor: 1 }; 
+	
+	if (i[1] == "Changes") {
+	   m = merge(m, { justChanges: 1 }); 
+	} else {
+	   if (i[1] == "New") { 
+		  m = merge(m, { justDiff: 1, justChanges: 1});
+	   } else {
+		  if (i[1] == "") m = merge(m, { justDiff: 1});
+	   }
+	}
+	(i.length == 3) ? ow.obj.diff(af.eval("(" + i[0] + ")"), af.eval("(" + i[2] + ")"), m) 
+					: "Usage: 'diff oldObject with newObject' (with/withNew/withChanges/withFull)";
+}
+
 /**
  * Turns on or off the color of output of commands
  *
@@ -511,6 +530,7 @@ function __help(aTerm) {
 		__outputConsoleComments("sql      Executes a SQL query, over a db connection, displaying the result in a table (example 'sql adm select...')");
 		__outputConsoleComments("dsql     Returns the list of columns produced by a SQL query over a db connection.");
 		__outputConsoleComments("esql     Executes the SQL statement, over a db connection (example 'esql db update...')");
+		__outputConsoleComments("diff     Show differences between object A and B (example 'diff A with B'; accepts with/withNew/withChanges/withFull)");
 		__outputConsoleComments("pin      Pins the next command as a prefix for the next commands until an empty command (example 'pin sql db...')");
 		__outputConsoleComments("clear    Tries to clear the screen.");
 		__outputConsoleComments("purge    Purge all the command history");
@@ -718,6 +738,10 @@ function __processCmdLine(aCommand, returnOnly) {
 			if (aCommand.match(/^pause(?: +|$)/)) {
 				internalCommand = true;
 				__pause(aCommand.replace(/^pause */, ""));
+			}
+			if (aCommand.match(/^diff(?: +|$)/)) {
+				internalCommand = true;
+			    __diff(aCommand.replace(/^diff */, ""));
 			}
 			if (aCommand.match(/^pin(?: +|$)/)) {
 				internalCommand = true;
@@ -930,7 +954,6 @@ initThread.addThread(function(uuid) {
 	historyFile = java.lang.System.getProperty("user.home") + "/" + CONSOLEHISTORY;
 	jLineFileHistory = new Packages.jline.console.history.FileHistory(new java.io.File(historyFile));
 	con.getConsoleReader().setHistory(jLineFileHistory);
-
 	con.getConsoleReader().addCompleter(
 		new Packages.wedo.openaf.jline.OpenAFConsoleCompleter(function(buf, cursor, candidates) {
 			if (buf == null) return null;
@@ -943,9 +966,7 @@ initThread.addThread(function(uuid) {
 				tmpbuf[3] = tmpbuf[3].replace(/\.$/, "");
                 try {
 					var tmpList = __desc(tmpbuf[1].replace(/.+[\[\(\"\']([^\]\)]+)$/, "$1"), true);
-					//var javaPacks = java.lang.Package.getPackages();
-					//for (i in javaPacks) { tmpList.push(javaPacks[i].getName()); }
-					for(elem in tmpList) {
+					for(let elem in tmpList) {
 						if(tmpList[elem].indexOf(tmpbuf[3]) == 0) {
 							candidates.add(tmpList[elem]);
 						}
@@ -960,8 +981,8 @@ initThread.addThread(function(uuid) {
 					ret = cursor - tmpbuf[1].length;
 					try {
 						var tmpList = __scope(tmpbuf[1], true);
-						for(elem in tmpList) {
-							if(tmpList[elem].indexOf(tmpbuf[1]) == 0) {
+						for(let elem in tmpList) {
+							if(tmpList[elem].indexOf(tmpbuf[1]) == 0) {							
 								candidates.add(tmpList[elem]);
 							}
 						}
@@ -970,9 +991,10 @@ initThread.addThread(function(uuid) {
 				}
 			}
 
-			return ret + 0;
+			return Number(ret);
 		})
 	);
+	con.getConsoleReader().getCompletionHandler().setPrintSpaceAfterFullCompletion(false);
 
 	// Read profile
 	__readProfile(java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE);
