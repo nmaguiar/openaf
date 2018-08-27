@@ -66,7 +66,16 @@ var verbs = {
  	"remove4db": {
  		"help"        : "Remove a package entry from the local OpenPack database",
  		"optionshelp" : []
- 	},
+	},
+	"script": {
+		"help"        : "Creates a shell script, on the current path, to execute a opack (--script)"
+	},
+	"daemon": {
+		"help"        : "Creates a shell script, on the current path, to execute an opack as a daemon (--daemon)"
+	},
+	"ojob"  : {
+		"help"        : "Creates a shell script, on the current path, to execute an opack as a ojob (--ojob)"
+	},	 
  	"add2remotedb": {},
 	"remove2remotedb": {},
 	"help" : {}
@@ -75,6 +84,7 @@ var verbs = {
 plugin("ZIP");
 plugin("HTTP");
 ow.loadFormat();
+ow.loadObj();
 
 var localDB;
 var remoteDB;
@@ -116,7 +126,7 @@ function showHelp() {
 	}
 
 	print("");
-	print("(version " + af.getVersion() + ", " + Packages.wedo.openaf.AFCmdBase.LICENSE +")");
+	print("(version " + af.getVersion() + ", " + Packages.openaf.AFCmdBase.LICENSE +")");
 }
 
 // Retrieve OPack file using HTTP
@@ -128,7 +138,7 @@ function getHTTPOPack(aURL) {
 	log("Retriving " + aURL);
 	try {
 		var http = execHTTPWithCred(aURL.replace(/ /g, "%20"), "GET", "", {}, true);
-		var opack = new ZIP(http.responseBytes());
+		var opack = new ZIP(http);
 		zipCache[aURL] = opack;
 		return opack;
 	} catch(e) {
@@ -170,11 +180,9 @@ function addRemoteDB(aPackage, aDB) {
 
   try {
   	zip.streamPutFile(aDB, OPACKCENTRALJSON, af.fromString2Bytes(stringify(packages)));
-	//io.writeFileBytes(aDB, zip.generate({"compressionLevel":9}));
   } catch(e) {
   	logErr(e.message);
   }
-  //zip.close();
 }
 
 // Delete a package from a remote DB
@@ -425,6 +433,45 @@ function listFiles(startPath, relPath, excludingList) {
 	return files;
 }
 
+function generateHash(aObject) {
+	var res = "";
+
+	if (isString(aObject)) {
+		if (io.isBinaryFile(aObject)) {
+			var rfs = io.readFileStream(aObject);
+			res = String(sha1(rfs));
+			rfs.close();
+		} else {	
+			var rfs = io.readFileStream(aObject);
+			var digest = Packages.org.apache.commons.codec.digest.DigestUtils.getDigest(Packages.org.apache.commons.codec.digest.MessageDigestAlgorithms.SHA_1);
+			ioStreamReadBytes(rfs, (bs) => {
+				var nbs = [];
+				for(var ibs in bs) {
+					if (bs[ibs] != 13) nbs.push(bs[ibs]);
+				}
+				digest.update(nbs);
+			});
+			res = String(Packages.org.apache.commons.codec.binary.Hex.encodeHexString(digest.digest()));
+		}		
+	}
+
+	if (isByteArray(aObject)) {
+		if (isBinaryArray(aObject)) {
+			return sha1(aObject);
+		} else {
+			var nbs = [];
+			for(var ibs in aObject) {
+				if (aObject[ibs] != 13) nbs.push(aObject[ibs]);
+			}
+			return sha1(nbs);
+		}
+	}
+
+	if (res == "") throw "Object type for generateHash couldn't be determined.";
+
+	return res;
+}
+
 // Read local files an generate hash
 function listFilesWithHash(startPath, excludingList) {
 	var filesHash = {};
@@ -439,9 +486,7 @@ function listFilesWithHash(startPath, excludingList) {
 			lognl(str);
 			if (str.length > cmax) cmax = str.length;
 			if (!(files[i].match(new RegExp(PACKAGEJSON + "$", ""))) && !(files[i].match(new RegExp(PACKAGEYAML + "$", "")))) {
-				var rfs = io.readFileStream(startPath + "/" + files[i]);
-				filesHash[files[i]] = sha1(rfs) + "";
-				rfs.close();
+				filesHash[files[i]] = generateHash(startPath + "/" + files[i]);
 			}
 		} catch (e) {
 		}
@@ -469,7 +514,7 @@ function verifyHashList(startPath, filesHash) {
 		if (location == "http") {
 			location = "opackhttp";
 			http = execHTTPWithCred(startPath.replace(/ /g, "%20"), "GET", "", {}, true);
-			zip = new ZIP(http.responseBytes());
+			zip = new ZIP(http);
 		} else {
 			location = "opack";
 			zip = new ZIP();
@@ -491,24 +536,22 @@ function verifyHashList(startPath, filesHash) {
 
 		switch(location) {
 		case "local": 
-			var rfs = io.readFileStream(startPath + "/" + file);
-			hash = sha1(rfs) + "";
-			rfs.close();
+			hash = generateHash(startPath + "/" + file);
 			break;
 		case "http":
-			hash = sha1(http.responseBytes()) + "";
+			hash = generateHash(http);
 			break;
 		case "opack":
 			if (location == "opack") 
-				hash = sha1(zip.streamGetFile(file));
+				hash = generateHash(zip.streamGetFile(file));
 			else
-				hash = sha1(zip.getFile(file)) + "";
+				hash = generateHash(zip.getFile(file));
 			break;
 		case "opackhttp":
 			if (location == "opackhttp")
-				hash = sha1(zip.streamGetFile(file));
+				hash = generateHash(zip.streamGetFile(file));
 			else
-				hash = sha1(zip.getFile(file)) + "";
+				hash = generateHash(zip.getFile(file));
 			break;
 		}
 
@@ -535,17 +578,17 @@ function copyFile(source, target) {
 
 // Delete files from target
 function deleteFile(target) {
-	af.rm(target);
+	io.rm(target);
 }
 
 // Make directory
 function mkdir(aNewDirectory) {
-    af.mkdir(aNewDirectory);
+    io.mkdir(aNewDirectory);
 }
 
 // Remove directory
 function rmdir(aNewDirectory) {
-	af.rm(aNewDirectory);
+	io.rm(aNewDirectory);
 }
 
 // ----------------------------------------------------------
@@ -554,30 +597,33 @@ function rmdir(aNewDirectory) {
 
 // Get credentials
 function execHTTPWithCred(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
-	if (isUnDef(__remoteHTTP)) __remoteHTTP = new HTTP();
+	//if (isUnDef(__remoteHTTP)) __remoteHTTP = new HTTP();
+	if (isUnDef(__remoteHTTP)) __remoteHTTP = new ow.obj.http();
     var res;
 
 	try {
 		res = __remoteHTTP.exec(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream);
+		if (res.responseCode == 401) throw "code: 401";
 	} catch(e) {
-		if (String(e.message).match(/code: 401/)) {
+		if (String(e).match(/code: 401/)) {
 			if (isUnDef(__remoteUser) || isUnDef(__remotePass)) {
 				plugin("Console");
 				var con = new Console();
 				__remoteUser = con.readLinePrompt("Enter authentication user: ");
 				__remotePass = con.readLinePrompt("Enter authentication password: ", "*");
 			}
-			__remoteHTTP.login(__remoteUser, Packages.wedo.openaf.AFCmdBase.afc.dIP(__remotePass), aURL);
+			__remoteHTTP.login(Packages.openaf.AFCmdBase.afc.dIP(__remoteUser), Packages.openaf.AFCmdBase.afc.dIP(__remotePass), aURL);
 			res = __remoteHTTP.exec(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream);
 		} else {
 			throw e;
 		}
 	}
 
-	if (returnStream)
+	if (returnStream) {
 		return res;
-	else
-		return __remoteHTTP;
+	} else {
+		return res.responseBytes;
+	}
 }
 
 // Find OpenAF she-bang
@@ -719,12 +765,16 @@ function getPackage(packPath) {
 				try {
 					http = execHTTPWithCred(packPath.replace(/ /g, "%20") + "/" + PACKAGEJSON, "GET", "", {}, true);
 					// There should be no \n usually associated with package.json scripts
-					output = af.fromBytes2String(http.responseBytes()).replace(/\n/g, "");
+					output = af.fromBytes2String(http).replace(/\n/g, "");
 					retry = false;
 				} catch(e) {
-					http = execHTTPWithCred(packPath.replace(/ /g, "%20") + "/" + PACKAGEYAML, "GET", "", {}, true);
-					output = af.fromBytes2String(http.responseBytes());
-					retry = false;
+					try {
+						http = execHTTPWithCred(packPath.replace(/ /g, "%20") + "/" + PACKAGEYAML, "GET", "", {}, true);
+						output = af.fromBytes2String(http);
+						retry = false;
+					} catch(e1) {
+						logErr("Error while retriving remote package: " + String(e1));
+					}
 				}
 				packag = fromJsonYaml(output);
 				if (isUndefined(packag)) throw(packPath + "/" + PACKAGESJSON);
@@ -1202,6 +1252,119 @@ function __opack_exec(args) {
 	}
 }
 
+// SCRIPT
+function __opack_script(args, isDaemon, isJob) {
+	if (!isUndefined(args[0]) && args[0].toUpperCase() == 'OPENAF') {
+		logErr("Please use 'openaf' to execute OpenAF");
+		return;
+	}
+
+	packag = findLocalDBByName(args[0]);
+	var target;
+
+	if (typeof packag == 'undefined' || typeof packag["name"] == 'undefined') {
+		packag = getPackage(args[0]);
+		if (packag.__filelocation != 'local') {
+			if (packag.__filelocation == 'opacklocal') {
+				logErr("Please use 'openaf-sb " + args[0] + "' instead.");
+				return;
+			} else {
+				logErr("Package not found (note: only installed or local packages can be executed)");
+				return;
+			}
+		}
+		target = args[0];
+	} else {
+		target = findLocalDBTargetByName(args[0]);
+	}
+
+	var DEFAULT_SH = "/bin/sh";
+	var javaHome  = java.lang.System.getProperty("java.home") + "";
+	var classPath = java.lang.System.getProperty("java.class.path") + "";
+	var os        = java.lang.System.getProperty("os.name") + "";
+	var curDir    = java.lang.System.getProperty("user.dir") + "";
+	var windows   = (os.match(/Windows/)) ? 1 : 0;
+	classPath = (new java.io.File(classPath)).getAbsoluteFile();
+	var javaargs = "";
+	var params = splitBySeparator(__expr, " ");
+	for(var i in params) {
+		var param = splitBySeparator(params[i], "=");
+		if (param.length == 2 && param[0] == "args") javaargs = param[1];
+	}
+
+	function generateUnixScript(options) {
+		var s;
+	  
+		if (typeof shLocation === 'undefined') {
+		  if (windows == 1) {
+			// for cygwin
+			shLocation = DEFAULT_SH; 
+			javaHome = javaHome.replace(/\\/g, "/");
+			javaHome = javaHome.replace(/(\w)\:/,"/cygdrive/$1").toLowerCase();
+		  } else {
+			try {
+			  shLocation = sh("which sh", "", null, false);
+			} catch (e) {
+			  logErr("Couldn't determine path for sh, assuming " + DEFAULT_SH + ": " + e.message);
+			  shLocation = DEFAULT_SH;
+			}
+		  }
+	  
+		  log("sh located in "+ shLocation);
+		}
+	  
+		s = "#!" + shLocation + "\n\n";
+		s = s + "stty -icanon min 1 -echo 2>/dev/null\n";
+		s = s + "#if [ -z \"${JAVA_HOME}\" ]; then \nJAVA_HOME=\"" + javaHome + "\"\n#fi\n";
+		s = s + "OPENAF_DIR=\"" + classPath + "\"\n";
+		s = s + "\n";
+		s = s + "\"$JAVA_HOME\"/bin/java " + javaargs + " -Djline.terminal=jline.UnixTerminal -jar $OPENAF_DIR " + options + "\n";
+		s = s + "EXITCODE=$?\n";
+		s = s + "stty icanon echo 2>/dev/null\n";
+		s = s + "exit $EXITCODE\n";
+		return s;
+	}
+
+	function generateWinScript(options) {
+		var s;
+  
+		s = "@echo off\n\n";
+		s = s + "rem if not %JAVA_HOME% == \"\" set JAVA_HOME=\"" + javaHome + "\"\n";
+		s = s + "set JAVA_HOME=\"" + javaHome + "\"\n";
+		s = s + "set OPENAF_DIR=\"" + classPath + "\"\n";
+		s = s + "\n";
+		s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -jar %OPENAF_DIR% " + options + "\n";
+		return s;
+	}
+
+	loadLodash();
+	var scriptCommand = (isDaemon) ? "--daemon " : "--script ";
+	if (typeof packag.main !== 'undefined' && packag.main.length > 0 && !isJob) {
+		if (windows) {
+			io.writeFileString(curDir + "/opack_" + _.camelCase(packag.name) + ".bat", generateWinScript(scriptCommand + target + "/" + packag.main + " -e \"%*\""));
+			log("Created script in " + curDir + "/opack_" + _.camelCase(packag.name) + ".bat");
+			
+		} else {
+			io.writeFileString(curDir + "/opack_" + _.camelCase(packag.name), generateUnixScript(scriptCommand + target + "/" + packag.main + " -e \"$*\""));
+			sh("chmod u+x " + curDir + "/opack_" + _.camelCase(packag.name));
+			log("Created script in " + curDir + "/opack_" + _.camelCase(packag.name));
+		}
+	} else {
+		if (isDef(packag.mainJob) && packag.mainJob.length > 0) {
+			if (windows) {
+				io.writeFileString(curDir + "/opack_" + _.camelCase(packag.name) + ".bat", generateWinScript("--ojob -e \"" + target + "/" + packag.mainJob + " %*\""));
+				log("Created script in " + curDir + "/opack_" + _.camelCase(packag.name) + ".bat");
+			} else {
+				io.writeFileString(curDir + "/opack_" + _.camelCase(packag.name), generateUnixScript("--ojob -e \"" + target + "/" + packag.mainJob + " $*\""));
+				sh("chmod u+x " + curDir + "/opack_" + _.camelCase(packag.name));
+				log("Created script in " + curDir + "/opack_" + _.camelCase(packag.name));
+			}
+		} else {
+			logErr("Can't generate ojob script for package " + packag.name);
+		}
+	}
+}
+
 // UPDATE
 function update(args) {
 	if (!isUndefined(args[0]) && args[0].toUpperCase() == 'OPENAF') {
@@ -1483,7 +1646,7 @@ function pack(args) {
 
 	var zip = new ZIP();
 	var packName = packag.name + "-" + packag.version + ".opack";
-	af.rm(packName);
+	io.rm(packName);
 	
 	var c = 0, cmax = 0;
 	
@@ -1516,6 +1679,12 @@ function genpack(args) {
 
 	for(let i in args) {
     	if (args[i] == "--includeSCM") excludeList = [];
+	}
+	for(let i in args) {
+    	if (args[i] == "--exclude") {
+			log("Excluding '" + args[Number(i) + 1] + "'...");
+			excludeList.push(args[Number(i) + 1]);
+		}
     }
 	var packageNew = {};
 
@@ -1590,7 +1759,10 @@ for(let i in verbs) {
         case 'add2db': add(params); break;
         case 'remove2db': remove(params); break;
         case 'add2remotedb': addCentral(params); break;
-        case 'remove2remotedb': removeCentral(params); break;
+		case 'remove2remotedb': removeCentral(params); break;
+		case 'script': __opack_script(params); break;
+		case 'daemon': __opack_script(params, true); break;
+		case 'ojob'  : __opack_script(params, false, true); break;
         case 'search': __opack_search(params); break;
         case 'update': update(params); break;
 		case 'exec': __opack_exec(params); break;

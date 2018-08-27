@@ -333,7 +333,7 @@ test("IO Plugin::IO Test JSON", function() {
 
 	io.writeFile(file, a);
 	ow.test.assert(io.readFile(file).a, a.a, "Problem with io.read/writeFile.");
-	af.rm(file);
+	io.rm(file);
 });
 
 test("IO Plugin::IO Test read/writeFileStream", function() {
@@ -351,7 +351,7 @@ test("IO Plugin::IO Test read/writeFileStream", function() {
 	stream.close();
 
 	ow.test.assert(res, "Hello World! €áä", "Problem with read/writeFileStream or ioStreamRead/Write.");
-	af.rm(file);
+	io.rm(file);
 });
 
 test("IO Plugin::IO Test read/writeFileStreamBytes", function() {
@@ -383,7 +383,7 @@ test("IO Plugin::IO Test copy streams", function() {
 	s2.close();
 	
 	ow.test.assert(h1, h2, "Problem with ioStreamCopy.");
-	af.rm("autoTestAll.jar");
+	io.rm("autoTestAll.jar");
 });
 
 test("Encoding::Testing encodings", function() {
@@ -489,7 +489,7 @@ test("JMX Plugin::Test JMX client and server plugins", function() {
 	plugin("JMXServer");
 
 	log("Creating JMX server on port 12346");
-	var jmxServer = new JMXServer("wedo.openaf:type=Values");
+	var jmxServer = new JMXServer("com.openaf:type=Values");
 	var BINGO = "OK";
 	jmxServer.start(12346);
 	jmxServer.addBean({"a": "writable double", "b": "long", "c": "writable string" },
@@ -508,7 +508,7 @@ test("JMX Plugin::Test JMX client and server plugins", function() {
 	log("Using JMX client to connect to JMX server");
 	plugin("JMX");
 	var jmx = new JMX("service:jmx:rmi:///jndi/rmi://127.0.0.1:12346/jmxrmi");
-	var jmxObj = jmx.getObject("wedo.openaf:type=Values");
+	var jmxObj = jmx.getObject("com.openaf:type=Values");
 	if (jmxObj.get("a") != 12.3 ||
 		jmxObj.get("b") != 123 ||
 		jmxObj.get("c") != "OK") throw "Couldn't retrieve the correct values from the JMX server";
@@ -587,7 +587,7 @@ test("ZIP Plugin::Test ZIP stream functions", function() {
 	ow.test.assert(h, hc, "The contents by streamPutFile are different from the original.");
 	
 	zip.streamRemoveFile("autoTestAll.zip", "o.jar");
-	af.rm("autoTestAll.zip");
+	io.rm("autoTestAll.zip");
 });
 
 test("Shell commands::Test shell commands", function() {
@@ -643,7 +643,7 @@ test("In memory database::In memory database", function() {
 
 	db = createDBInMem("test2", false);
 	loadDBInMem(db, f);
-	af.rm(f);
+	io.rm(f);
 
 	var t3 = Number(db.q("select count(1) as c from test").results[0].C);
 
@@ -876,7 +876,7 @@ test("LSH::LSH hashing", function() {
 });
 
 test("XLS Plugin::simple creation test with table", function() {
-	af.rm("autoTestAll.xlsx");
+	io.rm("autoTestAll.xlsx");
 	plugin("XLS");
 	var xls = new XLS();
 	var sheet = xls.getSheet("testSheet");

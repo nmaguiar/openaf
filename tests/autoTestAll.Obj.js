@@ -51,7 +51,7 @@
         } catch(e) {
             res400 = ow.obj.rest.exceptionParse(e);
         }
-        ow.test.assert(res400.response, "400 Bad Request", "Problem with obtaining and parsing the HTTP 400 code");
+        ow.test.assert(res400.responseCode, 400, "Problem with obtaining and parsing the HTTP 400 code");
 
         var res401;
         try {
@@ -59,7 +59,7 @@
         } catch(e) {
             res401 = ow.obj.rest.exceptionParse(e);
         }
-        ow.test.assert(res401.response, "401 Unauthorized", "Problem with obtaining and parsing the HTTP 401 code");
+        ow.test.assert(res401.responseCode, 401, "Problem with obtaining and parsing the HTTP 401 code");
 
         var res500;
         try {
@@ -67,7 +67,7 @@
         } catch(e) {
             res500 = ow.obj.rest.exceptionParse(e);
         }
-        ow.test.assert(res500.response, "500 Internal Server Error", "Problem with obtaining and parsing the HTTP 500 code");
+        ow.test.assert(res500.responseCode, 500, "Problem with obtaining and parsing the HTTP 500 code");
     };
 
     exports.testGetPath = function() {
@@ -89,6 +89,18 @@
         ow.test.assert(ow.obj.getPath(ow.obj.setPath(a, "b.d", [ 0, 1, 2 ]), "b.d"), [0, 1, 2], "Problem with retriving an array after ow.obj.setPath");
         ow.test.assert(ow.obj.getPath(ow.obj.setPath(a, "b.d[0]", 4321), "b.d[0]"), 4321, "Problem with retriving an element of an array after ow.obj.setPath");
     };   
+
+    exports.testFuzzySearch = function() {
+        ow.loadObj();
+
+        var data = [{n: "World War I"}, {n: "World War II"}, {n: "Name a war"}, {n: "Name some war"}];
+
+        var res1 = ow.obj.fuzzySearch(["n"], data, "world");
+        var res2 = ow.obj.fuzzySearch(["n"], data, "name");
+
+        ow.test.assert(res1.length, 2, "Problem fuzzy searching by world.");
+        ow.test.assert(res2.length, 2, "Problem fuzzy searching by name.");
+    };
 
     exports.testArray2Obj = function() {
         ow.loadObj();
@@ -143,4 +155,73 @@
         ow.test.assert(res[2], 3, "Problem with last map element on array to ordered object with function");
         ow.test.assert(res[1], 2, "Problem with middle map element on array to ordered object with function");
     };    
+
+    exports.testObjPool = function() {
+        ow.loadObj();
+
+        var createOps = [], closeOps = [], keepOps = [];
+        var createFunc = () => {
+            var u = genUUID();
+            createOps.push("CREATED " + u);
+            return u;
+        };
+        var closeFunc = (u) => {
+            closeOps.push("CLOSE " + u);
+        };
+        var keepFunc = (u) => {
+            keepOps.push("KEEP " + u);
+        };
+
+        var p = ow.obj.pool.create();
+        p.setMax(2); 
+        p.setFactory(createFunc, closeFunc, keepFunc);
+
+        var res;
+        p.use((u) => { res = u; });
+        ow.test.assert(createOps.length, 1, "Provided pool object was not the first created.");
+        p.use((u) => { res = u; });
+        ow.test.assert(createOps.length, 1, "Provided pool object was not reused.");
+
+        res = "";
+        var promise = $do( () => { 
+            p.use( (u) => {
+                sleep(50);
+                res = u; 
+            }); 
+        }); 
+        p.use((u) => { sleep(5); });
+        $doWait(promise);
+
+        ow.test.assert(createOps.length, 2, "Provided pool object was not the second created.");
+
+        res = "";
+        promise = $do( () => { 
+            p.use( (u) => {
+                sleep(50);
+            }); 
+        }); 
+        p.use((u) => { res = u; sleep(5); return false; });
+        p.use((u) => { sleep(5); });
+        $doWait(promise);
+
+        ow.test.assert(createOps.length, 3, "Althought an object was considered dirty a new one was not created.");
+        ow.test.assert(closeOps.length, 1, "Althought an object was considered dirty it wasn't closed.");
+        ow.test.assert($from(p.__pool).equals("obj", res).count(), 0, "Althought an object was considered dirty it wasn't removed from the pool.");
+
+        p.setKeepalive(1);
+        sleep(2000);
+        ow.test.assert(keepOps.length > 0, true, "Keepalive didn't trigger as expected.");
+        p.stop();
+
+        createOps = []; closeOps = []; keepOps = [];
+        p = ow.obj.pool.create();
+        p.setMin(2); 
+        p.setFactory(createFunc, closeFunc, keepFunc);
+        p.start();
+
+        ow.test.assert(createOps.length, 2, "Minimum number of objects in pool is not correct.");
+
+        p.stop();
+        ow.test.assert(closeOps.length, 2, "Objects in pool were not closed properly.");
+    };
 })();

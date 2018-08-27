@@ -42,7 +42,12 @@ jobs:
      from: OpenAF::Init
      to  : oJob Test
      exec: args.func = args.tests.testSHA512;
-  
+
+   - name: OpenAF::Test BCrypt
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testBCrypt;  
+
    - name: OpenAF::Test Merge
      from: OpenAF::Init
      to  : oJob Test
@@ -72,6 +77,11 @@ jobs:
      from: OpenAF::Init
      to  : oJob Test
      exec: args.func = args.tests.testFormatConversionBase64;
+
+   - name: OpenAF::Test Stream conversions
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testFormatConversionStream;
 
    - name: OpenAF::Test Object Compression
      from: OpenAF::Init
@@ -113,10 +123,40 @@ jobs:
      to  : oJob Test
      exec: args.func = args.tests.testYAML;
 
+   - name: OpenAF::Search Key and Values
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testSearchKeyAndValues;
+
+   - name: OpenAF::NDJSON
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testNDJSON;     
+
    - name: OpenAF::Encrypt/Decrypt
      from: OpenAF::Init
      to  : oJob Test
      exec: args.func = args.tests.testEncryptDecrypt;
+    
+   - name: OpenAF::Two factor authentication
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.test2FA;
+
+   - name: OpenAF::Java RegExp
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testJavaRegExp;
+
+   - name: OpenAF::Get Path
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testGetPath;
+
+   - name: OpenAF::Set Path
+     from: OpenAF::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testSetPath;     
 
 todo:
    # Generic Tests
@@ -128,12 +168,14 @@ todo:
    - OpenAF::Test SHA1
    - OpenAF::Test SHA256
    - OpenAF::Test SHA512
+   - OpenAF::Test BCrypt
    - OpenAF::Test Merge
    - OpenAF::Test Shell
    - OpenAF::Test Shell with Map
    - OpenAF::Test Encoding
    - OpenAF::Test Format Conversion to/from bytes
    - OpenAF::Test Format Conversion to/from base64
+   - OpenAF::Test Stream conversions
    - OpenAF::Test Object Compression
    - OpenAF::Test $do
    - OpenAF::Test $doAll
@@ -142,6 +184,12 @@ todo:
    - OpenAF::Crypt
    - OpenAF::Encrypt/Decrypt
    - OpenAF::YAML
+   - OpenAF::NDJSON
+   - OpenAF::Search Key and Values
+   - OpenAF::Two factor authentication
+   - OpenAF::Java RegExp
+   - OpenAF::Get Path
+   - OpenAF::Set Path
   
    # CSV Tests
    # ---------

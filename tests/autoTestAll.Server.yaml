@@ -13,14 +13,38 @@ jobs:
      to  : oJob Test
      exec: args.func = args.tests.testRESTServer;
 
+   - name: Server::REST server simple
+     from: Server::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testRESTServer2;
+
    - name: Server::HTTP server 
      from: Server::Init
      to  : oJob Test
      exec: args.func = args.tests.testHTTPServer;
 
+   - name: Server::Scheduler
+     from: Server::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testScheduler;
+
+   - name: Server::Auth
+     from: Server::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testAuth;
+
+   - name: Server::AuthApp
+     from: Server::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testAuthApp;
+
 todo:
    # Server tests
    # ------------
    - Server::Init
+   - Server::Scheduler
    - Server::REST server
+   - Server::REST server simple
    - Server::HTTP server
+   - Server::Auth
+   - Server::AuthApp

@@ -60,7 +60,7 @@ function ojob_showHelp() {
 	print("  -deps          Draws a list of dependencies of todo jobs on a file.");
 	print("  -jobhelp (job) Display any available help information for a job.");
 	print("");
-	print("(version " + af.getVersion() + ", " + Packages.wedo.openaf.AFCmdBase.LICENSE +")");
+	print("(version " + af.getVersion() + ", " + Packages.openaf.AFCmdBase.LICENSE +")");
 	ojob_shouldRun = false;
 }
 
@@ -134,7 +134,7 @@ function ojob_draw() {
 	
 		res = {
 			to  : res.to.concat(j.to),
-			from: (isDef(j.from) ? [ j.from ] : []).concat(res.from)
+			from: res.from.concat(j.from)
 		};
 	
 		res = getPaths(j.from, res);
@@ -151,8 +151,9 @@ function ojob_draw() {
 			msg += "!!NOT FOUND!!";
 		} else {
 			for(var i in deps) {
-				msg += " :" + deps[i];
-				var r = getPath(deps[i]);
+				var dep = (isDef(deps[i].name)) ? deps[i].name : deps[i];
+				msg += " :" + dep;
+				var r = getPath(dep);
 				if (r.length > 0) {
 					msg += " (" + r + ")";
 				}	

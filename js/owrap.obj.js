@@ -228,6 +228,29 @@ OpenWrap.obj.prototype.flatten = function(data, aSeparator, aNADefault) {
 
 /**
  * <odoc>
+ * <key>ow.obj.fuzzySearch(anArrayOfKeys, anArrayOfObjects, searchString, fuseOptions) : Array</key>
+ * Given anArrayOfObjects (similar objects) will fuzzy search the searchString on the values for the keys in anArrayOfKeys.
+ * Returns an array of the most probable objects to match the searchString (you can use fuseOptions = { shouldSort: true } to 
+ * ensure that the array is ordered by score).
+ * It uses the FuseJS library internally so fuseOptions can be used to add more options (check more in http://fusejs.io/).\
+ * \
+ * For example:\
+ *    ow.obj.fuzzySearch(["n"], [{n: "World War I"}, {n: "World War II"}, {n: "Name a war"}, {n: "Name some war"}], "world");\
+ * \
+ * </odoc>
+ */
+OpenWrap.obj.prototype.fuzzySearch = function(anArrayOfKeys, anArrayOfObjects, searchString, fuseOptions) {
+	loadFuse();
+
+	if (!isArray(anArrayOfObjects)) throw "anArrayOfObjects should be an array of objects.";
+	if (!isArray(anArrayOfKeys)) throw "anArrayOfKeys should be an array of keys.";
+
+	var fuse = new Fuse(anArrayOfObjects, merge({ keys: anArrayOfKeys }, fuseOptions));
+	return fuse.search(searchString);
+};
+
+/**
+ * <odoc>
  * <key>ow.obj.searchArray(anArray, aPartialMap, useRegEx, ignoreCase, useParallel) : Array</key>
  * Searches anArray of maps for entries where aPartialMap matches. If useRegEx is true all string entries
  * on aPartialMap will be interpreted as regular expressions. For number entries on the original map you can 
@@ -303,9 +326,9 @@ OpenWrap.obj.prototype.searchArray = function(anArray, aPartialMap, useRegEx, ig
  * \
  * fromObj2Array(a, "key");\
  * // [\
- * //  { "abc": "123", "xpt": "000", "key": "A1" },\
- * //  { "abc": "456", "xpt": "001", "key": "A2" },\
- * //  { "abc": "789", "xpt": "002", "key": "A3" }\
+ * //  { "key": "A1", "abc": "123", "xpt": "000" },\
+ * //  { "key": "A2", "abc": "456", "xpt": "001" },\
+ * //  { "key": "A3", "abc": "789", "xpt": "002" }\
  * // ]\
  * \
  * </odoc>
@@ -313,12 +336,18 @@ OpenWrap.obj.prototype.searchArray = function(anArray, aPartialMap, useRegEx, ig
 OpenWrap.obj.prototype.fromObj2Array = function(aObj, aKey) {
 	var res = [];
 	for(var i in aObj) {
-		var item = clone(aObj[i]);
-		if (isDefined(aKey)) item[aKey] = i;
+		var item;
+		if (isDef(aKey)) {
+			var m = {};
+			m[aKey] = i;
+			item = merge(m, aObj[i]);
+		} else {
+			item = clone(aObj[i]);
+		}
 		res.push(item);
 	}
 	return res;
-}
+};
 
 /**
  * <odoc>
@@ -333,7 +362,7 @@ OpenWrap.obj.prototype.filterKeys = function(anArrayKeyNames, aRow) {
 		keys[anArrayKeyNames[i]] = aRow[anArrayKeyNames[i]];
 	}
 	return keys;
-}
+};
 
 /**
  * <odoc>
@@ -342,18 +371,18 @@ OpenWrap.obj.prototype.filterKeys = function(anArrayKeyNames, aRow) {
  * it will be used to create the map keys (otherwise will fallback to "row[number]"). And can also
  * optionally indicate by dontRemove = true that aKey shouldn't be removed from each map.
  * \
- * var a = {\
- *    "A1": { "abc": "123", "xpt": "000" },\
- *    "A2": { "abc": "456", "xpt": "001" },\
- *    "A3": { "abc": "789", "xpt": "002" }\
- * }\
+ * var a = [\
+ *   { "abc": "123", "xpt": "000", "key": "A1" },\
+ *   { "abc": "456", "xpt": "001", "key": "A2" },\
+ *   { "abc": "789", "xpt": "002", "key": "A3" }\
+ * ]\
  * \
- * fromObj2Array(a, "key");\
- * // [\
- * //  { "abc": "123", "xpt": "000", "key": "A1" },\
- * //  { "abc": "456", "xpt": "001", "key": "A2" },\
- * //  { "abc": "789", "xpt": "002", "key": "A3" }\
- * // ]\
+ * fromArray2Obj(a, "key");\
+ * // {\
+ * //   "A1": { "abc": "123", "xpt": "000" },\
+ * //   "A2": { "abc": "456", "xpt": "001" },\
+ * //   "A3": { "abc": "789", "xpt": "002" }\
+ * // }\
  * \
  * </odoc>
  */
@@ -361,7 +390,7 @@ OpenWrap.obj.prototype.fromArray2Obj = function(anArray, aKey, dontRemove) {
 	var res = {};
 	for(var i in anArray) {
 		var item = clone(anArray[i]);
-		if (isDefined(aKey) && isDefined(item[aKey])) {
+		if (isDef(aKey) && isDef(item[aKey])) {
 			res[item[aKey]] = item;
 			if (!dontRemove) delete item[aKey];
 		} else {
@@ -369,7 +398,7 @@ OpenWrap.obj.prototype.fromArray2Obj = function(anArray, aKey, dontRemove) {
 		}
 	}
 	return res;
-}
+};
 
 OpenWrap.obj.prototype.pool = {
 	/**
@@ -424,7 +453,7 @@ OpenWrap.obj.prototype.pool = {
 				var isThereRoom = false;
 
 				sync(function() {
-					if ((parent.__max > 0 && parent.__max <= parent.__currentSize) && parent.__currentFree < 1) {
+					if ((parent.__max > 0 && parent.__max <= (parent.__currentSize + 1)) && parent.__currentFree < 1) {
 						isThereRoom = false;
 					} else {
 						isThereRoom = true;
@@ -477,13 +506,15 @@ OpenWrap.obj.prototype.pool = {
 
 				sync(function() {
 					if (parent.__checkLimits()) {
-						parent.__currentSize++;
-						parent.__pool.push({
-							"inUse": inUse,
-							"obj": aObject
-						});
-						if (!inUse) parent.__currentFree++;
-						res = true;
+						if (parent.__max < 1 || parent.__currentSize <= parent.__max) {
+							parent.__currentSize++;
+							parent.__pool.push({
+								"inUse": inUse,
+								"obj": aObject
+							});
+							if (!inUse) parent.__currentFree++;
+							res = true;
+						}
 					}
 				}, this.__currentSize);
 
@@ -502,7 +533,14 @@ OpenWrap.obj.prototype.pool = {
 			setFactory: function(aFactoryFunction, aCloseFunction, aKeepaliveFunction) {
 				this.__factory = aFactoryFunction;
 				this.__close = aCloseFunction;
-				this.__keepalive = aKeepaliveFunction;
+				this.__keepalive = function(obj) {
+					try {
+						aKeepaliveFunction(obj);
+						return true;
+					} catch(e) {
+						return false;
+					}
+				};
 				var parent = this;
 
 				addOnOpenAFShutdown(function() {
@@ -546,9 +584,9 @@ OpenWrap.obj.prototype.pool = {
 				var parent = this;
 				var obj;
 
-				inUse = (isUndefined(inUse)) ? false : inUse;
+				inUse = (isUnDef(inUse)) ? false : inUse;
 
-				if (isDefined(parent.__factory)) {
+				if (isDef(parent.__factory)) {
 					obj = parent.__factory();
 					if (parent.__inc > 1) {
 						for(var i = 0; i < parent.__inc - 1; i++) {
@@ -564,19 +602,29 @@ OpenWrap.obj.prototype.pool = {
 				return obj;
 			},
 			
-			__getUnused: function() {
-				var obj = undefined;
-				var i = 0;
+			__getUnused: function(shouldTest) {	
+				var obj = void 0;
+				var i = 0, r = 0;
 				var parent = this;
 
 				sync(function() {
-					while(isUndefined(obj) && i < parent.__currentSize) {
-						var inUse = undefined;
+					while(isUnDef(obj) && i < parent.__currentSize) {
+						var inUse = void 0;
 						inUse = parent.__pool[i].inUse;
 						if (inUse == false) {
-							obj = parent.__pool[i].obj;
-							parent.__pool[i].inUse = true;
-							parent.__currentFree--;
+							var useit = !shouldTest;						
+							if (shouldTest) {
+								useit = parent.__keepalive(parent.__pool[i].obj);
+								if (!useit) parent.__cleanup(parent.__pool[i].obj);
+							} 
+							if (useit) {
+								obj = parent.__pool[i].obj;
+								parent.__pool[i].inUse = true;
+								parent.__currentFree--;
+							} else {
+								r++;
+								if (r <= parent.__retry) i = 0;
+							}
 						} else {
 							i++;
 						}
@@ -584,10 +632,16 @@ OpenWrap.obj.prototype.pool = {
 				}, this.__currentSize);
 
 				if (i >= parent.__currentSize) {
-					if (parent.__checkFree()) {
-						obj = parent.__createObj(true);
-						if (!isDefined(obj)) {
-							obj = parent.__getUnused();
+					var resCheckFree;
+					resCheckFree = parent.__checkFree();
+					sync(function() {
+						if (resCheckFree && parent.__checkLimits()) {						
+							obj = parent.__createObj(true);
+						} 
+					}, this.__currentSize);
+					if (resCheckFree) {
+						if (!isDef(obj)) {
+							obj = parent.__getUnused(shouldTest);
 						}
 					}
 				}
@@ -625,6 +679,7 @@ OpenWrap.obj.prototype.pool = {
 						this.__currentSize--;
 					}
 					this.__currentFree = 0;
+					this.__currentSize = 0;
 					this.__pool = [];
 				}
 			},
@@ -636,11 +691,11 @@ OpenWrap.obj.prototype.pool = {
 			 * if no object is available even after retrying.
 			 * </odoc>
 			 */
-			checkOut: function() {
+			checkOut: function(shouldTest) {
 				var obj, i = 0;
 				var parent = this;
 
-				obj = parent.__getUnused();
+				obj = parent.__getUnused(shouldTest);
 
 				if (isDefined(obj))
 					return obj;
@@ -648,10 +703,29 @@ OpenWrap.obj.prototype.pool = {
 					throw "No available objects in pool.";
 			},
 			
+			__cleanup: function(obj) {
+				var parent = this;
+
+				var i = 0;
+				while(parent.__pool[i].obj != obj && i < parent.__pool.length) {
+					i++;
+				}
+				if (i == parent.__pool.length) return;
+
+				try { parent.__close(parent.__pool[i].obj) } catch (e) {}
+				delete parent.__pool[i];
+				parent.__currentSize--;
+				loadUnderscore();
+				parent.__pool = _.compact(parent.__pool);
+				for(var i = parent.__currentSize; i < parent.__min; i++) {
+					parent.__createObj();
+				}
+			},
+
 			/**
 			 * <odoc>
-			 * <key>ow.obj.pool.checkIn(aObject, shouldDestroy)</key>
-			 * Returns the aObject instance back to the pool removing the mark that is in use. If shouldDestroy = true the
+			 * <key>ow.obj.pool.checkIn(aObject, shouldKeep)</key>
+			 * Returns the aObject instance back to the pool removing the mark that is in use. If shouldKeep = false the
 			 * object instance will be removed from the pool (trying to call the closeFunction and ignoring any exception).
 			 * </odoc>
 			 */
@@ -663,14 +737,15 @@ OpenWrap.obj.prototype.pool = {
 
 					if (badObj == false) {
 						// Tries to run close and ignores any error since is upon for delete
-						try { parent.__close(parent.__pool[i].obj) } catch (e) {}
+						/*try { parent.__close(parent.__pool[i].obj) } catch (e) {}
 						delete parent.__pool[i];
 						parent.__currentSize--;
 						loadUnderscore();
 						parent.__pool = _.compact(parent.__pool);
 						for(var i = parent.__currentSize; i < parent.__min; i++) {
 							parent.__createObj();
-						}
+						}*/
+						parent.__cleanup(obj);
 					} else {
 						parent.__pool[i].inUse = false;
 						parent.__currentFree++;
@@ -689,12 +764,12 @@ OpenWrap.obj.prototype.pool = {
 			 * with it).
 			 * </odoc>
 			 */
-			use: function(aFunction) {
+			use: function(aFunction, doCheck) {
 				// Get free objects
 				var obj, i = 0;
 
 				var parent = this;
-				obj = this.checkOut();
+				obj = this.checkOut(doCheck);
 
 				// Got an object, use it
 				if (isDefined(obj)) {
@@ -744,7 +819,7 @@ OpenWrap.obj.prototype.pool = {
 						} else {
 							a.q("select 1 from dual");
 						}
-					}
+					};
 				}
 				
 				this.setFactory(
@@ -1272,11 +1347,25 @@ OpenWrap.obj.prototype.diff = function(aOrig, aFinal, optionsMap) {
 
 OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
 	this.__lps = {};
+	this.__config = {};
+	this.__r = void 0;
+	this.__rb = void 0; 
 	//this.__h = new Packages.org.apache.http.impl.client.HttpClients.createDefault();
 	if (isDef(aURL)) {
 		this.exec(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream);
 	}
 };
+
+OpenWrap.obj.prototype.http.prototype.setConfig = function(aMap) {
+	this.__config = aMap;
+};
+
+OpenWrap.obj.prototype.http.prototype.__handleConfig = function(aH) {
+	if (isDef(this.__config.disableCookie) && this.__config.disableCookie) aH = aH.disableCookieManagement();
+	if (isDef(this.__config.disableRedirectHandling) && this.__config.disableRedirectHandling) aH = aH.disableRedirectHandling();
+	return aH;
+};
+
 OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
 	var r, canHaveIn = false;
 
@@ -1320,12 +1409,19 @@ OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, a
 			if (aUrl.startsWith(key)) getKey = key;
 		}
 		if (isDef(getKey)) {
-			this.__h = this.__h.setDefaultCredentialsProvider(this.__lps[getKey]).build();
+			this.__h = this.__h.setDefaultCredentialsProvider(this.__lps[getKey]);
+			this.__h = this.__handleConfig(this.__h);
+			this.__h = this.__h.build();
 		} else {
+			this.__h = this.__handleConfig(this.__h);
 			this.__h = this.__h.build();
 		}
 	} else {
-		if (isUnDef(this.__h)) this.__h = new Packages.org.apache.http.impl.client.HttpClients.createDefault();
+		if (isUnDef(this.__h)) {
+			this.__h = new Packages.org.apache.http.impl.client.HttpClients.custom();
+			this.__h = this.__handleConfig(this.__h);
+			this.__h = this.__h.build();
+		}
 	}
 
 	// Set timeout
@@ -1336,8 +1432,9 @@ OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, a
 		r.setConfig(rc.build());
 	}
 
+	r.addHeader("User-Agent", __OpenAFUserAgent);
 	if (this.__forceBasic && isDef(this.__l)) {
-		r.addHeader("Authorization", "Basic " + String(new java.lang.String(Packages.org.apache.commons.codec.binary.Base64.encodeBase64(new java.lang.String(this.__l + ":" + Packages.wedo.openaf.AFCmdBase.afc.dIP(this.__p)).getBytes()))));
+		r.addHeader("Authorization", "Basic " + String(new java.lang.String(Packages.org.apache.commons.codec.binary.Base64.encodeBase64(new java.lang.String(Packages.openaf.AFCmdBase.afc.dIP(this.__l) + ":" + Packages.openaf.AFCmdBase.afc.dIP(this.__p)).getBytes()))));
 	}
 
 	for(var i in aRequestMap) {
@@ -1349,8 +1446,8 @@ OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, a
 	}
 
 	this.outputObj = {};
-	if (isDef(r)) this.__r = this.__h.execute(r);
-	if (isBytes) {
+	this.__r = this.__h.execute(r);
+	if (isBytes && !returnStream) {
 		this.outputObj =  {
 			responseCode: this.responseCode(),
 			contentType: this.responseType(),
@@ -1368,8 +1465,8 @@ OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, a
 		}
 	}
 
-	if (this.outputObj.responseCode >= 400) {
-		switch(this.outputObj.responseCode) {
+	if (this.responseCode() >= 400) {
+		switch(this.responseCode()) {
 		case 404: throw "FileNotFoundException " + aUrl + "; response = " + stringify(this.getErrorResponse());
 		case 410: throw "FileNotFoundException " + aUrl + "; response = " + stringify(this.getErrorResponse());
 		default: throw "IOException Server returned HTTP response code: " + this.responseCode() + " for URL: " + aUrl + "; response = " + stringify(this.getErrorResponse());
@@ -1412,7 +1509,7 @@ OpenWrap.obj.prototype.http.prototype.login = function(aUser, aPassword, forceBa
 			}
 		}
 		var as = new Packages.org.apache.http.auth.AuthScope(url.getHost(), port);
-		var up = new Packages.org.apache.http.auth.UsernamePasswordCredentials(aUser, Packages.wedo.openaf.AFCmdBase.afc.dIP(aPassword));
+		var up = new Packages.org.apache.http.auth.UsernamePasswordCredentials(Packages.openaf.AFCmdBase.afc.dIP(aUser), Packages.openaf.AFCmdBase.afc.dIP(aPassword));
 		var cred = new org.apache.http.impl.client.BasicCredentialsProvider();
 		cred.setCredentials(as, up);
 		this.__lps[urlPartial] = cred;
@@ -1424,10 +1521,11 @@ OpenWrap.obj.prototype.http.prototype.login = function(aUser, aPassword, forceBa
 };
 
 OpenWrap.obj.prototype.http.prototype.response = function() {
+	//if (isDef(this.__r)) return this.__r;
 	try {
 		var res, ent = this.__r.getEntity();
-		if (ent != null)
-			res = String(Packages.org.apache.http.util.EntityUtils.toString(ent));
+		if (ent != null) res = String(Packages.org.apache.http.util.EntityUtils.toString(ent));
+		//this.__r = res;
 		return res;
 	} finally {
 		this.__r.close();
@@ -1435,10 +1533,11 @@ OpenWrap.obj.prototype.http.prototype.response = function() {
 };
 
 OpenWrap.obj.prototype.http.prototype.responseBytes = function() {
+	//if (isDef(this.__rb)) return this.__rb;
 	try {
 		var res, ent = this.__r.getEntity();
-		if (ent != null)
-			res = Packages.org.apache.http.util.EntityUtils.toByteArray(ent);
+		if (ent != null) res = Packages.org.apache.http.util.EntityUtils.toByteArray(ent);
+		//this.__rb = res;
 		return res;
 	} finally {
 		this.__r.close();
@@ -1453,7 +1552,12 @@ OpenWrap.obj.prototype.http.prototype.responseHeaders = function() {
 	var ar = {};
 	var hh = this.__r.getAllHeaders();
 	for(var i in hh) {
-		ar[hh[i].getName()] = hh[i].getValue();
+		var name = hh[i].getName();
+		if (isDef(ar[name]) && name.toLowerCase() == "set-cookie") {
+			ar[name] = ar[name] + ";" + hh[i].getValue();
+		} else {
+			ar[hh[i].getName()] = hh[i].getValue();
+		}
 	}
 
 	return ar;
@@ -1504,7 +1608,7 @@ OpenWrap.obj.prototype.rest = {
 		var h = new ow.obj.http();
 		
 		if (isUndefined(_l) && isUndefined(_p)) {
-			var u = new java.net.URL(aURL);
+			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
 			if (u.getUserInfo() != null) {
 				_l = String(java.net.URLDecoder.decode(u.getUserInfo().substring(0, u.getUserInfo().indexOf(":")), "UTF-8"));
 				_p = String(java.net.URLDecoder.decode(u.getUserInfo().substring(u.getUserInfo().indexOf(":") + 1), "UTF-8"));
@@ -1541,19 +1645,19 @@ OpenWrap.obj.prototype.rest = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.create(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap) : String</key>
+	 * <key>ow.obj.rest.create(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode) : String</key>
 	 * Tries to create a new aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a string (uses the HTTP POST method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
-	 * that receives the HTTP object.
+	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * </odoc>
 	 */
-	create: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap) {
+	create: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode) {
 		//plugin("HTTP");
 		//var h = new HTTP();
 		var h = new ow.obj.http();
 
 		if (isUndefined(_l) && isUndefined(_p)) {
-			var u = new java.net.URL(aURL);
+			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
 			if (u.getUserInfo() != null) {
 				_l = String(java.net.URLDecoder.decode(u.getUserInfo().substring(0, u.getUserInfo().indexOf(":")), "UTF-8"));
 				_p = String(java.net.URLDecoder.decode(u.getUserInfo().substring(u.getUserInfo().indexOf(":") + 1), "UTF-8"));
@@ -1568,10 +1672,12 @@ OpenWrap.obj.prototype.rest = {
  			_l(h);
  		}
 		
-		//var rmap = merge({"Content-Type":"application/json", "content-type": "application/json"} , aRequestMap);
-		var rmap = merge({"Content-Type":"application/x-www-form-urlencoded"} , aRequestMap);
+		var rmap = (urlEncode) ?
+				   merge({"Content-Type":"application/x-www-form-urlencoded"} , aRequestMap) :
+				   merge({"Content-Type":"application/json"} , aRequestMap);
+
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "POST", stringify(aDataRow, undefined, ''), rmap, undefined, _t);
+			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "POST", (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : stringify(aDataRow, undefined, ''), rmap, undefined, _t);
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -1580,31 +1686,31 @@ OpenWrap.obj.prototype.rest = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonCreate(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap) : Map</key>
+	 * <key>ow.obj.rest.jsonCreate(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode) : Map</key>
 	 * Tries to create a new aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a map (uses the HTTP POST method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
-	 * that receives the HTTP object.
+	 * that receives the HTTP object.  If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * </odoc>
 	 */
-	jsonCreate: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap) {
-		return jsonParse(this.create(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap).response);
+	jsonCreate: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode) {
+		return jsonParse(this.create(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode).response);
 	},
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.set(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout) : String</key>
+	 * <key>ow.obj.rest.set(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode) : String</key>
 	 * Tries to set aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a string (uses the HTTP PUT method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
-	 * that receives the HTTP object.
+	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * </odoc>
 	 */
-	set: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap) {
+	set: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode) {
 		//plugin("HTTP");
 		//var h = new HTTP();
 		var h = new ow.obj.http();
 
 		if (isUndefined(_l) && isUndefined(_p)) {
-			var u = new java.net.URL(aURL);
+			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
 			if (u.getUserInfo() != null) {
 				_l = String(java.net.URLDecoder.decode(u.getUserInfo().substring(0, u.getUserInfo().indexOf(":")), "UTF-8"));
 				_p = String(java.net.URLDecoder.decode(u.getUserInfo().substring(u.getUserInfo().indexOf(":") + 1), "UTF-8"));
@@ -1619,10 +1725,12 @@ OpenWrap.obj.prototype.rest = {
  			_l(h);
  		}
 		
-		//var rmap = merge({"Content-Type":"application/json", "content-type": "application/json"} , aRequestMap);
-		var rmap = merge({"Content-Type":"application/x-www-form-urlencoded"} , aRequestMap);		
+		var rmap = (urlEncode) ?
+		           merge({"Content-Type":"application/x-www-form-urlencoded"} , aRequestMap) :
+				   merge({"Content-Type":"application/json"} , aRequestMap);
+		
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PUT", stringify(aDataRow, undefined, ''), rmap, undefined, _t);
+			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PUT", (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : stringify(aDataRow, undefined, ''), rmap, undefined, _t);
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -1631,14 +1739,14 @@ OpenWrap.obj.prototype.rest = {
 
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonSet(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout) : Map</key>
+	 * <key>ow.obj.rest.jsonSet(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode) : Map</key>
 	 * Tries to set aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a map (uses the HTTP PUT method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
-	 * that receives the HTTP object.
+	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * </odoc>
 	 */
-	jsonSet: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap) {
-		return jsonParse(this.set(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap).response);
+	jsonSet: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode) {
+		return jsonParse(this.set(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode).response);
 	},
 	
 	/**
@@ -1655,7 +1763,7 @@ OpenWrap.obj.prototype.rest = {
 		var h = new ow.obj.http();
 				
 		if (isUndefined(_l) && isUndefined(_p)) {
-			var u = new java.net.URL(aURL);
+			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
 			if (u.getUserInfo() != null) {
 				_l = String(java.net.URLDecoder.decode(u.getUserInfo().substring(0, u.getUserInfo().indexOf(":")), "UTF-8"));
 				_p = String(java.net.URLDecoder.decode(u.getUserInfo().substring(u.getUserInfo().indexOf(":") + 1), "UTF-8"));
@@ -1927,6 +2035,7 @@ OpenWrap.obj.prototype.pmSchema = {
  * </odoc>
  */
 OpenWrap.obj.prototype.getPath = function(aObj, aPath) {
+	// Moving to $$().get()
 	if (!isObject(aObj)) return undefined;
 
 	aPath = aPath.replace(/\[(\w+)\]/g, '.$1');
@@ -1956,6 +2065,8 @@ OpenWrap.obj.prototype.getPath = function(aObj, aPath) {
  * </odoc>
  */
 OpenWrap.obj.prototype.setPath = function(aObj, aPath, aValue) {
+	// Moving to $$().set()
+
     if (!isObject(aObj)) return undefined;
     var orig = aObj;
 

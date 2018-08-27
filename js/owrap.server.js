@@ -183,7 +183,7 @@ OpenWrap.server.prototype.openafServer = {
 	 */
 	start: function(aId, aPort, notLocal) {
 		plugin("JMXServer");
-		this.jmxs = new JMXServer("wedo.openaf:type=OpenAFServer-" + aId);
+		this.jmxs = new JMXServer("com.openaf:type=OpenAFServer-" + aId);
 		this.jmxs.start(aPort, !notLocal);
 		this.jmxs.addBean({},
 		  function(key) { },
@@ -191,13 +191,13 @@ OpenWrap.server.prototype.openafServer = {
 		  function(op, params) {
 		  	switch(op) {
 		  	case "load": return ow.server.jmx.serverExec(params, function(f) { 
-		  		__pmIn = jsonParse(Packages.wedo.open.utils.PMStringConvert.toJSON(Packages.wedo.openaf.OpenAF.__pmIn));
+		  		__pmIn = jsonParse(Packages.wedo.open.utils.PMStringConvert.toJSON(Packages.openaf.OpenAF.__pmIn));
 		  		load(f);
-		  		Packages.wedo.openaf.OpenAF.__pmOut = Packages.wedo.open.utils.PMStringConvert.fromJSON(stringify(__pmOut)); });
+		  		Packages.openaf.OpenAF.__pmOut = Packages.wedo.open.utils.PMStringConvert.fromJSON(stringify(__pmOut)); });
 		  	case "exec": return ow.server.jmx.serverExec(params, function(f) { 
-				__pmIn = jsonParse(Packages.wedo.open.utils.PMStringConvert.toJSON(Packages.wedo.openaf.OpenAF.__pmIn));
+				__pmIn = jsonParse(Packages.wedo.open.utils.PMStringConvert.toJSON(Packages.openaf.OpenAF.__pmIn));
 		  		var res = af.eval(f); 
-		  		Packages.wedo.openaf.OpenAF.__pmOut = Packages.wedo.open.utils.PMStringConvert.fromJSON(stringify(__pmOut));
+		  		Packages.openaf.OpenAF.__pmOut = Packages.wedo.open.utils.PMStringConvert.fromJSON(stringify(__pmOut));
 				return res; }); 
 		    }
 		  }
@@ -212,7 +212,7 @@ OpenWrap.server.prototype.openafServer = {
 	 * </odoc>
 	 */
 	exec: function(aId, aScript, aServerPid) {
-		ow.server.jmx.call(ow.server.jmx.localConnect(aServerPid), "wedo.openaf:type=OpenAFServer-" + aId, "exec", aScript);
+		ow.server.jmx.call(ow.server.jmx.localConnect(aServerPid), "com.openaf:type=OpenAFServer-" + aId, "exec", aScript);
 	},
 	
 	/**
@@ -223,7 +223,7 @@ OpenWrap.server.prototype.openafServer = {
 	 * </odoc>
 	 */
 	load: function(aId, aScriptFilePath, aServerPid) {
-		ow.server.jmx.call(ow.server.jmx.localConnect(aServerPid), "wedo.openaf:type=OpenAFServer-" + aId, "load", aScriptFilePath);
+		ow.server.jmx.call(ow.server.jmx.localConnect(aServerPid), "com.openaf:type=OpenAFServer-" + aId, "load", aScriptFilePath);
 	},
 	
 	/**
@@ -263,7 +263,7 @@ OpenWrap.server.prototype.jmx = {
 	 * be transmitted to the calling JMX client. Example:\
 	 * \
 	 * plugin("JMX");\
-	 * var jmxs = new JMXServer("wedo.openaf:type=server");\
+	 * var jmxs = new JMXServer("com.openaf:type=server");\
 	 * jmxs.start();\
 	 * \
 	 * var c = 0;\
@@ -290,8 +290,8 @@ OpenWrap.server.prototype.jmx = {
 	 * you can provide extra arguments to be passed to the jmx remote operation. Example (based on ow.server.jmx.serverExec):\
 	 * \
 	 * var jmx = ow.loadServer().jmx.localConnect("12345");\
-	 * ow.server.jmx.call(jmx, "wedo.openaf:type=server", "increment"); // 1\
-	 * ow.server.jmx.call(jmx, "wedo.openaf:type=server", "resetTo", 10); // 10
+	 * ow.server.jmx.call(jmx, "com.openaf:type=server", "increment"); // 1\
+	 * ow.server.jmx.call(jmx, "com.openaf:type=server", "resetTo", 10); // 10
 	 * </odoc>
 	 */
 	call: function(aJMX, objName, aOp) {
@@ -321,24 +321,176 @@ OpenWrap.server.prototype.jmx = {
 		var obj = aJMX.getObject(objName);
 		obj.set(aVar, newValue);
 	}
-}
+};
 
 
 //-----------------------------------------------------------------------------------------------------
 // AUTHENTICATION
 //-----------------------------------------------------------------------------------------------------
-OpenWrap.server.prototype.auth = {
-	aListOfAuths: {},
+/**
+ * <odoc>
+ * <key>ow.server.authAppGen(anAppPassword, aUserPassword, a2FAToken, numRounds) : String</key>
+ * Generates an application token to be used for server communication given anAppPassword (encrypted or not),
+ * an application user password (aUserPassword encrypted or not) and an application a2FAToken. Optionally you
+ * can specify the numRounds for the bcrypt function used (if absent, bcrypt won't be used).\
+ * \
+ * Example:\
+ * \
+ * ow.loadServer();\
+ * $ch("a").createRemote("http://some.server:1234/a", void 0, (h) => {\
+ *    h.login("user", ow.server.authAppGen("...", "...", "..."));\
+ * });\
+ * \
+ * </odoc>
+ */
+OpenWrap.server.prototype.authAppGen = function(anAppPassword, aUserPassword, a2FAToken, numRounds) {
+	_$(anAppPassword)
+	 .isString("The app password is not a string.")
+	 .check((v) => { return v.length >= 16; }, "The app password needs to be, at least, 16 chars.")
+	 .$_("Please provide an app password.");
+	
+	_$(aUserPassword)
+	 .isString("The user password is not a string.")
+	 .check((v) => { return v.length >= 16; }, "The user password needs to be, at least, 16 chars.")
+	 .$_("Please provide a user password.");
+
+	_$(a2FAToken)
+	 .isString("The 2FA token is not a string.")
+	 .check((v) => { return v.length >= 16; }, "The 2FA token needs to be 16 chars or more (encrypted).")
+	 .$_("Please provde a 2FA token");
+
+	numRounds = _$(numRounds)
+	 .isNumber()
+	 .default(-1);
+
+	var appPass = String(Packages.openaf.AFCmdBase.afc.dIP(anAppPassword));
+	var aPass = String(Packages.openaf.AFCmdBase.afc.dIP(aUserPassword));
+	var token = String(Packages.openaf.AFCmdBase.afc.dIP(a2FAToken));
+
+	if (numRounds < 1) {
+		return "Z" + af.encrypt(sha512(aPass + String(af.get2FAToken(token))), appPass);
+	} else {
+		return "Z" + af.encrypt(bcrypt(sha512(aPass + String(af.get2FAToken(token))), void 0, numRounds), appPass);
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.authAppCheck(anAppPassword, aReceivedToken, aUserPassword, a2FAToken, useBCrypt) : boolean</key>
+ * Checks the validity of the aReceivedToken given anAppPassword, corresponding aUserPasswork and a2FAToken returning
+ * true if it's valid or false otherwise. If useBCrypt = 1 then an extra bcrypt function will be added.\
+ * \
+ * Example:\
+ * \
+ * ow.loadServer();\
+ * $ch("a").expose(1234, "/a", (u, p) => {\
+ *    if (u == "a" &amp;&amp; \
+ *        ow.server.authAppCheck("...", p, "...", "...")) \
+ *      return true; \
+ *    else \
+ *      return false;\
+ * });\
+ * \
+ * </odoc>
+ */
+OpenWrap.server.prototype.authAppCheck = function(anAppPassword, aTestString, aUserPassword, a2FAToken, useB) {
+	_$(anAppPassword)
+	.isString()
+	.check((v) => { return v.length >= 16; }, "The app password needs to be, at least, 16 chars.")
+	.$_("Please provide an app password.");
+
+	_$(a2FAToken)
+	 .isString()
+	 .check((v) => { return v.length >= 16; }, "The 2FA token needs to be 16 chars or more (encrypted).")
+	 .$_("Please provde a 2FA token");
+
+	var appPass = String(Packages.openaf.AFCmdBase.afc.dIP(anAppPassword));
+	var aPass = String(Packages.openaf.AFCmdBase.afc.dIP(aUserPassword));
+	var token = String(Packages.openaf.AFCmdBase.afc.dIP(a2FAToken));
+
+	var d = (new Date()).getTime();
+	var res = false, tries = 0;
+	do {
+		if (tries == 1) d = d - 30000;
+		if (tries == 2) d = d + 30000;
+
+		if (useB) {
+			res = bcrypt(sha512(aPass + String(af.get2FAToken(token, d))), af.decrypt(aTestString.substring(1), appPass));
+		} else {
+			res = sha512(aPass + String(af.get2FAToken(token, d))) == af.decrypt(aTestString.substring(1), appPass);
+		}
+		tries++;
+	} while(res == false && tries < 3);
+	return res;
+};
+
+OpenWrap.server.prototype.auth = function(aIniAuth, aKey, aCustomFunction) {
+	this.aListOfAuths = {};
+	this.lockTimeout = 15 * 60;
+	this.triesToLock = 3;
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.setCustomFunction(aCustomFunction)</key>
+	 * Sets a custom authentication function that receives the provided user and password and should return true if
+	 * authenticated or false otherwise.
+	 * </odoc>
+	 */
+	this.setCustomFunction = function(aCustomFunction) {
+		if (isDef(aCustomFunction) && isFunction(aCustomFunction)) {
+			this.customFunction = aCustomFunction;
+		}
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.setLockTimeout(aTimeout)</key>
+	 * Set the current lock timeout in seconds. Defaults to 15 minutes.
+	 * </odoc>
+	 */
+	this.setLockTimeout = function(aTimeout) {
+		this.lockTimeout = aTimeout;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.setTriesToLock(numberOfTries)</key>
+	 * Set the current number of wrong tries until a user is locked. Defaults to 3.
+	 * </odoc>
+	 */
+	this.setTriesToLock = function(numberOfTries) {
+		this.triesToLock = numberOfTries;
+	};
 	
 	/**
 	 * <odoc>
-	 * <key>ow.server.auth.initialize(aPreviousDumpMap)</key>
-	 * Initializes with a previous dump from ow.server.auth.dump.
+	 * <key>ow.server.auth.isLocked(aUser) : boolean</key>
+	 * For a given aUser returns if the user is currently considered as lock or not.
 	 * </odoc>
 	 */
-	initialize: function(aIniAuth) {
-		this.aListOfAuths = aIniAuth;
-	},
+	this.isLocked = function(aUser) {
+		if (isUnDef(this.aListOfAuths[aUser])) throw "User not found";
+		ow.loadFormat();
+		return isDef(this.aListOfAuths[aUser].l) && ow.format.dateDiff.inSeconds(this.aListOfAuths[aUser].l) < this.lockTimeout;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.initialize(aPreviousDumpMap, aKey, aCustomFunc)</key>
+	 * Initializes with a previous dump from ow.server.auth.dump or ow.server.auth.dumpEncrypt (including an optional aKey if used).
+	 * Optionally aCustomFunc can be provided as a custom authentication function that receives the provided user and password and should return true if
+	 * authenticated or false otherwise.
+	 * </odoc>
+	 */
+	this.initialize = function(aIniAuth, aKey, aCustomFunc) {
+		if (isString(aIniAuth)) {
+			this.aListOfAuths = jsonParse(af.decrypt(aIniAuth, (isDef(aKey) ? aKey : void 0)));
+		} else {
+			this.aListOfAuths = aIniAuth;
+		}
+		if (isUnDef(this.aListOfAuths)) this.aListOfAuths = {};
+		this.setCustomFunction(aCustomFunc);
+	};
 	
 	/**
 	 * <odoc>
@@ -346,19 +498,58 @@ OpenWrap.server.prototype.auth = {
 	 * Dumps the current authentication list into a Map.
 	 * </odoc>
 	 */
-	dump: function() {
+	this.dump = function() {
 		return this.aListOfAuths;
-	},
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.dumpEncrypt(aKey) : Map</key>
+	 * Dumps the current authentication list into an encrypted string (optionally using an encryption aKey).
+	 * </odoc>
+	 */
+	this.dumpEncrypt = function(aKey) {
+		return af.encrypt(stringify(this.aListOfAuths), (isDef(aKey) ? aKey : void 0));
+	};
 	
 	/**
 	 * <odoc>
-	 * <key>ow.server.auth.add(aUser, aPass)</key>
-	 * Adds the aUser and aPass to the current authentication list.
+	 * <key>ow.server.auth.add(aUser, aPass, aKey)</key>
+	 * Adds the aUser and aPass to the current authentication list. Optionally a 2FA aKey.
 	 * </odoc>
 	 */
-	add: function(aUser, aPass) {
-		this.aListOfAuths[aUser] = sha1(aPass);
-	},
+	this.add = function(aUser, aPass, aKey) {
+		this.aListOfAuths[aUser] = {
+			p: sha512(Packages.openaf.AFCmdBase.afc.dIP(aPass)),
+			k: aKey
+		};
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.setExtra(aUser, aX)</key>
+	 * Sets an extra object (aX) to be associated with aUser (for example, the correspondings permissions).
+	 * You can later retrieve this extra object with ow.server.auth.getExtra.
+	 * </odoc>
+	 */
+	this.setExtra = function(aUser, aX) {
+		if (isUnDef(this.aListOfAuths[aUser])) throw "User not found";
+
+		var user = this.aListOfAuths[aUser];
+		user.x = aX;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.getExtra(aUser) : Object</key>
+	 * Gets the extra object associated with aUser (previously set with ow.server.auth.setExtra).
+	 * </odoc>
+	 */
+	this.getExtra = function(aUser) {
+		if (isUnDef(this.aListOfAuths[aUser])) throw "User not found";
+
+		return this.aListOfAuths[aUser].x;
+	};
 	
 	/**
 	 * <odoc>
@@ -366,21 +557,97 @@ OpenWrap.server.prototype.auth = {
 	 * Removes the aUSer from the current authentication list.
 	 * </odoc>
 	 */
-	del: function(aUser) {
+	this.del = function(aUser) {
+		if (isUnDef(this.aListOfAuths[aUser])) throw "User not found";
+
 		delete this.aListOfAuths[aUser];
-	},
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.is2FA(aUser) : boolean</key>
+	 * Returns true if aUser has 2FA authentication, false otherwise.
+	 * </odoc>
+	 */
+	this.is2FA = function(aUser) {
+		if (isUnDef(this.aListOfAuths[aUser])) throw "User not found";
+
+		return isDef(this.aListOfAuths[aUser].k);
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.loadFile(aFile, aKey)</key>
+	 * Loads aFile (previously saved with ow.server.auth.saveFile), optionally providing aKey, (re)initializing 
+	 * the current authentication information.
+	 * </odoc>
+	 */
+	this.loadFile = function(aFile, aKey) {
+		this.initialize(io.readFileString(aFile), aKey);
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.auth.saveFile(aFile, aKey)</key>
+	 * Saves into aFile, optionally providing aKey, the current authentication information. You can use ow.server.auth.loadFile
+	 * later to reload this info.
+	 * </odoc>
+	 */
+	this.saveFile = function(aFile, aKey) {
+		io.writeFileString(aFile, this.dumpEncrypt(aKey));
+	};
 	
 	/**
 	 * <odoc>
 	 * <key>ow.server.auth.check(aUser, aPass) : boolean</key>
 	 * Checks if the aUser and aPass provided are authenticated with the current internal list (returns true)
-	 * or not (returns false).
+	 * or not (returns false). If a 2FA authentication was provided the token should be suffix to the password.
 	 * </odoc>
 	 */
-	check: function(aUser, aPass) {
-		return (this.aListOfAuths[aUser] == sha1(aPass));
-	}
-}
+	this.check = function(aUser, aPass) {
+		var checkPassword = (p) => {
+			if (isDef(this.customFunction)) {
+				return this.customFunction(aUser, p);
+			} else {
+				return user.p == sha512(Packages.openaf.AFCmdBase.afc.dIP(p));
+			}
+		};
+
+		if (isUnDef(this.aListOfAuths[aUser])) throw "User not found";
+
+		var user = this.aListOfAuths[aUser];
+		var res = false;
+
+		if (isDef(user.k)) {
+			// 2FA
+			aPass = String(Packages.openaf.AFCmdBase.afc.dIP(aPass));
+			var token = aPass.substr(-6);
+			var pass = aPass.substr(0, aPass.length - 6);
+			res = (checkPassword(pass) && af.validate2FA(user.k, token));
+		} else {
+			res = checkPassword(aPass);
+		}
+
+		if (this.isLocked(aUser)) {
+			user.l = new Date();
+		} else {
+			if (res) {
+				user.n = 0;
+				user.l = undefined;
+			} else {
+				user.n++;
+				if (user.n >= this.triesToLock) {
+					user.l = new Date();
+				}
+			}
+		}
+
+		return res;
+	};
+
+	this.initialize(aIniAuth, aKey, aCustomFunction);
+	return this;
+};
 
 //-----------------------------------------------------------------------------------------------------
 // LDAP Check
@@ -406,10 +673,11 @@ OpenWrap.server.prototype.ldap = function(aServer, aUsername, aPassword) {
 	
 	if (isUnDef(aUsername) && isUnDef(aPassword)) {
 		env.put(javax.naming.Context.SECURITY_AUTHENTICATION, "none");
+	} else {
+		env.put(javax.naming.Context.SECURITY_PRINCIPAL, Packages.openaf.AFCmdBase.afc.dIP(aUsername));
+		env.put(javax.naming.Context.SECURITY_CREDENTIALS, Packages.openaf.AFCmdBase.afc.dIP(aPassword));
 	}
 	//env.put(javax.naming.Context.SECURITY_AUTHENTICATION, "simple");
-	env.put(javax.naming.Context.SECURITY_PRINCIPAL, aUsername);
-	env.put(javax.naming.Context.SECURITY_CREDENTIALS, Packages.wedo.openaf.AFCmdBase.afc.dIP(aPassword));
 	env.put(javax.naming.Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory");
 	env.put(javax.naming.Context.PROVIDER_URL, aServer);
 
@@ -514,38 +782,83 @@ OpenWrap.server.prototype.ldap.prototype.searchStrings = function(baseSearch, se
 
 OpenWrap.server.prototype.rest = {
 	
+	parseQuery: (s) => {
+		var r = jsonParse(s);
+		if (isObject(r)) return r;
+
+		r = {};
+		var l = splitBySeparator(s, "&");
+		for(let i in l) {
+			var a = splitBySeparator(l[i], "=");
+			if (a.length == 2) r[decodeURIComponent(a[0])] = decodeURIComponent(a[1]);
+		}
+		return r;
+	},
+
 	/**
 	 * <odoc>
-	 * <key>ow.server.rest.reply(aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc) : RequestReply</key>
+	 * <key>ow.server.rest.reply(aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams) : RequestReply</key>
 	 * Provides a REST compliant HTTPServer request replier given a aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc
-	 * and aRemoveFunc. Each function will receive a map with the provided indexes from the request.\
+	 * and aRemoveFunc. Each function will receive a map with the provided indexes and data from the request plus the request itself. Optionally you can 
+	 * specify with returnWithParams = true that each function will not return just the data map but a composed map with: data (the actual
+	 * json of data), status (the HTTP code to return) and mimetype.\
 	 * \
 	 * var hs = ow.loadServer().httpd.start(8080);\
 	 * ow.server.httpd.route(hs, ow.server.httpd.mapRoutesWithLibs(hs, {\
 	 *    "/rest": function(req) { return ow.server.rest.reply("/rest", req,\
-	 *       function(idxs, data) { // Create and return a map },\
-	 *       function(idxs)       { // Get and return a map },\
-	 *       function(idxs, data) { // Set and return a map },\
-	 *       function(idxs)       { // Remove and return a map }\
+	 *       function(idxs, data, r) { // Create and return a map },\
+	 *       function(idxs, r)       { // Get and return a map },\
+	 *       function(idxs, data, r) { // Set and return a map },\
+	 *       function(idxs, r)       { // Remove and return a map }\
 	 *    )}}, function(req) { return hs.replyOKText("nothing here"); });\
 	 * ow.server.daemon();\
 	 * \ 
 	 * </odoc>
 	 */
-	reply: function(aBaseURI, aReq, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc) {
+	reply: function(aBaseURI, aReq, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams) {
 		var idxs = ow.server.rest.parseIndexes(aBaseURI, aReq);
 		var res = {};
 		res.headers = {};
+		var params;
+
+		res.mimetype = ow.server.httpd.mimes.JSON;
 
 		switch(aReq.method) {
-		case "GET": res.data = stringify(aGetFunc(idxs), undefined, ""); break;
+		case "GET": 
+			if (returnWithParams) {
+				params = aGetFunc(idxs, aReq);
+				if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+				if (isDef(params.status))   res.status = params.status;
+				if (isDef(params.mimetype)) res.mimetype = params.mimetype;
+			} else {
+				res.data = stringify(aGetFunc(idxs, aReq), void 0, ""); 
+			}
+			break;
 		case "POST":
 			if (isDef(aReq.files.content)) {
 				var fdata = "";
-				try { fdata = io.readFileString(aReq.files.content); } catch(e) { };
-				res.data = stringify(aCreateFunc(idxs, jsonParse(fdata)), undefined, "");
+				try { fdata = io.readFileString(aReq.files.content); } catch(e) { }
+				if (returnWithParams) {
+					params = aCreateFunc(idxs, ow.server.rest.parseQuery(fdata), aReq);
+					if (isDef(params.data))     res.data = stringify(params.data);
+					if (isDef(params.status))   res.status = params.status;
+					if (isDef(params.mimetype)) res.mimetype = params.mimetype;
+				} else { 
+					res.data = stringify(aCreateFunc(idxs, ow.server.rest.parseQuery(fdata), aReq), void 0, "");
+				}
 			} else {
-				res.data = stringify(aCreateFunc(idxs, jsonParse(aReq.params["NanoHttpd.QUERY_STRING"])), undefined, "");
+				if (isDef(aReq.files.postData)) {
+					params = aCreateFunc(idxs, ow.server.rest.parseQuery(aReq.files.postData), aReq);
+				} else {
+					params = aCreateFunc(idxs, ow.server.rest.parseQuery(aReq.params["NanoHttpd.QUERY_STRING"]), aReq);
+				}
+				if (returnWithParams) {
+					if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+					if (isDef(params.status))   res.status = params.status;
+					if (isDef(params.mimetype)) res.mimetype = params.mimetype;					
+				} else {
+					res.data = stringify(params, void 0, "");
+				}
 			}
 			res.headers["Location"] = ow.server.rest.writeIndexes(res.data);
 			break;
@@ -553,15 +866,30 @@ OpenWrap.server.prototype.rest = {
 			if (isDef(aReq.files.content)) {
 				var fdata = "";
 				try { fdata = io.readFileString(aReq.files.content); } catch(e) { };
-				res.data = stringify(aSetFunc(idxs, jsonParse(fdata)), undefined, "");
+				params = aSetFunc(idxs, ow.server.rest.parseQuery(fdata), aReq);
 			} else {
-				res.data = stringify(aSetFunc(idxs, jsonParse(aReq.files.postData)), undefined, "");
+				params = aSetFunc(idxs, ow.server.rest.parseQuery(aReq.files.postData), aReq);
+			}
+			if (returnWithParams) {
+				if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+				if (isDef(params.status))   res.status = params.status;
+				if (isDef(params.mimetype)) res.mimetype = params.mimetype;	
+			} else {
+				res.data = stringify(params, void 0, "");
 			}
 			break;
-		case "DELETE": res.data = stringify(aRemoveFunc(idxs), undefined, ""); break;
-		};
-		
-		res.mimetype = ow.server.httpd.mimes.JSON;
+		case "DELETE": 
+			params = aRemoveFunc(idxs, aReq); 
+			if (returnWithParams) {
+				if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+				if (isDef(params.status))   res.status = params.status;
+				if (isDef(params.mimetype)) res.mimetype = params.mimetype;	
+			} else {
+				res.data = stringify(params, void 0, "");
+			}
+			break;
+		}
+
 		return res;
 	},
 	
@@ -656,7 +984,206 @@ OpenWrap.server.prototype.rest = {
 	writeIndexes: function(aPropsObj) {
 		return ow.loadObj().rest.writeIndexes(aPropsObj)
 	}
-}
+};
+
+//-----------------------------------------------------------------------------------------------------
+//CRON SCHEDULER
+//-----------------------------------------------------------------------------------------------------
+
+/**
+ * <odoc>
+ * <key>ow.server.scheduler.scheduler()</key>
+ * Creates a new instance of a cron based scheduler with its own thread pool.
+ * </odoc>
+ */
+OpenWrap.server.prototype.scheduler = function () {
+	plugin("Threads");
+	ow.loadFormat();
+
+	var r = {
+		__entries: {},
+		__repeat: "",
+		__t: new Threads()
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.scheduler.stop()</key>
+	 * Attempts to force stop the current scheduler thread pool.
+	 * </odoc>
+	 */
+	r.stop = function () {
+		this.__t.stop(true);
+
+		this.__entries = {};
+		this.__repeat = "";
+		this.__t = new Threads();
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.scheduler.addEntry(aCronExpr, aFunction, waitForFinish) : String</key>
+	 * Adds a new scheduler entry with a given aCronExpr"ession" that will trigger the scheduled execution of
+	 * aFunction. If waitForFinish = true it will not execute until the previous execution has finished.
+	 * Returns an UUID that can be used with the function modifyEntry later, if needed.
+	 * </odoc>
+	 */
+	r.addEntry = function (aCronExpr, aFunction, waitForFinish) {
+		var uuid = genUUID();
+
+		this.__entries[uuid] = {
+			expr: aCronExpr,
+			func: aFunction,
+			wff: waitForFinish,
+			exec: false,
+			next: now() + ow.format.cron.timeUntilNext(aCronExpr)
+		};
+
+		this.resetSchThread();
+		return uuid;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.scheduler.modifyEntry(aUUID, aCronExpr, aFunction, waitForFinish) : String</key>
+	 * Changes an existing scheduler entry (aUUID) with a given aCronExpr"ession" that will trigger the scheduled execution of
+	 * aFunction. If waitForFinish = true it will not execute until the previous execution has finished.
+	 * </odoc>
+	 */
+	r.modifyEntry = function(aUUID, aCronExpr, aFunction, waitForFinish) {
+		if (isUnDef(this.__entries[aUUID])) return void 0;
+		
+		this.__entries[aUUID] = {
+			expr: aCronExpr,
+			func: aFunction,
+			wff: waitForFinish,
+			exec: false,
+			next: now() + ow.format.cron.timeUntilNext(aCronExpr)
+		};
+
+		this.resetSchThread();
+		return aUUID;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.scheduler.timeUntilNext() : Number</key>
+	 * Returns the number of ms until the next scheduled execution.
+	 * </odoc>
+	 */
+	r.timeUntilNext = function () {
+		var t;
+		var ref = new Date();
+
+		for (let i in this.__entries) {
+			var c = new Date(ow.format.cron.nextScheduled(this.__entries[i].expr)) - ref;
+			if (isUnDef(t)) {
+				t = c;
+			} else {
+				if (c >= 0 && c < t) t = c;
+			}
+		}
+
+		return t;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.scheduler.nextUUID() : String</key>
+	 * Returns the uuid of the next entry that will be executed.
+	 * </odoc>
+	 */
+	r.nextUUID = function () {
+		var t;
+		var r = -1;
+		var ref = new Date();
+
+		for (let i in this.__entries) {
+			var c = new Date(ow.format.cron.nextScheduled(this.__entries[i].expr)) - ref;
+			if (isUnDef(t)) {
+				t = c;
+				r = i;
+			} else {
+				if (c >= 0 && c < t) {
+					t = c;
+					r = i;
+				}
+			}
+		}
+
+		return r;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.scheduler.resetSchThread(aErrFunction)</key>
+	 * Resets the current scheduler thread pool adding a loop cached thread that will sleep until the next
+	 * execution is due. When it executes it will add a new cached thread to execute the scheduled entry
+	 * by executing the entry function provided, as argument, it's uuid.
+	 * </odoc>
+	 */
+	r.resetSchThread = function (aErrFunction) {
+		var parent = this;
+		var ruuid = genUUID();
+
+		if (isUnDef(aErrFunction)) aErrFunction = (r) => { logErr(String(r)); };
+		this.__errfunc = aErrFunction;
+
+		this.__repeat = ruuid;
+		this.__t.stop(true);
+		this.__t = new Threads();
+
+		this.__t.addCachedThread(function (uuid) {
+
+			do {
+				var ts = void 0;
+				for (let i in parent.__entries) {
+					var entry = parent.__entries[i];
+
+					// Check if it's time to execute
+					// If wff = true it's not okay to execute if it's executing.
+					if (ow.format.cron.isCronMatch(new Date(), entry.expr) && ((entry.wff && !entry.exec) || !entry.wff)) {
+						parent.__t.addCachedThread(function () {
+							var res;
+							var si = String(i);
+							try {
+								if (parent.__entries[si].next <= now()) {
+									parent.__entries[si].next = (new Date(ow.format.cron.nextScheduled(parent.__entries[si].expr, void 0, now()+1000))).getTime();
+									parent.__entries[si].exec = true;
+									res = parent.__entries[si].func(si);
+									while (ow.format.cron.timeUntilNext(parent.__entries[si].expr) < 0) {
+										sleep(500);
+									}
+									parent.__entries[si].exec = false;
+								}
+							} catch (e) {
+								if (!(e.message.match(/java\.lang\.InterruptedException: sleep interrupted/)))
+									parent.__errfunc(e);
+							}
+							return res;
+						});
+					}
+
+					// Determine the minimum waiting time
+					if (isUnDef(ts)) {
+						ts = ow.format.cron.timeUntilNext(entry.expr, void 0, now()+1000);
+					} else {
+						var c = ow.format.cron.timeUntilNext(entry.expr);
+						if (c < ts) ts = c;
+					}
+				}
+
+				if (ts > 0) {
+					sleep(ts);
+				} else {
+					sleep(500);
+				}
+			} while (parent.__repeat == String(ruuid));
+		});
+	};
+
+	return r;
+};
 
 //-----------------------------------------------------------------------------------------------------
 // HTTP SERVER
@@ -685,13 +1212,28 @@ OpenWrap.server.prototype.httpd = {
 		
 		var hs = new HTTPd(aPort, aHost, keyStorePath, password, errorFunction);
 		
-		this.__routes[hs.getPort()] = {};
-		this.__defaultRoutes[hs.getPort()] = {};
-		this.__preRoutes[hs.getPort()] = {};
-		
+		this.resetRoutes(hs);
+
 		return hs;
 	},
 	
+	/**
+	 * <odoc>
+	 * <key>ow.server.httpd.resetRoutes(aHTTPd)</key>
+	 * Given aHTTPd it will reset all internal mapped routes to a reply HTTP code 401 to everything.
+	 * </odoc>
+	 */
+	resetRoutes: function(aHTTPd) {
+		this.__routes[aHTTPd.getPort()] = {};
+		this.__defaultRoutes[aHTTPd.getPort()] = {};
+		this.__preRoutes[aHTTPd.getPort()] = {};
+
+		var nullFunc = function(r) { return aHTTPd.reply("", "", 401, {}); };
+		this.route(aHTTPd, { "/": nullFunc }, nullFunc);
+
+		return aHTTPd;
+	},
+
 	/**
 	 * <odoc>
 	 * <key>ow.server.httpd.getFromOpenAF(aResource, inBytes, anEncoding) : anArrayOfBytes</key>
@@ -738,8 +1280,8 @@ OpenWrap.server.prototype.httpd = {
 	 * </odoc>
 	 */
 	route: function(aHTTPd, aMapOfRoutes, aDefaultRoute, aPath, aPreRouteFunc) {
-		if (isUndefined(aPath)) aPath = "/r/";
-		if (isUndefined(aMapOfRoutes)) aMapOfRoutes = {};
+		if (isUnDef(aPath)) aPath = "/r/";
+		if (isUnDef(aMapOfRoutes)) aMapOfRoutes = {};
 		ow.loadFormat();
 		
 		var parent = this;
@@ -767,11 +1309,18 @@ OpenWrap.server.prototype.httpd = {
 		aHTTPd.setDefault(aPath);
 	},
 	
+	/**
+	 * <odoc>
+	 * <key>ow.server.httpd.mapWithExistingRoutes(aHTTPd, aMapOfRoutes) : Map</key>
+	 * Builds a map of routes taking into account the already defined routes for aHTTPd thus effectively
+	 * letting add new routes. 
+	 * </odoc>
+	 */
 	mapWithExistingRoutes: function(aHTTPd, aMapOfRoutes) {
-		if (isUndefined(aMapOfRoutes)) aMapOfRoutes = {};
+		if (isUnDef(aMapOfRoutes)) aMapOfRoutes = {};
 		var res = {};
-		for(var i in aMapOfRoutes) { res[i] = aMapOfRoutes[i]; }
 		for(var i in this.__routes[aHTTPd.getPort()]) { res[i] = this.__routes[aHTTPd.getPort()][i]; }
+		for(var i in aMapOfRoutes) { res[i] = aMapOfRoutes[i]; }
 		return res;
 	},
 	
@@ -796,7 +1345,7 @@ OpenWrap.server.prototype.httpd = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.server.httpd.mapRouteWithLibs(aHTTPd, aMapOfRoutes) : Map</key>
+	 * <key>ow.server.httpd.mapRoutesWithLibs(aHTTPd, aMapOfRoutes) : Map</key>
 	 * Helper to use with ow.server.httpd.route to automatically add routes for JQuery, Backbone,
 	 * Handlebars, jLinq and Underscore from the openaf.jar.
 	 * </odoc>
@@ -810,6 +1359,7 @@ OpenWrap.server.prototype.httpd = {
 		aMapOfRoutes["/js/jlinq.js"] = function() { return ow.server.httpd.replyJLinq(aHTTPd); };
 		aMapOfRoutes["/js/underscore.js"] = function() { return ow.server.httpd.replyUnderscore(aHTTPd); };
 		aMapOfRoutes["/js/lodash.js"] = function() { return ow.server.httpd.replyLoadash(aHTTPd); };
+		aMapOfRoutes["/js/openafsigil.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/openafsigil.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK) };
 		aMapOfRoutes["/js/highlight.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/highlight.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK) };
 		aMapOfRoutes["/js/materialize.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/materialize.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK) };
 		aMapOfRoutes["/css/materialize.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/materialize.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK) };
@@ -900,7 +1450,7 @@ OpenWrap.server.prototype.httpd = {
 		try {
 			var baseFilePath = aBaseFilePath;
 			var furi = String((new java.io.File(new java.io.File(baseFilePath),
-				(new java.net.URI(aURI.replace(new RegExp("^" + aBaseURI), "") )).getPath())).getCanonicalPath());
+				(new java.net.URI(aURI.replace(new RegExp("^" + aBaseURI), "") )).getPath())).getCanonicalPath()).replace(/\\/g, "/");
 			
 			if (!(furi.match(new RegExp("^" + baseFilePath))))
 				for(var i in documentRootArray) {
@@ -918,6 +1468,64 @@ OpenWrap.server.prototype.httpd = {
 		}
 	},
 	
+	/**
+	 * <odoc>
+	 * <key>ow.server.httpd.replyFileMD(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray) : Map</key>
+	 * Provides a helper aHTTPd reply that will enable the parsing markdown file-based sites, from aBaseFilePath, given aURI part of 
+	 * aBaseURI. Optionally you can also provide a notFoundFunction and an array of file strings (documentRootArraY) to replace as
+	 * documentRoot. Example:\
+	 * \
+	 * ow.server.httpd.route((hs, ow.server.httpd.mapRoutesWithLibs(hs, {)\
+	 *    "/stuff/to/server": function(req) {\
+	 *       return ow.server.httpd.replyFileMD(hs, "/some/path/to/serve/files", "/stuff/to/server", req.uri);\
+	 *    }\
+	 * },\
+	 * function(req) {\
+	 *    return hs.replyOKText("nothing here...");\
+	 * }\
+	 * );\
+	 * \
+	 * </odoc>
+	 */
+	replyFileMD: function(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray) {
+		ow.loadTemplate();
+
+		if (isUnDef(notFoundFunction)) {
+			notFoundFunction = function() {
+				return aHTTPd.reply("Not found!", ow.server.httpd.mimes.TXT, ow.server.httpd.codes.NOTFOUND);
+			}
+		}
+		try {
+			var baseFilePath = aBaseFilePath;
+			var furi = String((new java.io.File(new java.io.File(baseFilePath),
+				(new java.net.URI(aURI.replace(new RegExp("^" + aBaseURI), "") )).getPath())).getCanonicalPath()).replace(/\\/g, "/");
+			
+			if (isUnDef(documentRootArray)) documentRootArray = [ "index.md" ];
+
+			if (io.fileExists(furi) && io.fileInfo(furi).isDirectory) {
+				for(var i in documentRootArray) {
+					furi = String((new java.io.File(new java.io.File(baseFilePath),
+						(new java.net.URI((aURI + documentRootArray[i]).replace(new RegExp("^" + aBaseURI), "") )).getPath())).getCanonicalPath());
+					if (furi.match(new RegExp("^" + baseFilePath))) break;
+				}
+			}
+
+			if (!(furi.match(/[^/]+\.[^/]+$/))) furi = furi + ".md";
+
+			if (furi.match(new RegExp("^" + baseFilePath))) {
+				if (furi.match(/\.md$/)) {
+					return aHTTPd.replyOKHTML(ow.template.parseMD2HTML(io.readFileString(furi), 1));
+				} else {
+					return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi));
+				}
+			} else {
+			    return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI);
+			}
+		} catch(e) { 
+			return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI, e);
+		}
+	},
+
 	/**
 	 * <odoc>
 	 * <key>ow.server.httpd.replyRedirect(aHTTPd, newLocation) : Map</key>
@@ -946,7 +1554,7 @@ OpenWrap.server.prototype.httpd = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.server.httpd.authBasic(aRealm. aHTTPd, aReq, aAuthFunc, aReplyFunc, aUnAuthFunc) : Map</key>
+	 * <key>ow.server.httpd.authBasic(aRealm, aHTTPd, aReq, aAuthFunc, aReplyFunc, aUnAuthFunc) : Map</key>
 	 * Wraps a httpd reply with basic HTTP authentication for the provided aRealm on the aHTTPd server. The aReq
 	 * request map should be provided along with aAuthFunc (that receives the user and password and should return
 	 * true of false if authentication is successful). If authentication is successful aReplyFunc will be executed

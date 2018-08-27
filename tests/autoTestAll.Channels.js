@@ -1,6 +1,33 @@
 (function() {
     this.chType = "big";
 
+    exports.testMVSUtils = function() {
+        io.rm("testMVS.db");
+
+        $ch("mvs").create(1, "mvs", { file: "testMVS.db", map: "teste" });
+        $ch("mvs").set(1, 1); 
+        $ch("mvs").set(2, 2);
+        $ch("mvs").set(3, 3);
+
+        var res = ow.ch.utils.mvs.list("testMVS.db");
+        ow.test.assert(res, [ "teste" ], "Problem with listing maps on a mvs file.");
+
+        ow.ch.utils.mvs.rename("testMVS.db", "teste", "teste2");
+        res = ow.ch.utils.mvs.list("testMVS.db");
+        ow.test.assert(res, [ "teste2" ], "Problem with listing maps on a mvs file (2).");
+        ow.ch.utils.mvs.rename("testMVS.db", "teste2", "teste");
+
+        $ch("mvs").destroy();
+        res = ow.ch.utils.mvs.list("testMVS.db");
+        ow.test.assert(res, [ "teste" ], "Problem with listing maps on a mvs file (3).");
+
+        ow.ch.utils.mvs.remove("testMVS.db", "teste");
+        res = ow.ch.utils.mvs.list("testMVS.db");
+        ow.test.assert(res, [ ], "Problem with listing maps on a mvs file (4).");
+
+        io.rm("testMVS.db");
+    };
+
     exports.testCreateChannel = function() {
         $ch(this.chType).create(true, this.chType);
         $ch(this.chType).size();
@@ -14,6 +41,32 @@
 
     exports.testDestroyChannel = function() {
         $ch(this.chType).destroy();
+    };
+
+    exports.testChannelSubscribers = function() {
+        $ch("_t1_").create();
+        $ch("_t2_").create();
+        $ch("_t3_").create();
+        $ch("_t4_").create();
+
+        $ch("_t1_").subscribe(ow.ch.utils.getMirrorSubscriber("_t2_"));
+        $ch("_t1_").subscribe(ow.ch.utils.getMirrorSubscriber("_t3_"));
+
+        $ch("_t1_").setAll(["filepath"], listFilesRecursive("..")); 
+        $ch("_t1_").waitForJobs(); sleep(100);
+
+        ow.test.assert($ch("_t1_").size(), $ch("_t2_").size(), "Differences between channel 1 and 2");
+        ow.test.assert($ch("_t1_").size(), $ch("_t3_").size(), "Differences between channel 1 and 3");
+
+        $ch("_t2_").subscribe(ow.ch.utils.getMirrorSubscriber("_t4_"));
+        $ch("_t2_").waitForJobs(); sleep(100);
+
+        ow.test.assert($ch("_t2_").size(), $ch("_t4_").size(), "Differences between channel 2 and 4");
+
+        $ch("_t1_").destroy();
+        $ch("_t2_").destroy();
+        $ch("_t3_").destroy();
+        $ch("_t4_").destroy();
     };
 
     exports.testAuditLog = function() {
@@ -40,6 +93,19 @@
         ow.test.assert($from(opsAudit).equals("o", "REMOVE").equals("c", chName).equals("u", "abc").equals("p", "rw").any(), true, "Problem with auditing remote channel remove rest operation.");                        
 
         $ch(chName).destroy();
+    };
+
+    exports.testKeepHistory = function() {
+        var t = ow.ch.utils.keepHistory(100, "__keepHistoryTest", () => { return { tt: new Date() } });
+        sleep(1500);
+        t.stop();
+        ow.test.assert($ch("__keepHistoryTest").size(), 10, "Problem with a simple ow.ch.utils.keepHistory setup.");
+
+        $ch("__keepHistoryTest").destroy();
+        var t = ow.ch.utils.keepHistory(100, "__keepHistoryTest", () => { return { id: nowNano(), tt: new Date() } }, ["id"], 20);
+        sleep(2500);
+        t.stop();
+        ow.test.assert($ch("__keepHistoryTest").size(), 20, "Problem with changing history size on ow.ch.utils.keepHistory.");
     };
 
     exports.testHousekeeping = function() {

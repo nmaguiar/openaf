@@ -115,12 +115,16 @@ try {
 
 // PreRepack actions
 $from(ow.obj.fromObj2Array(getOPackLocalDB(), "path")).notEmpty("scripts.prerepack").select(function(r) {
-	log("Executing prepack actions from oPack '" + r.name + "'");
-	try {
-		var s = new Function(r.scripts.prerepack);
-		s();
-	} catch(e) {
-		logErr("opack '" + r.name + "': " + e);
+	if (r.name == "OpenCli" && r.version != af.getVersion()) {
+		logWarn("Please update OpenCli to match the version " + af.getVersion());
+	} else {
+		log("Executing prepack actions from oPack '" + r.name + "'");
+		try {
+			var s = new Function(r.scripts.prerepack);
+			s();
+		} catch(e) {
+			logErr("opack '" + r.name + "': " + e);
+		}
 	}
 });
 
@@ -178,7 +182,7 @@ if (!irj || __expr != "" || Object.keys(includeMore).length > 0) {
 
 				str = af.fromBytes2String(zip.getFile(el.name));
 				
-				var newClass = (isDef(mainClass)) ? mainClass : "wedo.openaf.AFCmdOS"; 
+				var newClass = (isDef(mainClass)) ? mainClass : "openaf.AFCmdOS"; 
 				if ((str.match(/jarinjarloader/) && str.match(/eclipse/) )) {
 					str = str.replace(/org\.eclipse\.jdt\.internal\.jarinjarloader\.JarRsrcLoader/, newClass);
 				} else {
@@ -207,7 +211,7 @@ if (!irj || __expr != "" || Object.keys(includeMore).length > 0) {
 
 if (createTmp) {
 	io.writeFileBytes(classPath.replace(/\\/g, "/"), io.readFileBytes(classPath.replace(/openaf.jar/, "openaf.jar.tmp")));
-	af.rm(classPath.replace(/openaf.jar/, "openaf.jar.tmp"));
+	io.rm(classPath.replace(/openaf.jar/, "openaf.jar.tmp"));
 }
 
 log("Done repacking OpenAF.jar");

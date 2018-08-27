@@ -43,6 +43,18 @@
         }        
     };
 
+    exports.testBCrypt = function() {
+        var test = "This is a nice test";
+        var res = bcrypt(test);
+        ow.test.assert(bcrypt(test, res), true, "Problem with BCrypt simple test (default rounds)");
+
+        res = bcrypt(test, void 0, 4);
+        ow.test.assert(bcrypt(test, res), true, "Problem with BCrypt with 4 rounds.");
+
+        res = bcrypt(test, void 0, 12);
+        ow.test.assert(bcrypt(test, res), true, "Problem with BCrypt with 12 rounds.");
+    };
+
     exports.testMerge = function() {
         var a = { a: 1, b: 2};
         var b = { b: 3, c: 1};
@@ -108,6 +120,28 @@
 		if (res != testString) {
 			throw "result different: " + res;
 		}
+    };
+
+    exports.testFormatConversionStream = function() {
+        var str = "my test string where hi = olá";
+
+        var istream = af.fromString2InputStream(str);
+        var ostream = af.newOutputStream();
+        ioStreamCopy(ostream, istream);
+        ow.test.assert(String(ostream.toString()), str, "Problem with creating input stream from string");
+
+        istream = af.fromBytes2InputStream(af.fromString2Bytes(str));
+        ostream = af.newOutputStream();
+        ioStreamCopy(ostream, istream);
+        ow.test.assert(String(ostream.toString()), str, "Problem with creating input stream from an array of bytes");
+
+        ow.test.assert(String(af.fromString2OutputStream(str).toString()), str, "Problem with converting string to an output stream");
+
+        istream = af.fromString2InputStream(str);
+        ow.test.assert(String(af.fromInputStream2String(istream)), str, "Problem with converting an input stream into a string");
+
+        istream = af.fromString2InputStream(str);
+        ow.test.assert(af.fromBytes2String(af.fromInputStream2Bytes(istream)), str, "Problem with converting an input stream into an array of bytes");
     };
 
     exports.testFormatConversionBase64 = function() {
@@ -368,6 +402,40 @@
         ow.test.assert(af.decrypt(af.encrypt(res1, "1234567890123456"), "1234567890123456"), res1, "Problem with custom encrypt/decrypt.");
     };
 
+    exports.test2FA = function() {
+        ow.loadFormat();
+
+        var code = af.create2FACredentials("test", "openaf");
+        var init = new Date();
+
+        var token = af.get2FAToken(code.encryptedKey);
+
+        ow.test.assert(af.validate2FA(code.encryptedKey, token), true, "Problem while validating a 2FA generated " + ow.format.timeago(init).toLowerCase());
+        ow.test.assert(af.validate2FA(code.encryptedKey, token + 1), false, "Problem while validating a wrong 2FA key generated " + ow.format.timeago(init).toLowerCase());
+    };
+
+    exports.testJavaRegExp = function() {
+        var text = "This is a test within a Test";
+
+        ow.test.assert(text.match(/test/i)[0], javaRegExp(text).match("test", "i")[0], "Problem with javaRegExp match");
+        ow.test.assert(text.match(/test/ig)[0], javaRegExp(text).match("test", "ig")[0], "Problem with javaRegExp match with g modifier");
+        ow.test.assert(text.match(/test/ig)[0], javaRegExp(text).matchAll("test", "i")[0], "Problem with javaRegExp matchAll");
+        ow.test.assert(text.replace(/test/i, "dump"), javaRegExp(text).replace("test", "dump", "i"), "Problem with javaRegExp replace");
+        ow.test.assert(text.replace(/test/ig, "dump"), javaRegExp(text).replace("test", "dump", "ig"), "Problem with javaRegExp replace with g modifier");
+        ow.test.assert(new RegExp("test", "i").test(text), javaRegExp(text).test("test", "i"), "Problem with javaRegExp test");
+
+        javaRegExp().preCompile("test", "i");
+        ow.test.assert(text.match(/test/i)[0], javaRegExp(text).match("test", "i")[0], "Problem with javaRegExp match (precompiled)");
+        ow.test.assert(text.match(/test/ig)[0], javaRegExp(text).match("test", "ig")[0], "Problem with javaRegExp match with g modifier (precompiled)");
+        ow.test.assert(text.match(/test/ig)[0], javaRegExp(text).matchAll("test", "i")[0], "Problem with javaRegExp matchAll (precompiled)");
+        ow.test.assert(text.replace(/test/i, "dump"), javaRegExp(text).replace("test", "dump", "i"), "Problem with javaRegExp replace (precompiled)");
+        ow.test.assert(text.replace(/test/ig, "dump"), javaRegExp(text).replace("test", "dump", "ig"), "Problem with javaRegExp replace with g modifier (precompiled)");
+        ow.test.assert(new RegExp("test", "i").test(text), javaRegExp(text).test("test", "i"), "Problem with javaRegExp test (precompiled)");
+        javaRegExp().removePreCompiled("test", "i");
+
+        ow.test.assert(text.split(/test/i)[0], javaRegExp(text).split("test", "i")[0], "Problem with javaRegExp split");
+    };
+
     exports.testYAML = function() {
         var r = {
             a: 1,
@@ -383,5 +451,57 @@
 
         ow.test.assert(af.toYAML(r), "a: 1\nb: '123'\nc: true\nd:\n  - 1\n  - 2\n  - 3\ne:\n  a: 1\n  b: '123'\n  c: true\n", "Problem converting to yaml.");
         ow.test.assert(af.fromYAML("a: 1\nb: '123'\nc: true\nd:\n  - 1\n  - 2\n  - 3\ne:\n  a: 1\n  b: '123'\n  c: true\n"), r, "Problem converting from yaml.");
+    };
+
+    exports.testGetPath = function() {
+        ow.loadObj();
+
+        var a = { a : 1, b : { c: 2, d: [0, 1] } };
+
+        ow.test.assert($$(a).get("b.c"), 2, "Problem with retriving a number with $$().get()");
+        ow.test.assert($$(a).get("b.d"), [0, 1], "Problem with retriving an array with $$().get()");
+        ow.test.assert($$(a).get("b.d[0]"), 0, "Problem with retriving an element of an array with $$().get()");
+    };
+
+     exports.testSetPath = function() {
+        ow.loadObj();
+
+        var a = { a : 1, b : { c: 2, d: [0, 1] } };
+
+        ow.test.assert($$($$(a).set("b.c", 1234)).get("b.c"), 1234, "Problem with retriving a number after $$().set()");
+        ow.test.assert($$($$(a).set("b.d", [ 0, 1, 2 ])).get("b.d"), [0, 1, 2], "Problem with retriving an array after $$().set()");
+        ow.test.assert($$($$(a).set("b.d[0]", 4321)).get("b.d[0]"), 4321, "Problem with retriving an element of an array after $$().set()");
+    };       
+
+    exports.testSearchKeyAndValues = function() {
+        var a = { abc: 123, m: { xpto: 2, arr: [ { bbb: 1 }, { bbb: 2}]}};
+
+        ow.test.assert(searchKeys(a, "xpto"), { ".m.xpto": 2 }, "Problem with searching a simple key.");
+        ow.test.assert(searchKeys(a, "bbb"), {
+            ".m.arr[0].bbb": 1,
+            ".m.arr[1].bbb": 2
+        }, "Problem with searching a key inside an array.");
+
+        ow.test.assert(searchValues(a, "123"), { ".abc": 123 }, "Problem with searching a simple value.");
+        ow.test.assert(searchValues(a, "2"), { ".abc": 123, ".m.xpto": 2, ".m.arr[1].bbb": 2 }, "Problem with searching multiple values.");
+    };
+
+    exports.testNDJSON = function() {
+        var o = [];
+        var filename = "autoTest.ndjson";
+        o.push({ a: 1, b: true, c: "test 1"});
+        o.push({ a: 2, b: false, c: "test 2"});
+        o.push({ a: 3, b: true, c: "test 3"});
+
+        io.rm(filename);
+        for(var oo in o) {
+            io.writeLineNDJSON(filename, o[oo]);
+        }
+
+        var r = [];
+        io.readLinesNDJSON(filename, (obj) => {
+            r.push(o);
+        });
+        io.rm(filename);
     };
 })();

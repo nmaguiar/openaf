@@ -49,6 +49,30 @@ OpenWrap.template.prototype.__addHelpers = function(aHB) {
 
 /**
  * <odoc>
+ * <key>ow.template.addOpenAFHelpers()</key>
+ * Adds custom helpers:\
+ * \
+ *   - debug           -- calls sprint for the parameter\
+ *   - stringify       -- stringify the parameter\
+ *   - stringifyInLine -- stringify in the same line the parameter\
+ *   - toYAML          -- returns the YAML version of the parameter\
+ *   - env             -- returns the current environment variable identified by the parameter\
+ *   - escape          -- returns an escaped version of the parameter\
+ * \
+ * </odoc>
+ */
+OpenWrap.template.prototype.addOpenAFHelpers = function() {
+	ow.loadFormat();
+	ow.template.addHelper("debug", (s) => { sprint(s); });
+	ow.template.addHelper("stringify", (s) => { return stringify(s); });
+	ow.template.addHelper("stringifyInLine", (s) => { return stringify(s, void 0, ""); });
+	ow.template.addHelper("toYAML", (s) => { return af.toYAML(s); });
+	ow.template.addHelper("env", (s) => { return String(java.lang.System.getenv().get(s)); });
+	ow.template.addHelper("escape", (s) => { return s.replace(/['"]/g, "\\$1"); });	
+};
+
+/**
+ * <odoc>
  * <key>ow.template.addFormatHelpers()</key>
  * Adds all functions of ow.format as helpers with the prefix owFormat_.
  * </odoc>
@@ -455,6 +479,33 @@ OpenWrap.template.prototype.parseMD2HTML = function(aMarkdownString, isFull) {
 	} else {
 		return converter.makeHtml(aMarkdownString);
 	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.template.addInLineCSS2HTML(aHTML, aCustomCSSMap) : String</key>
+ * Given aHTML (usually the result of parseMD2HTML) applies a custom inline css (aCustomCSSMap) usually useful to send HTML to 
+ * email clients. This custom map should be composed of a html tag entity tag (e.g. "p") and, as value, the css style to apply (e.g. "color: red;").
+ * The map will be applied to all html entities on aHTML. If aCustomCSSMap is not provided a default one (suited for markdown
+ * html) will be applied.
+ * </odoc>
+ */
+OpenWrap.template.prototype.addInLineCSS2HTML = function(aHTML, aCustomCSSMap) {
+	var acss = {};
+	if (isUnDef(aCustomCSSMap)) {
+		if (isUnDef(this.__markdowncss)) {
+			this.__markdowncss = io.readFile(getOpenAFJar() + "::css/markdown-email.json");
+		}
+		acss= this.__markdowncss;
+	} else {
+		acss = aCustomCSSMap;
+	}
+
+	Object.keys(acss).forEach((k) => {
+		aHTML = aHTML.replace(new RegExp("<"+k+"(?=[ >])", "g"), "<"+k+" style=\"" + acss[k] + "\"");
+	});
+
+	return aHTML;
 };
 
 OpenWrap.template.prototype.Handlebars = function() {

@@ -22,10 +22,13 @@ OpenWrap.ch.prototype.__types = {
 		size   : function(aName) { return this.__channels[aName].getSize(); },
 		forEach: function(aName, aFunction) { 
 			var parent = this;
-			this.__channels[aName].find(function(aKey) {
+			this.getKeys(aName).forEach((aK, aV) => {
+				aFunction(aK, parent.get(aName, aK));
+			});
+			/*this.__channels[aName].find(function(aKey) {
 				aFunction(aKey, parent.get(aName, aKey));
 				return aKey;
-			});
+			});*/
 		},
 		getKeys: function(aName, full) {
 			var keys = [];
@@ -162,14 +165,14 @@ OpenWrap.ch.prototype.__types = {
 		},
 		forEach: function(aName, aFunction, x) {
 			var i = this.getKeys(aName);
-			for(j in i) {
+			for(var j in i) {
 				aFunction(i[j], this.get(aName, i[j]));
 			}
 		},
 		getKeys: function(aName, full) { 
 			var i = $stream(this.__db[aName].q("select key from " + this.__table[aName]).results).map("KEY").toArray();
 			var res = [];
-			for(j in i) {
+			for(var j in i) {
 				res.push(JSON.parse(i[j]));
 			}
 			return res;
@@ -177,7 +180,7 @@ OpenWrap.ch.prototype.__types = {
 		getSortedKeys: function(aName, full) {
 			var i = $stream(this.__db[aName].q("select key from " + this.__table[aName] + " order by ts").results).map("KEY").toArray();
 			var res = [];
-			for(j in i) {
+			for(var j in i) {
 				res.push(JSON.parse(i[j]));
 			}
 			return res;
@@ -386,6 +389,161 @@ OpenWrap.ch.prototype.__types = {
 			this.__cacheCh[aName].unset(aK);
 		}	
 	},	
+	// Buffer implementation
+	//
+	/**
+	 * <odoc>
+	 * <key>ow.ch.types.buffer</key>
+	 * This OpenAF implementation establishes a buffer to another channel. The creation options are:\
+	 * \
+	 *    - bufferCh       (String) The channel that will receive data from the buffer channel.\
+	 *    - bufferIdxs     (Array)  An array of keys to use for faster performance (defaults to []).\
+	 *    - bufferByTime   (Number) How much time before flushing contents from the buffer channel (default 2500ms).\
+	 *    - bufferByNumber (Number) How many entries before flushing contents from the buffer channel (default 100).\
+	 *    - bufferTmpCh    (String) The auxiliary temporary buffer storage channel to use (default creates [name]::__buffer).\
+	 * \
+	 * </odoc>
+	 */
+	buffer: {
+		create       : function(aName, shouldCompress, options) {
+			options                 = _$(options).isMap("Options must be a map.").default({});
+			options.bufferByNumber  = _$(options.bufferByNumber).isNumber("bufferByNumber must be a number").default(100);
+			options.bufferByTime    = _$(options.bufferByTime).isNumber("bufferByTime must be a number of ms").default(2500);
+			options.bufferTmpCh     = _$(options.bufferTmpCh).isString("bufferTmpCh must be a string").default(aName + "::__buffer");
+			options.bufferIdxs      = _$(options.bufferIdxs).isArray("bufferIdxs must be an array").default([]);
+			options.timeout         = _$(options.timeout).isNumber("timeout is a number (ms)").default(1500);
+			_$(options.bufferCh).isString("bufferCh must be a string").$_("Please provide a bufferCh");
+	
+			var addShut = false;
+			if (isUnDef(this.__bn)) this.__bn = {};
+			if (isUnDef(this.__bm)) this.__bm = {};
+			if (isUnDef(this.__bf)) this.__bf = {};
+			if (isUnDef(this.__bc)) this.__bc = {};
+			if (isUnDef(this.__bt)) this.__bt = {};
+			if (isUnDef(this.__bi)) this.__bi = {};
+			if (isUnDef(this.__t))  this.__t = {};
+			if (isUnDef(this.__s))  this.__s = {};
+			if (isUnDef(this.__f)) { this.__f = {}; addShut = true; }
+			
+			this.__bn[aName] = options.bufferByNumber;
+			this.__bm[aName] = options.bufferByTime;
+			this.__bf[aName] = options.bufferFunc;
+			this.__bc[aName] = options.bufferCh;
+			this.__bt[aName] = options.bufferTmpCh;
+			this.__bi[aName] = options.bufferIdxs;
+			this.__t[aName]  = options.timeout;
+	
+			var parent = this;
+			this.__f[aName] = function(force) {
+				if ($ch(parent.__bt[aName]).size() >= parent.__bn[aName] || force) {
+					if (parent.__bi[aName].length > 0) {
+						var ar = [], ak = [];
+						$ch(parent.__bt[aName]).forEach((k, v) => {
+							ak.push(k);
+							ar.push(v); 
+							//$ch(parent.__bt[aName]).unset(k);
+						});
+				
+						if (ar.length > 0) {
+							$ch(parent.__bc[aName]).setAll(parent.__bi[aName], ar);
+							for(var ii in ak) { $ch(parent.__bt[aName]).unset(ak[ii]); }
+						}
+					} else {
+						$ch(parent.__bt[aName]).forEach((k, v) => {
+							$ch(parent.__bc[aName]).set(k, v); 
+							$ch(parent.__bt[aName]).unset(k);
+						});
+					}
+				}
+			};
+	
+			if (isDef(this.__bm[aName])) {
+				plugin("Threads");
+				this.__s[aName] = new Threads();
+				this.__s[aName].addScheduleThreadWithFixedDelay(function() { parent.__f[aName](true); }, this.__bm[aName]);
+			}
+	
+			if (addShut) {
+				addOnOpenAFShutdown(function() {
+					for(var c in ow.ch.__types.buffer.__s) {
+						if (isDef(ow.ch.__types.buffer.__s)) ow.ch.__types.buffer.__s.stop();
+					}
+					for(var c in ow.ch.__types.buffer.__f) {
+						ow.ch.__types.buffer.__f[c](true); 
+						$ch(ow.ch.__types.buffer.__bt[aName]).waitForJobs(ow.ch.__types.buffer.__t[aName]);
+						$ch(ow.ch.__types.buffer.__bc[aName]).waitForJobs(ow.ch.__types.buffer.__t[aName]);
+					}
+				});
+			}
+	
+			$ch(options.bufferTmpCh).create();
+		},
+		destroy      : function(aName) {
+			this.__s[aName].stop();
+			this.__f[aName](true);
+	
+			delete this.__bn[aName];
+			delete this.__bt[aName];
+			delete this.__bf[aName];
+			delete this.__bc[aName];
+			$ch(this.__bt[aName]).destroy();
+			delete this.__bt[aName];
+			delete this.__bi[aName];
+			delete this.__f[aName];
+			delete this.__s[aName];
+		},
+		size         : function(aName) {
+			return $ch(this.__bc[aName]).size() + $ch(this.__bt[aName]).size();
+		},
+		forEach      : function(aName, aFunction, x) {
+			$ch(this.__bc[aName]).forEach(aFunction);
+			$ch(this.__bt[aName]).forEach(aFunction);
+		},
+		getKeys      : function(aName, full) {
+			return $ch(this.__bc[aName]).getKeys(full).concat($ch(this.__bt[aName]).getKeys(full));
+		},
+		getAll: function(aName, full) {
+			return $ch(this.__bc[aName]).getAll(full).concat($ch(this.__bt[aName]).getAll(full));
+		},
+		getSortedKeys: function(aName, full) {
+			//TODO
+			return $ch(this.__bc[aName]).getAll(full).concat($ch(this.__bt[aName]).getAll(full));
+		},
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			$ch(this.__bc[aName]).getSet(aMatch, aK, aV, aTimestamp);		
+		},
+		set          : function(aName, ak, av, aTimestamp) {
+			$ch(this.__bt[aName]).set(ak, av, aTimestamp);
+			this.__f[aName]();
+		},
+		setAll       : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
+			$ch(this.__bt[aName]).setAll(anArrayOfKeys, anArrayOfMapData, aTimestamp);
+			this.__f[aName]();
+		},
+		get          : function(aName, aKey) {
+			var res = $ch(this.__bt[aName]).get(aKey);
+			if (isUnDef(res)) res = $ch(this.__bc[aName]).get(aKey);
+			return res;
+		},
+		pop          : function(aName) {
+			if ($ch(this.__bt[aName]).size() > 0) {
+				return $ch(this.__bt[aName]).pop();
+			} else {
+				return $ch(this.__bc[aName]).pop();
+			}
+		},
+		shift        : function(aName) {
+			if ($ch(this.__bc[aName]).size() > 0) {
+				return $ch(this.__bc[aName]).shift();
+			} else {
+				return $ch(this.__bt[aName]).shift();
+			}  
+		},
+		unset        : function(aName, aKey) {
+			$ch(this.__bt[aName]).unset(aKey);
+			$ch(this.__bc[aName]).unset(aKey);
+		}
+	},	
 	// Dummy implementation
 	//
 	dummy: {
@@ -435,6 +593,103 @@ OpenWrap.ch.prototype.__types = {
 			return {};
 		}
 	},
+	// Simple implementation
+	//
+	simple: {
+		__channels: {},
+		create       : function(aName, shouldCompress, options) {
+			this.__channels[aName] = {};
+		},
+		destroy      : function(aName) {
+			delete this.__channels[aName];
+		},
+		size         : function(aName) {
+			return Object.keys(this.__channels[aName]).length;
+		},
+		forEach      : function(aName, aFunction) {
+			Object.keys(this.__channels[aName]).forEach((element) => {
+				aFunction(this.__channels[aName][element].k, this.__channels[aName][element].v);
+			});
+		},
+		getAll      : function(aName, full) {
+			var res = [];
+			Object.keys(this.__channels[aName]).forEach((element) => {
+				res.push(this.__channels[aName][element].v);
+			});
+			return res;
+		},
+		getKeys      : function(aName, full) {
+			var res = [];
+			Object.keys(this.__channels[aName]).forEach((element) => {
+				res.push(this.__channels[aName][element].k);
+			});
+			return res;
+		},
+		getSortedKeys: function(aName, full) {
+			var res = [];
+			Object.keys(this.__channels[aName]).forEach((element) => {
+				res.push({ k: this.__channels[aName][element].k, t: this.__channels[aName][element].t });
+			});
+			return $from(res).sort("t").select((r) => {
+				return r.k;
+			});		
+		},
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			var res;
+			res = this.get(aName, aK);
+			if ($stream([res]).anyMatch(aMatch)) {
+				return this.set(aName, aK, aV, aTimestamp);
+			}
+			return undefined;
+		},
+		set          : function(aName, aK, aV, aTimestamp) {
+			var id = stringify(aK, void 0, "");
+			var old = this.__channels[aName][id];
+			if (isUnDef(old)) {
+				this.__channels[aName][id] = {
+					k: aK,
+					v: aV,
+					t: aTimestamp
+				};
+			} else {
+				old.v = aV;
+				old.t = aTimestamp;
+			}
+			return id;
+		},
+		setAll       : function(aName, aKs, aVs, aTimestamp) {
+			ow.loadObj();
+			for(let i in aVs) {
+				this.set(aName, ow.obj.filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
+			}
+		},
+		get          : function(aName, aK) {
+			var id = stringify(aK, void 0, "");
+			var res = this.__channels[aName][id];
+			if (isDef(res)) 
+				return res.v;
+			else
+				return void 0;
+		},
+		pop          : function(aName) {
+			var elems = this.getSortedKeys(aName);
+			var elem = elems[elems.length - 1];
+			var res = clone(this.get(aName, elem));
+			this.unset(aName, elem);
+			return res;
+		},
+		shift        : function(aName) {
+			var elems = this.getSortedKeys(aName);
+			var elem = elems[0];
+			var res = clone(this.get(aName, elem));
+			this.unset(aName, elem);
+			return res;
+		},
+		unset        : function(aName, aK, aTimestamp) {
+			var id = stringify(aK, void 0, "");
+			delete this.__channels[aName][id];
+		}
+	},	
 	// Remote channel implementation
 	//
 	remote: {
@@ -615,25 +870,30 @@ OpenWrap.ch.prototype.__types = {
 			url += "/_bulk";
 			var ops = "";
 			
-			for(var i in aVs) {
-				ops += stringify({ index: {
-					_index: this.__channels[aName].fnIndex(aKs[i]), 
-					_type : this.__channels[aName].idKey,
-					_id   : aVs[i][this.__channels[aName].idKey] 
-				}}, undefined, "") + "\n" + 
-				stringify(aVs[i], undefined, "") + "\n";
+			if (isDef(aVs) && isArray(aVs) && aVs.length <= 0) return;
+
+			for(var ii in aVs) {
+				if (aVs[ii] != null && isDef(aVs[ii][this.__channels[aName].idKey])) {
+					ops += stringify({ index: {
+						_index: this.__channels[aName].fnIndex(aKs[ii]), 
+						_type : this.__channels[aName].idKey,
+						_id   : aVs[ii][this.__channels[aName].idKey] 
+					}}, void 0, "") + "\n" + 
+					stringify(aVs[ii], void 0, "") + "\n";
+				}
 			}
 			
-			plugin("HTTP");
-			var h = new HTTP();
-			if (isDef(this.__channels[aName].user))
-				h.login(this.__channels[aName].user, this.__channels[aName].pass, true);
-			try {
-				return h.exec(url, "POST", ops, {"Content-Type":"application/x-www-form-urlencoded"});
-			} catch(e) {
-				e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse());
-				throw e;
-			}		
+			if (ops.length > 0) {
+				var h = new ow.obj.http();
+				if (isDef(this.__channels[aName].user))
+					h.login(this.__channels[aName].user, this.__channels[aName].pass, true);
+				try {
+					return h.exec(url, "POST", ops, {"Content-Type":"application/json"});
+				} catch(e) {
+					e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse());
+					throw e;
+				}
+			}
 		},
 		get          : function(aName, aK) {
 			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex(aK);
@@ -709,6 +969,7 @@ OpenWrap.ch.prototype.__types = {
 			if (isUnDef(this.__s)) this.__s = {};
 			if (isUnDef(this.__f)) this.__f = {};
 			if (isUnDef(this.__m)) this.__m = {};
+			if (isUnDef(this.__o)) this.__o = {};
 
 			var existing = false, absFile;
 			if (isDef(options.file)) {
@@ -716,6 +977,8 @@ OpenWrap.ch.prototype.__types = {
 			} else {
 				absFile = "memory";
 			}
+			options.absFile = absFile;
+			
 			if (isUnDef(this.__f[absFile])) {
 				this.__s[aName] = Packages.org.h2.mvstore.MVStore.Builder();
 				if (absFile != "memory") this.__s[aName] = this.__s[aName].fileName(absFile);
@@ -739,14 +1002,30 @@ OpenWrap.ch.prototype.__types = {
 			this.__m[aName] = options.map;
 
 			if (isDef(options.compact) && options.compact) {
-				this.__s[aName].compactMoveChuncks();
+				this.__s[aName].compactMoveChunks();
 			}
+
+			this.__o[aName] = options;
 		},
 		destroy      : function(aName) {
-			if (isDef(options.compact) && options.compact) {
-				this.__s[aName].compactMoveChuncks();
+			if (isDef(this.__o[aName].compact) && this.__o[aName].compact) {
+				this.__s[aName].compactMoveChunks();
 			}			
-			this.__s[aName].close();
+
+			var found = false;
+			for(var i in this.__s) {
+				if (i != aName && 
+					this.__s[i] == this.__f[this.__o[aName].absFile]) 
+				   found = true;
+			}
+
+			if (!found) {
+				this.__s[aName].close();
+				delete this.__f[this.__o[aName].absFile];
+			}
+
+			delete this.__s[aName];
+			delete this.__o[aName];
 		},
 		size         : function(aName) {
 			var map = this.__s[aName].openMap(this.__m[aName]());
@@ -919,7 +1198,7 @@ OpenWrap.ch.prototype.create = function(aName, shouldCompress, type, options) {
 		this.__types[type].create(aName, shouldCompress, options);
 
 		this.subscribers[aName] = {};
-		this.jobs[aName] = [];
+		this.jobs[aName] = {};
 		this.channels[aName] = type;
 		this.vers[aName] = nowUTC();
 	}
@@ -942,17 +1221,20 @@ OpenWrap.ch.prototype.getVersion = function(aName) {
  * <odoc>
  * <key>ow.ch.waitForJobs(aName, aTimeout) : ow.ch</key>
  * Each channel subscription (using ow.ch.subscribe) will create internal jobs (threads). To wait for 
- * this jobs to finish provide the channel aName and, optionally, aTimeout (defaults to 2.5 seconds). 
+ * this jobs to finish provide the channel aName and, optionally, aTimeout.
  * </odoc>
  */
 OpenWrap.ch.prototype.waitForJobs = function(aName, aTimeout) {
-	if (isUnDef(aTimeout)) aTimeout = 2500;
-	while(this.jobs[aName].length > 0) {
-		for(var i in ow.ch.jobs[aName]) {
-			if (ow.ch.jobs[aName][i] != null)
-				ow.ch.jobs[aName][i].waitForThreads(aTimeout);
+	aTimeout = _$(aTimeout).isNumber("aTimeout should be a number").default(-1);
+	var shouldContinue = false, tini = now();
+	do {
+		for(let ii in this.jobs[aName]) {
+			if (this.jobs[aName][ii].state == this.jobs[aName][ii].states.NEW) {
+				shouldContinue = true;
+				$doWait(this.jobs[aName][ii], (aTimeout >= 0 ? aTimeout : void 0));
+			}
 		}
-	}
+	} while(shouldContinue && (now() - tini) < aTimeout);		
 	return this;
 },
 	
@@ -965,7 +1247,8 @@ OpenWrap.ch.prototype.waitForJobs = function(aName, aTimeout) {
  */
 OpenWrap.ch.prototype.stopAllJobs = function(aName) {
 	for(var i in ow.ch.jobs[aName]) {
-		ow.ch.jobs[aName][i].stop();
+		//ow.ch.jobs[aName][i].stop();
+		ow.ch.jobs[aName][i].cancel();
 	}	
 	return this;
 };
@@ -1023,7 +1306,22 @@ OpenWrap.ch.prototype.size = function(aName) {
 //	}
 	return this.__types[this.channels[aName]].size(aName);
 };
-	
+
+OpenWrap.ch.prototype.__errorHandle = function(id, e) {
+	try {
+		var d = new Date();
+		$ch("__ch::errors").set({
+			id: id,
+			date: d
+		}, {
+			id: id,
+			date: d,
+			exception: String(e)
+		});
+	} catch(e1) {
+	}
+};
+
 /**
  * <odoc>
  * <key>ow.ch.subscribe(aName, aFunction, onlyFromNowm, anId) : String</key>
@@ -1043,50 +1341,34 @@ OpenWrap.ch.prototype.size = function(aName) {
 OpenWrap.ch.prototype.subscribe = function(aName, aFunction, onlyFromNow, anId) {
 	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
 	if (isUnDef(anId)) anId = genUUID();
-	//if (isUnDef(anId)) anId = md5(aFunction.toString());
 	
 	if (isDef(this.subscribers[aName][anId])) return anId;
 	
 	this.subscribers[aName][anId] = aFunction;
 	if (this.size(aName) > 0 && !onlyFromNow) {
-		var t = new Threads();
-		var ig = new Threads();
 		var parent = this;
 
 		var func = function(aKey) {
 			var aValue = parent.get(aName, aKey);
-			t.addThread(function(uuid) {
-				aFunction(aName, "set", aKey, aValue, parent, uuid);
-				return uuid;
-			})
+			var uuid = genUUID();
+			if (isUnDef(parent.jobs[aName][anId])) {
+				parent.jobs[aName][anId] = $do(function() {
+					try {
+						aFunction(aName, "set", aKey, aValue, parent, uuid);
+					} catch(e) {}
+					return uuid;
+				});
+			} else {
+				parent.jobs[aName][anId].then(function() {
+					try {
+						aFunction(aName, "set", aKey, aValue, parent, uuid);
+					} catch(e) {}
+					return uuid;
+				});
+			}			
 		};
 		
-//		switch(parent.channels[aName]) {
-//		case "ignite": { res = parent.__types.ignite.forEach(aName, func); break; }
-//		case "remote": { res = parent.__types.remote.forEach(aName, func); break; }
-//		default      : { res = parent.__types.big.forEach(aName, func); }
-//		}
 		res = parent.__types[parent.channels[aName]].forEach(aName, func);
-
-		ig.addThread(function() {
-			//sync(function() {
-			var tt;
-			while(parent.jobs[aName].length > 0) {
-				tt = parent.jobs[aName].shift();
-				tt.start();
-				tt.stop();
-			}
-			ig.waitForThreads();
-			ig.stop();
-			return 1;
-		});
-		
-		//sync(function() {
-			parent.jobs[aName].push(t);
-		//}, parent.jobs[aName]);
-		
-		
-		ig.startNoWait();
 	}
 	return anId;
 };
@@ -1210,39 +1492,40 @@ OpenWrap.ch.prototype.set = function(aName, aKey, aValue, aTimestamp, aUUID, x) 
 	var res;
 
 	sync(function() {
-//		switch(parent.channels[aName]) {
-//		case "ignite": { parent.__types.ignite.set(aName, ak, av, aTimestamp); break; }
-//		case "remote": { parent.__types.remote.set(aName, ak, av, aTimestamp); break; }
-//		default      : { parent.__types.big.set(aName, ak, av, aTimestamp); }
-//		}
 		res = parent.__types[parent.channels[aName]].set(aName, ak, av, aTimestamp, x); 
 		parent.vers[aName] = nowUTC();
 	}, this.channels[aName]);
 
 	if (Object.keys(this.subscribers[aName]).length > 0) {
-		var t = new Threads();
-		var ig = new Threads();
-		var fns = {};
 		for(var _i in this.subscribers[aName]) {
-			var uid = t.addThread(function(uuid) {
-				fns[uuid](aName, "set", aKey, aValue, parent, aTimestamp, aUUID, x);
-				return uuid;
-			});
-			
-			fns[uid] = parent.subscribers[aName][_i];
-		};
-		ig.addThread(function() {
-			var tt;
-			while(parent.jobs[aName].length > 0) {
-				tt = parent.jobs[aName].shift();
-				tt.start();
-				tt.stop();
+			if (isUnDef(parent.jobs[aName][_i])) {
+				var f = (ii) => {
+					return () => {		
+						try {		
+							parent.subscribers[aName][ii](aName, "set", aKey, aValue, parent, aTimestamp, aUUID, x);
+						} catch(e) {}
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i] = $do(f(_i)).catch((e) => { 
+					ow.ch.__errorHandle({ 
+						chName: aName,
+						op: "set",
+						key: aKey
+					}, e);
+				});
+			} else {				
+				var f = (ii) => {
+					return () => {
+						try {
+							parent.subscribers[aName][ii](aName, "set", aKey, aValue, parent, aTimestamp, aUUID, x);
+						} catch(e) {}
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i].then(f(_i), ()=>{});
 			}
-			ig.stop();		
-			return 1;
-		})			
-		parent.jobs[aName].push(t);
-		ig.startNoWait();
+		}
 	}
 
 	return res;
@@ -1279,41 +1562,36 @@ OpenWrap.ch.prototype.setAll = function(aName, anArrayOfKeys, anArrayOfMapData, 
 	var res;
 	
 	sync(function() {
-//		switch(parent.channels[aName]) {
-//		case "ignite": { parent.__types.ignite.setAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp); break; }
-//		case "remote": { parent.__types.remote.setAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp); break; }
-//		default      : { parent.__types.big.setAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp); }
-//		}
 		res = parent.__types[parent.channels[aName]].setAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp, x);
 		parent.vers[aName] = nowUTC();
 	}, this.channels[aName]);
 
 	if (Object.keys(this.subscribers[aName]).length > 0) {
-		var t = new Threads();
-		var ig = new Threads();
-		var fns = {};
 		for(var _i in this.subscribers[aName]) {
-			var uid = t.addThread(function(uuid) {
-				fns[uuid](aName, "setall", anArrayOfKeys, anArrayOfMapData, parent, aTimestamp, aUUID, x);
-				return uuid;
-			});
-			
-			fns[uid] = parent.subscribers[aName][_i];
-		};
-		ig.addThread(function() {
-			var tt;
-			while(parent.jobs[aName].length > 0) {
-				tt = parent.jobs[aName].shift();
-				tt.start();
-				tt.stop();
+			if (isUnDef(parent.jobs[aName][_i])) {
+				var f = (ii) => {
+					return () => {				
+						parent.subscribers[aName][ii](aName, "setall", anArrayOfKeys, anArrayOfMapData, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i] = $do(f(_i)).catch((e) => { 
+					ow.ch.__errorHandle({ 
+						chName: aName,
+						op: "set",
+						key: aKey
+					}, e);
+				});
+			} else {				
+				var f = (ii) => {
+					return () => {
+						parent.subscribers[aName][ii](aName, "setall", anArrayOfKeys, anArrayOfMapData, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i].then(f(_i));
 			}
-			ig.stop();
-			return 1;
-		});
-		
-		parent.jobs[aName].push(t);
-		
-		ig.startNoWait();
+		}		
 	}
 
 	return res;
@@ -1333,11 +1611,6 @@ OpenWrap.ch.prototype.get = function(aName, aKey, x) {
 	var res;
 	var parent = this;
 	sync(function() {
-//		switch(parent.channels[aName]) {
-//		case "ignite": { res = parent.__types.ignite.get(aName, aKey); break; }
-//		case "remote": { res = parent.__types.remote.get(aName, aKey); break; }
-//		default      : { res = parent.__types.big.get(aName, aKey); }
-//		}
 		res = parent.__types[parent.channels[aName]].get(aName, aKey, x);
 	}, this.channels[aName]);
 	if (isDef(res) && Object.keys(res) == [ "value" ])
@@ -1358,11 +1631,6 @@ OpenWrap.ch.prototype.pop = function(aName) {
 
 	var res, out;
 	if (this.size(aName) > 0) {
-//		switch(this.channels[aName]) {
-//		case "ignite": { res = this.__types.ignite.pop(aName); break; }
-//		case "remote": { res = this.__types.remote.pop(aName); break; }
-//		default      : { res = this.__types.big.pop(aName); break; }
-//		}
 		res = this.__types[this.channels[aName]].pop(aName);
 		out = this.get(aName, res);
 		this.unset(aName, res);
@@ -1390,29 +1658,31 @@ OpenWrap.ch.prototype.getSet = function(aName, aMatch, aKey, aValue, aTimestamp,
 	}, this.channels[aName]);
 	
 	if (Object.keys(this.subscribers[aName]).length > 0) {
-		var t = new Threads();
-		var ig = new Threads();
-		var fns = {};
 		for(var _i in this.subscribers[aName]) {
-			var uid = t.addThread(function(uuid) {
-				fns[uuid](aName, "set", aKey, aValue, parent, aTimestamp, aUUID, x);
-				return uuid;
-			});
-			
-			fns[uid] = parent.subscribers[aName][_i];
-		};
-		ig.addThread(function() {
-			var tt;
-			while(parent.jobs[aName].length > 0) {
-				tt = parent.jobs[aName].shift();
-				tt.start();
-				tt.stop();
+			if (isUnDef(parent.jobs[aName][_i])) {
+				var f = (ii) => {
+					return () => {				
+						parent.subscribers[aName][ii](aName, "set", aKey, aValue, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i] = $do(f(_i)).catch((e) => { 
+					ow.ch.__errorHandle({ 
+						chName: aName,
+						op: "set",
+						key: aKey
+					}, e);
+				});
+			} else {				
+				var f = (ii) => {
+					return () => {
+						parent.subscribers[aName][ii](aName, "set", aKey, aValue, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i].then(f(_i));
 			}
-			ig.stop();		
-			return 1;
-		})			
-		parent.jobs[aName].push(t);
-		ig.startNoWait();
+		}
 	}
 
 	return res;
@@ -1460,47 +1730,106 @@ OpenWrap.ch.prototype.unset = function(aName, aKey, aTimestamp, aUUID, x) {
 	if (typeof aKey != "object") ak = { "key": aKey };
 
 	var parent = this;
-	sync(function() {
-//		switch(parent.channels[aName]) {
-//		case "ignite": { res = parent.__types.ignite.unset(aName, ak); break; }
-//		case "remote": { res = parent.__types.remote.unset(aName, ak); break; }
-//		default      : { res = parent.__types.big.unset(aName, ak); break; }
-//		}			
+	sync(function() {	
 		res = parent.__types[parent.channels[aName]].unset(aName, ak, x);
 		parent.vers[aName] = nowUTC();
 	}, this.channels[aName]);
 
 	if (Object.keys(this.subscribers[aName]).length > 0) {
-		var t = new Threads();
-		var ig = new Threads();
-		var fns = {};
 		for(var _i in this.subscribers[aName]) {
-			var uid = t.addThread(function(uuid) {
-				fns[uuid](aName, "unset", aKey, undefined, parent, aTimestamp, aUUID, x);
-				return uuid;
- 			});
-			
-			fns[uid] = parent.subscribers[aName][_i];
-		};
-		ig.addThread(function() {
-			var tt;
-			while(parent.jobs[aName].length > 0) {
-				tt = parent.jobs[aName].shift();
-				tt.start();
-				tt.stop();
+			if (isUnDef(parent.jobs[aName][_i])) {
+				var f = (ii) => {
+					return () => {				
+						parent.subscribers[aName][ii](aName, "unset", aKey, undefined, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i] = $do(f(_i)).catch((e) => { 
+					ow.ch.__errorHandle({ 
+						chName: aName,
+						op: "set",
+						key: aKey
+					}, e);
+				});
+			} else {				
+				var f = (ii) => {
+					return () => {
+						parent.subscribers[aName][ii](aName, "unset", aKey, undefined, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i].then(f(_i));
 			}
-			ig.stop();
-			return 1;
-		});
-		
-		parent.jobs[aName].push(t);
-		
-		ig.startNoWait();
+		}
 	}	
 	return this;
 };
 	
 OpenWrap.ch.prototype.utils = {
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.keepHistory(timeRepeatExpression, aName, aFunction, withKeys, historySize) : Object</key>
+	 * For a given aName channel (preferably a temporary one) will execute aFunction periodically given a timeRepeatExpression
+	 * (if a Number the ms interval, if a String a cron expression). That aFunction should return aMap for which the withKeys array
+	 * will be used to determine the keys entries to set it on the provided aName channel (if withKeys is not provided, id will be assumed
+	 * and filled with nowNano()). The channel aName will be filled with entries with the result of executing aFunction
+	 * periodically thus keeping an history of results (by default 10 if a historySize is not provided). An
+	 * object with a stop function will be returned so the keepHistory periodical behaviour of runnning aFunction and keeping the results in the channel aName.
+	 * </odoc>
+	 */
+	keepHistory: function(every, named, runningFunc, withKeys, historySize) {
+		// create channel
+		if ($ch().list().indexOf(named) < 0) {
+			$ch(named).create();
+		}
+
+		if (isUnDef(historySize)) historySize = 10;
+
+		var hkSubs = $ch(named).subscribe(ow.ch.utils.getHousekeepSubscriber(named, historySize));
+
+		// check key to use
+		var useId = false;
+		if (isUnDef(withKeys)) { 
+			withKeys = [ "id" ];
+			useId = true;
+		}
+		if (!(isArray(withKeys))) witKeys = [ withKeys ];
+
+		// function to process
+		var __f = function() { 
+			var res = runningFunc();
+			if (isUnDef(res) || isArray(res) || !isObject(res)) res = {};
+			if (useId) res["id"] = nowNano();
+
+			$ch(named).set(ow.obj.filterKeys(withKeys, res), res);
+		};
+
+		// prepare periodic running
+		if (isString(every)) {
+			ow.loadServer();
+			var sch = new ow.server.scheduler();
+			sch.addEntry(every, __f);
+			return {
+				stop: () => {
+					$ch(named).unsubscribe(hkSubs);
+					sch.stop();
+				}
+			};
+		}
+
+		if (isNumber(every)) {
+			plugin("Threads");
+			var t = new Threads();
+			t.addScheduleThreadWithFixedDelay(__f, every);
+			return {
+				stop: () => {
+					$ch(named).unsubscribe(hkSubs);
+					t.stop();
+				}
+			};
+		}
+	},
+
     /**
      * <odoc>
      * <key>ow.ch.utils.getMirrorSubscriber(aTargetCh, aFunc) : Function</key>
@@ -1533,22 +1862,23 @@ OpenWrap.ch.prototype.utils = {
 	},
 	/**
 	 * <odoc>
-	 * <key>ow.ch.utils.getLogStashSubscriber(aTargetCh, aType, aHost, aErrorFunc, shouldHK) : Function</key>
+	 * <key>ow.ch.utils.getLogStashSubscriber(aTargetCh, aType, aHost, aErrorFunc, shouldHK, stampMap) : Function</key>
 	 * Returns a channel subscriber function that will transform changes to a log channel (see startLog and the __log channel)
 	 * and will replicate them in aTargetCh (this means expecting the value to have a 'd': date; 'm': message and 't' as the level/type).
 	 * The value set on aTargetCh will follow the LogStash format setting type to aType and host to aHost. The id and key will be set 
 	 * to a sha1 hash of the stringify version of the value being set. In case of error aErrorFunc will be invoked providing the exception
-	 * as an argument. You can also indicate if you want to house keep the original channel to save the script's memory.
+	 * as an argument. You can also indicate if you want to house keep the original channel to save the script's memory and a stampMap to force
+	 * entries on all maps sent.
 	 * </odoc>
 	 */
-	getLogStashSubscriber: function(aTargetCh, aType, aHost, aErrorFunc, shouldHK) {
+	getLogStashSubscriber: function(aTargetCh, aType, aHost, aErrorFunc, shouldHK, stampMap) {
 		return function(aC, aO, aK, aV) {
 			try {
 				if (aO == "set") {
-					var _id = sha1(stringify(aV));
+					var _id = sha1(stringify(aV) + stringify(stampMap));
 					$ch(aTargetCh).set({
-						id: _id
-					}, {
+						"id": _id
+					}, merge({
 						"@version"  : 1,
 						"@timestamp": aV.d,
 						"message"   : aV.m,
@@ -1556,7 +1886,7 @@ OpenWrap.ch.prototype.utils = {
 						"host"      : aHost,
 						"level"     : aV.t,
 						"id"        : _id
-					});
+					}, stampMap));
 					if (shouldHK) $ch(aC).unset(aK);
 				}
 			} catch(e) {
@@ -1613,7 +1943,7 @@ OpenWrap.ch.prototype.utils = {
 
 			if (isDef(donttouch)) donttouch = donttouch.filename;
 
-			af.mkdir(aBackupFolder);
+			io.mkdir(aBackupFolder);
 
 			// Search files for compression
 			if (!dontCompress) {
@@ -1624,7 +1954,7 @@ OpenWrap.ch.prototype.utils = {
 					.select(function (r) {
 						ioStreamCopy(io.writeFileGzipStream(aBackupFolder + "/" + r.filename + ".gz"),
 							io.readFileStream(r.filepath));
-						af.rm(r.filepath);
+						io.rm(r.filepath);
 					});
 			}
 
@@ -1635,7 +1965,7 @@ OpenWrap.ch.prototype.utils = {
 					.match("filename", new RegExp(aRegExPattern + "\\.gz$"))
 					.less("createTime", new Date() - (howLongAgoInMinutes * 60 * 1000))
 					.select(function (r) {
-						af.rm(r.filepath);
+						io.rm(r.filepath);
 					});
 			}
 		}
@@ -1656,7 +1986,7 @@ OpenWrap.ch.prototype.utils = {
 		if (isUnDef(aLogFolder))        aLogFolder      = ".";
 		if (isUnDef(aTemplate))         aTemplate       = "log-{{timedate}}.log";
 		if (isUnDef(aFileDateFormat))   aFileDateFormat = "yyyy-MM-dd";
-		if (isUnDef(aLineTemplate))     aLineTemplate   = "{{timedate}} | {{type}} | {{message}}\n";
+		if (isUnDef(aLineTemplate))     aLineTemplate   = "{{timedate}} | {{type}} | {{{message}}}\n";
 		if (isUnDef(aLineDateFormat))   aLineDateFormat = "yyyy-MM-dd HH:mm:ss.SSS";
 
 		ow.loadFormat();
@@ -1722,6 +2052,120 @@ OpenWrap.ch.prototype.utils = {
 		return function() {
 			return aPrefix + "-" + ow.loadFormat().fromDate(new Date(), aFormat);
 		};
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.getElasticQuery(aQueryString) : Map</key>
+	 * Returns a query map using aQueryString (using lucene query string (like in Kibana)) to be used on getAll, for example.
+	 * </odoc>
+	 */
+	getElasticQuery: function(aQueryString) {
+		_$(aQueryString).isString();
+
+		return {
+			query: {
+				query_string: {
+					query: aQueryString
+				}
+			}
+		};
+	},
+
+	mvs: {
+		/**
+		 * <odoc>
+		 * <key>ow.ch.utils.mvs.list(aMVSFile) : Array</key>
+		 * Returns a list of names of maps in the corresponding aMVSFile.
+		 * </odoc>
+		 */
+		list: function(aFile) {
+			var absFile = String((new java.io.File(aFile)).getAbsoluteFile());
+			var mvs, mvsLocal = false;
+
+			if (isUnDef(ow.ch.__types.mvs.__f) || isUnDef(ow.ch.__types.mvs.__f[absFile])) {
+				mvs = Packages.org.h2.mvstore.MVStore.Builder();
+				mvs = mvs.fileName(absFile);
+				mvs = mvs.open();
+				mvsLocal = true;
+			} else {
+				mvs = ow.ch.__types.mvs.__f[absFile];
+			}
+
+			var res = [];
+			var maps = mvs.getMapNames().toArray();
+
+			for(var i in maps) {
+				res.push(String(maps[i]));
+			}
+
+			if (mvsLocal) {
+				mvs.close();
+			}
+
+			return res;
+		},
+
+		/**
+		 * <odoc>
+		 * <key>ow.ch.utils.mvs.rename(aMVSFile, anOriginalMap, aDestinationMap)</key>
+		 * Renames anOriginalMap by aDestinationMap on the provided aMVSFile.
+		 * </odoc>
+		 */
+		rename: function(aFile, anOriginalMap, aDestinationMap) {
+			var absFile = String((new java.io.File(aFile)).getAbsoluteFile());
+
+			var mvs, mvsLocal = false;
+
+			if (isUnDef(ow.ch.__types.mvs.__f) || isUnDef(ow.ch.__types.mvs.__f[absFile])) {
+				mvs = Packages.org.h2.mvstore.MVStore.Builder();
+				mvs = mvs.fileName(absFile);
+				mvs = mvs.open();
+				mvsLocal = true;
+			} else {
+				mvs = ow.ch.__types.mvs.__f[absFile];
+			}
+			
+			var omap = mvs.openMap(anOriginalMap);
+			mvs.renameMap(omap, aDestinationMap);
+
+			if (mvsLocal) {
+				mvs.close();
+			}
+
+			return true;
+		},
+
+		/**
+		 * <odoc>
+		 * <key>ow.ch.utils.mvs.remove(aMVSFile, aMapToRemove)</key>
+		 * Removes aMapToRemove on the provided aMVSFile.
+		 * </odoc>
+		 */
+		remove: function(aFile, aMapToRemove) {
+			var absFile = String((new java.io.File(aFile)).getAbsoluteFile());
+			if (isUnDef(aMapToRemove)) throw "Need to specify aMapToRemove.";
+
+			var mvs, mvsLocal = false;
+
+			if (isUnDef(ow.ch.__types.mvs.__f) || isUnDef(ow.ch.__types.mvs.__f[absFile])) {
+				mvs = Packages.org.h2.mvstore.MVStore.Builder();
+				mvs = mvs.fileName(absFile);
+				mvs = mvs.open();
+				mvsLocal = true;
+			} else {
+				mvs = ow.ch.__types.mvs.__f[absFile];
+			}
+			
+			var omap = mvs.openMap(aMapToRemove);
+			mvs.removeMap(omap);
+
+			if (mvsLocal) {
+				mvs.close();
+			}
+
+			return true;			
+		}
 	}
 };
 
@@ -1895,16 +2339,16 @@ OpenWrap.ch.prototype.persistence = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.ch.persistence.create(aChannel, aFilename, anArrayOfKeys, shouldCompress)</key>
+	 * <key>ow.ch.persistence.create(aChannel, aFilename, anArrayOfKeys, shouldCompress, forAll)</key>
 	 * Adds a channel identified by the name aChannel, trying to restore data from aFilename given anArrayOfKeys
 	 * (strings representing the key fields). Optionally indicating if keys should be compressed in memory with
-	 * shouldCompress = true.
+	 * shouldCompress = true and/or existing subscribers should run for all elements (forAll = true)
 	 * </odoc>
 	 */
-	create: function(aChannel, aFilename, anArrayOfKeys, shouldCompress) {			
+	create: function(aChannel, aFilename, anArrayOfKeys, shouldCompress, forAll) {			
 		ow.ch.create(aChannel, shouldCompress);
 		ow.ch.persistence.restore(aChannel, aFilename, anArrayOfKeys); 
-		ow.ch.subscribe(aChannel, ow.ch.persistence.getSubscribeFunc(aFilename));
+		ow.ch.subscribe(aChannel, ow.ch.persistence.getSubscribeFunc(aFilename), !forAll);
 		
 		return this;
 	}

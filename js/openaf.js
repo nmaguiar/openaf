@@ -1,9 +1,8 @@
 //OPENAF common functions
+//Author: Nuno Aguiar
 
-//Author: nmaguiar@gmail.com
-
-var self = this;
-var global = self;
+const self = this;
+const global = self;
 
 /**
  * <odoc>
@@ -25,6 +24,7 @@ function getOpenAFJar() {
 }
 
 var noHomeComms = false;
+var __noSLF4JErrorOnly;
 //Set openaf variables
 var __openaf;
 try {
@@ -294,16 +294,20 @@ function tprintErr(aTemplateString, someData) {
 
 /**
  * <odoc>
- * <key>printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi) : String</key>
+ * <key>printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, colorMap) : String</key>
  * Returns a ASCII table representation of anArrayOfEntries where each entry is a Map with the same keys.
  * Optionally you can specify aWidthLimit and useAnsi.
- * If you want to include a count of rows just use displayCount = true.
+ * If you want to include a count of rows just use displayCount = true. If useAnsy = true you can provide a colorMap with colors
+ * for lines (default bold) and values (default CYAN).
  * </odoc>
  */
-function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi) {
+function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, colorMap) {
 	var count = 0;
 	var maxsize = {};
 	var output = "";
+	if (isUnDef(colorMap)) colorMap = {};
+	if (isUnDef(colorMap.lines)) colorMap.lines = "bold";
+	if (isUnDef(colorMap.values)) colorMap.values = "CYAN";
 
 	if (!Array.isArray(anArrayOfEntries)) return "";
 	if (isUnDef(aWidthLimit)) aWidthLimit = -1;
@@ -324,37 +328,50 @@ function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi) {
 		var outOfWidth = false;
 		var cols = Object.keys(row);
 		if (count == 0) {
-			output += (useAnsi ? ansiColor("bold", "|") : "|"); lineSize = 1; outOfWidth = false;
+			//output += (useAnsi ? ansiColor("bold", "|") : "|"); 
+			output += (useAnsi ? ansiColor(colorMap.lines, "") : ""); 
+			lineSize = 1; outOfWidth = false; colNum = 0;
 			cols.forEach(function(col) {
 				if (outOfWidth) return;
 				lineSize += maxsize[String(col)] + 1;
 				if (aWidthLimit > 0 && lineSize > (aWidthLimit+3)) {
-					output += (useAnsi ? ansiColor("bold", "...") : "..."); outOfWidth = true;
+					output += (useAnsi ? ansiColor(colorMap.lines, "...") : "..."); outOfWidth = true;
 				} else {
-					output += (useAnsi ? ansiColor("bold", String(col)) : String(col)) + repeat(maxsize[String(col)] - String(col).length, ' ') + (useAnsi ? ansiColor("bold", "|") : "|");
+					output += repeat(Math.floor((maxsize[String(col)] - String(col).length)/2), ' ') + (useAnsi ? ansiColor(colorMap.lines, String(col)) : String(col)) + repeat(Math.round((maxsize[String(col)] - String(col).length) / 2), ' ');
+					if (colNum < (cols.length-1)) output += (useAnsi ? ansiColor(colorMap.lines, "|") : "|");
 				}
+				colNum++;
 			});
 			output += "\n";
-			output += (useAnsi ? ansiColor("bold", "+") : "+"); lineSize = 1; outOfWidth = false;
+			//output += (useAnsi ? ansiColor(colorMap.lines, "+") : "+"); 
+			lineSize = 1; outOfWidth = false; colNum = 0;
 			cols.forEach(function(col) {
 				if (outOfWidth) return;
 				lineSize += maxsize[String(col)] + 1;
 				if (aWidthLimit > 0 && lineSize > (aWidthLimit+3)) {
-					output += (useAnsi ? ansiColor("bold", "...") : "...");outOfWidth = true;
-				} else
-					output += (useAnsi ? ansiColor("bold", repeat(maxsize[String(col)], '-')) : repeat(maxsize[String(col)], '-')) + (useAnsi ? ansiColor("bold", "+") : "+");
+					output += (useAnsi ? ansiColor(colorMap.lines, "...") : "..."); outOfWidth = true;
+				} else {
+					output += (useAnsi ? ansiColor(colorMap.lines, repeat(maxsize[String(col)], '-')) : repeat(maxsize[String(col)], '-'));
+					if (colNum < (cols.length-1)) output += (useAnsi ? ansiColor(colorMap.lines, "+") : "+");
+				}
+				colNum++;
 			});
 			output += "\n";
 		};
 
-		output += (useAnsi ? ansiColor("bold", "|") : "|"); lineSize = 1; outOfWidth = false;
+		//output += (useAnsi ? ansiColor(colorMap.lines, "|") : "|"); 
+		lineSize = 1; outOfWidth = false; colNum = 0;
 		cols.forEach(function(col) {
 			if (outOfWidth) return;
 			lineSize += maxsize[String(col)] + 1;
 			if (aWidthLimit > 0 && lineSize > (aWidthLimit+3)) {
 				output += "..."; outOfWidth = true;
-			} else			
-				output += String(row[String(col)]) + repeat(maxsize[String(col)] - String(row[String(col)]).length, ' ') + (useAnsi ? ansiColor("bold", "|") : "|");
+			} else {	
+				var value = String(row[String(col)]).replace(/\n/g, " ");
+				output += (useAnsi ? ansiColor(colorMap.values, value) : value) + repeat(maxsize[String(col)] - String(row[String(col)]).length, ' ');
+				if (colNum < (cols.length-1)) output += (useAnsi ? ansiColor(colorMap.lines, "|") : "|");
+			}
+			colNum++;
 		});
 		output += "\n";
 		count++;
@@ -362,13 +379,13 @@ function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi) {
 
 	if (displayCount) {
 		var summary = "[#" + count + " " + ((count <= 1) ? "row" : "rows") + "]";
-		output += (useAnsi ? ansiColor("bold", summary) : summary);
+		output += (useAnsi ? ansiColor(colorMap.lines, summary) : summary);
 	}
 	
 	return output;
 }
 
-var __con, __conStatus;
+var __con, __conStatus, __conAnsi;
 function __initializeCon() {
 	if (isDef(__conStatus)) return __conStatus;
 
@@ -377,13 +394,16 @@ function __initializeCon() {
 		try {
 			__con = (new Console()).getConsoleReader();
 			__conStatus = true;
+			__conAnsi = __con.getTerminal().isAnsiSupported();
 			return true;
 		} catch(e) {
 			__conStatus = false;
+			__conAnsi = false;
 			return false;
 		}
 	} else {
 		__conStatus = true;
+		__conAnsi = true;
 		return true;
 	}
 }
@@ -406,7 +426,7 @@ function ansiColor(aAnsi, aString, force) {
 	if (!__initializeCon()) return aString;
 
 	var con = __con;
-	var ansis = force || (con.getTerminal().isAnsiSupported() && (java.lang.System.console() != null));
+	var ansis = force || (__conAnsi && (java.lang.System.console() != null));
 	var jansi = JavaImporter(Packages.org.fusesource.jansi);
 	var res = "";
 	
@@ -427,7 +447,7 @@ function ansiColor(aAnsi, aString, force) {
 function ansiStart(force) {
 	if (!__initializeCon()) return false;
 	var con = __con;
-	var ansis = force || (con.getTerminal().isAnsiSupported() && (java.lang.System.console() != null));
+	var ansis = force || (__conAnsi && (java.lang.System.console() != null));
 	var jansi = JavaImporter(Packages.org.fusesource.jansi);
 	if (ansis) {
 		java.lang.System.out.flush(); java.lang.System.err.flush();
@@ -444,7 +464,7 @@ function ansiStart(force) {
 function ansiStop(force) {
 	if (!__initializeCon()) return false;
 	var con = __con;
-	var ansis = force || (con.getTerminal().isAnsiSupported() && (java.lang.System.console() != null));
+	var ansis = force || (__conAnsi && (java.lang.System.console() != null));
 	var jansi = JavaImporter(Packages.org.fusesource.jansi);
 	if (ansis) {
 		jansi.AnsiConsole.systemUninstall();
@@ -712,9 +732,13 @@ function setLog(aMap) {
  * </odoc>
  */
 function startLog(externalLogging) {
-	$ch("__log").create(true);
+	$ch("__log").create(true, "simple");
 	__logStatus = true;
+	global.__logQueue = [];
 	if (isDef(externalLogging) && isFunction(externalLogging)) {
+		addOnOpenAFShutdown(function() {
+			stopLog();
+		});
 		return $ch("__log").subscribe(externalLogging);
 	}
 }
@@ -751,50 +775,71 @@ function dumpLog() {
  */
 function stopLog() {
 	__logStatus = false;
+	/*if (isDef(global.__logQueue) && global.__logQueue > 0) {
+		var it = now();
+		while((now() - it < 3000) && global.__logQueue > 0) {
+			$ch("__log").waitForJobs();
+		}
+		delete global.__logQueue;
+	}*/
+	//sleep(100);
+	$ch("__log").waitForJobs(-1);
 	$ch("__log").destroy();
 }
 
 /**
  * <odoc>
- * <key>log(msg)</key>
+ * <key>log(msg, formatOptions)</key>
  * Outputs to the current stdout a line composed of the current date, indication of INFO and the provided msg.
+ * Optionally you can provide a formatOptions map for overriding the defaults from setLog.
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function log(msg) {
+function log(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
+	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
 	if (__logStatus) {
 		var f = () => {
 			k = { n: nw, t: "INFO" };
 			v = { n: nw, d: data, t: "INFO", m: msg };
-			if (isDef(__logFormat) && __logFormat.profile) {
+			if (isDef(__logFormat) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=> {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			});
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offInfo)) ? false : true;
+	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offInfo)) ? false : true;
 	if (go) {
-		if (isUnDef(__con)) __initializeCon();
+		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
+			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
 			ansiStart();
-			data = (isDef(__logFormat) && isDef(__logFormat.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), __logFormat.dateFormat, __logFormat.dateTZ) : data;
+			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
 			print(ind + ansiColor("BOLD", data) + sep + "INFO" + sep + msg);
 			ansiStop();
 			return 1;
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=>{
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			});
 		} else 
 			f();
 	}
@@ -802,57 +847,69 @@ function log(msg) {
 
 /**
  * <odoc>
- * <key>tlog(msg, someData)</key>
+ * <key>tlog(msg, someData, formatOptions)</key>
  * Outputs to the current stdout a line composed of the current date, indication of INFO and the provided msg using the templify function.
- * Optionally you can provide also someData. 
+ * Optionally you can provide also someData and you can provide a formatOptions map for overriding the defaults from setLog.
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function tlog(msg, someData) {
-	log(templify(msg, someData));
+function tlog(msg, someData, formatOptions) {
+	log(templify(msg, someData), formatOptions);
 }
 
 /**
  * <odoc>
- * <key>lognl(msg)</key>
+ * <key>lognl(msg, formatOptions)</key>
  * Outputs to the current stdout, without a new line, a sentence composed of the current date, indication of INFO and the provided msg.
+ * Optionally you can provide a formatOptions map for overriding the defaults from setLog.
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function lognl(msg) {
+function lognl(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
+	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
 	if (__logStatus) {
 		var f = () => {
 			k = { n: nw, t: "INFO" };
 			v = { n: nw, d: data, t: "INFO", m: msg };
-			if (isDef(__logFormat) && __logFormat.profile) {
+			if (isDef(__logFormat) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=>{
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			});
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offInfo)) ? false : true;
+	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offInfo)) ? false : true;
 	if (go) {
-		if (isUnDef(__con)) __initializeCon();
+		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
+			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
 			ansiStart();
-			data = (isDef(__logFormat) && isDef(__logFormat.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), __logFormat.dateFormat, __logFormat.dateTZ) : data;
+			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
 			printnl(ind + ansiColor("BOLD", data) + sep + "INFO" + sep + msg + "\r");
 			ansiStop();
 			return 1;
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=>{
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			});
 		} else 
 			f();	
 		
@@ -861,56 +918,69 @@ function lognl(msg) {
 
 /**
  * <odoc>
- * <key>tlognl(msg, someData)</key>
+ * <key>tlognl(msg, someData, formatOptions)</key>
  * Outputs to the current stdout, without a new line, a sentence composed of the current date, indication of INFO and the provided msg using the templify function.
+ * Optionally you can provide a formatOptions map for overriding the defaults from setLog.
  * Optinionally you can provide also someData.
  * </odoc>
  */
-function tlognl(msg, someData) {
-	lognl(templify(msg, someData));
+function tlognl(msg, someData, formatOptions) {
+	lognl(templify(msg, someData), formatOptions);
 }
 
 /**
  * <odoc>
- * <key>logErr(msg)</key>
+ * <key>logErr(msg, formatOptions)</key>
  * Outputs to the current stderr a line composed of the current date, indication of ERROR and the provided msg.
+ * Optionally you can provide a formatOptions map for overriding the defaults from setLog.
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function logErr(msg) {
+function logErr(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
+	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
 	if (__logStatus) {
 		var f = () => {
 			k = { n: nw, t: "ERROR" };
 			v = { n: nw, d: data, t: "ERROR", m: msg };
-			if (isDef(__logFormat) && __logFormat.profile) {
+			if (isDef(__logFormat) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw);
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=>{
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw));
+			});
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offError)) ? false : true;
+	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offError)) ? false : true;
 	if (go) {
-		if (isUnDef(__con)) __initializeCon();
+		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
+			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
 			ansiStart();
-			data = (isDef(__logFormat) && isDef(__logFormat.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), __logFormat.dateFormat, __logFormat.dateTZ) : data;
+			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
 			printErr(ind + ansiColor("BOLD", data) + sep + ansiColor("red", "ERROR") + sep + msg);
 			ansiStop();
 			return 1;
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=>{
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			});
 		} else 
 			f();		
 
@@ -919,45 +989,57 @@ function logErr(msg) {
 
 /**
  * <odoc>
- * <key>logWarn(msg)</key>
+ * <key>logWarn(msg, formatOptions)</key>
  * Outputs to the current warning in a line composed of the current date, indication of WARN and the provided msg.
+ * Optionally you can provide a formatOptions map for overriding the defaults from setLog.
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function logWarn(msg) {
+function logWarn(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
+	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
 	if (__logStatus) {
 		var f = () => {
 			k = { n: nw, t: "WARN" };
 			v = { n: nw, d: data, t: "WARN", m: msg };
-			if (isDef(__logFormat) && __logFormat.profile) {
+			if (isDef(__logFormat) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw);
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=>{
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw));
+			});
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (__logFormat.off || __logFormat.offWarn)) ? false : true;
+	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offWarn)) ? false : true;
 	if (go) {
-		if (isUnDef(__con)) __initializeCon();
+		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(__logFormat.separator))) ? __logFormat.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(__logFormat.indent))) ? __logFormat.indent : "";
+			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
 			ansiStart();
-			data = (isDef(__logFormat) && isDef(__logFormat.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), __logFormat.dateFormat, __logFormat.dateTZ) : data;
+			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
 			print(ind + ansiColor("BOLD", data) + sep + ansiColor("yellow", "WARN") + sep + msg);
 			ansiStop();
 			return 1;
 		};
-		if (isDef(__logFormat) && __logFormat.async) {
+		if (isDef(__logFormat) && formatOptions.async) {
+			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
-			__logPromise = __logPromise.then(f, ()=>{});
+			__logPromise = __logPromise.then(f, ()=>{
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			}).then(() => {
+				if (isDef(global.__logQueue)) deleteFromArray(global.__logQueue, global.__logQueue.indexOf(nw + "S"));
+			});
 		} else 
 			f();		
 	}		
@@ -965,24 +1047,26 @@ function logWarn(msg) {
 
 /**
  * <odoc>
- * <key>tlogErr(msg, someData)</key>
+ * <key>tlogErr(msg, someData, formatOptions)</key>
  * Outputs to the current stderr a line composed of the current date, indication of ERROR and the provided msg using the templify function.
+ * Optionally you can provide a formatOptions map for overriding the defaults from setLog. 
  * Optinionally you can provide also someData.
  * </odoc>
  */
-function tlogErr(msg, someData) {
-	logErr(templify(msg, someData));
+function tlogErr(msg, someData, formatOptions) {
+	logErr(templify(msg, someData), formatOptions);
 }
 
 /**
  * <odoc>
- * <key>tlogWarn(msg, someData)</key>
+ * <key>tlogWarn(msg, someData, formatOptions)</key>
  * Outputs to the current warning in a line composed of the current date, indication of WARN and the provided msg using the templify function.
+ * Optionally you can provide a formatOptions map for overriding the defaults from setLog. 
  * Optinionally you can provide also someData.
  * </odoc>
  */
-function tlogWarn(msg, someData) {
-	logWarn(templify(msg, someData));
+function tlogWarn(msg, someData, formatOptions) {
+	logWarn(templify(msg, someData), formatOptions);
 }
 
 /**
@@ -1075,12 +1159,43 @@ function sha512(obj) {
 
 /**
  * <odoc>
+ * <key>bcrypt(aText, aVerifyHash, hashingRounds) : String/boolean</key>
+ * If aText is provided it will return the resulting string of applying the bcrypt hash to aText. Optionally the bcrypt hashingRounds (between 4 and 
+ * 31, default 10) can be provided (note: the more rounds, the more slower and secure).
+ * If aVerifyHash is provided it will return a boolean determining if the provided aVerifyHash (result of a previous bcrypt)
+ * matches the aText provided (hashingRounds will be ignored since the hash string already provides the rounds used).
+ * </odoc>
+ */
+function bcrypt(aText, aVerifyHash, hashingRounds) {
+	_$(aText).isString().$_("Please provide a string text");
+	_$(aVerifyHash).isString();
+	_$(hashingRounds).isNumber().check((v) => { return (v >= 4 || v <= 31); }, "hashingRounds need to be between 4 and 31");
+
+	var salt;
+	if (isDef(hashingRounds)) {
+		salt = Packages.org.springframework.security.crypto.bcrypt.BCrypt.gensalt(hashingRounds);
+	} else {
+		salt = Packages.org.springframework.security.crypto.bcrypt.BCrypt.gensalt();
+	}
+
+	if (isDef(aVerifyHash)) {
+		return Packages.org.springframework.security.crypto.bcrypt.BCrypt.checkpw(aText, aVerifyHash);
+	} else {
+		return String(Packages.org.springframework.security.crypto.bcrypt.BCrypt.hashpw(aText, salt));
+	}
+}
+
+/**
+ * <odoc>
  * <key>splitBySeparator(aString, aSeparator) : Array</key>
  * Will split aString using the provided aSeparator. If the aSeparator is escaped (for example if ';' is the aSeparator and 
  * aString 'abc\\;def;123" only the second ';' will be considered.
  * </odoc>
  */
 function splitBySeparator(aString, aSep) {
+	if (isUnDef(aString) || aString == null) return [];
+	if (isUnDef(aSep)) aSep = ";";
+
 	return aString.replace(new RegExp(aSep, "g"), "\\" + aSep).replace(new RegExp("\\\\\\\\(?=" + aSep + ")", "g") , "").split("\\" + aSep + "");
 }
 
@@ -1385,7 +1500,7 @@ function load(aScript) {
  * <odoc>
  * <key>plugin(aPlugin)</key>
  * Provides a shortcut for the af.plugin function. It also provides a shortcut for plugins with
- * the java package "wedo.openaf.plugins" (e.g. af.plugin("wedo.openaf.plugins.HTTP") is the same
+ * the java package "openaf.plugins" (e.g. af.plugin("openaf.plugins.HTTP") is the same
  * as plugin("HTTP")).
  * </odoc>
  */
@@ -1395,10 +1510,10 @@ function plugin(aPlugin) {
 	var pluginLoaded;
 	try {
 		if (!aPlugin.match(/\./)) {
-			pluginLoaded = "wedo.openaf.plugins." + aPlugin;
+			pluginLoaded = "openaf.plugins." + aPlugin;
 			
 			if (__loadedPlugins[pluginLoaded]) return;
-			af.plugin("wedo.openaf.plugins." + aPlugin);
+			af.plugin("openaf.plugins." + aPlugin);
 			__loadedPlugins[pluginLoaded] = true;
 
 			return;
@@ -1453,6 +1568,50 @@ function isUnDef(aObject) { return (typeof aObject == 'undefined') ? true : fals
 
 /**
  * <odoc>
+ * <key>isBinaryArray(anArrayOfChars, confirmLimit, previousResult) : boolean</key>
+ * Tries to determine if the provided anArrayOfChars is binary or text. The detection is performed with the first 1024 chars (
+ * that can be changed if confirmLimit is provided). Additionally is possible to link multiple calls providing the last result
+ * on previousResult for multiple subsequences of a main array of chars sequence. Should work for utf8, iso-8859-1, iso-8859-7,
+*  windows-1252 and windows-1253. Returns true if file is believed to be binary.
+ * </odoc>
+ */
+function isBinaryArray(anArrayOfChars, confirmLimit) {
+	var rcstream = 0;
+	confirmLimit = _$(confirmLimit).isNumber().default(1024);
+	var isit = {
+		text: 0,
+		bin : 0
+	};
+
+	function evaluateIsIt() {
+		if (isit.bin == 0)
+			return false;
+		else
+			return true;
+	}
+
+	for(var ii = 0; ii < anArrayOfChars.length; ii++) {
+		var c = anArrayOfChars[ii];
+
+		// based on https://www.java-forums.org/advanced-java/82143-how-check-if-file-plain-text-binary.html
+		if (c == 9 || c == 10 || c == 11 || c == 13 || (c >= 32 && c <= 126)) {
+			isit.text++;
+		} else if (c == 153 || (c >= 160 && c <= 255)) {
+			isit.text++;
+		} else if (c == 884 || c == 885 || c == 890 || c == 894 || (c >= 900 && c <= 974)) {
+			isit.text++;
+		} else {
+			isit.bin++;
+		}
+		rcstream++;
+		if (confirmLimit > 0 && rcstream >= confirmLimit) return evaluateIsIt();
+	}
+
+	return evaluateIsIt();
+}
+
+/**
+ * <odoc>
  * <key>listFilesRecursive(aPath) : Map</key>
  * Performs the io.listFiles function recursively given aPath. The returned map will be equivalent to
  * the io.listFiles function (see more in io.listFiles). 
@@ -1488,7 +1647,7 @@ function cls() {
 
 	if (!__initializeCon()) return false;
 
-	if(con.getConsoleReader().getTerminal().isAnsiSupported()) {
+	if(__conAnsi) {
 		jansi.AnsiConsole.systemInstall();
 		printnl(jansi.Ansi.ansi().eraseScreen().cursor(0,0).reset());
 		jansi.AnsiConsole.systemUninstall();
@@ -1517,7 +1676,7 @@ function watch(waitFor, aCommand, beautifyFlag) {
 	var c = -2;
 
 	plugin("Threads");
-	__initializeCon();
+	if (isUnDef(__conStatus)) __initializeCon();
 	var con = __con;
 	var t = new Threads();
 
@@ -1792,11 +1951,6 @@ function merge(aObjectA, aObjectB) {
 function restartOpenAF(aCommandLineArray, preLineArray) {
 	var javaBin = java.lang.System.getProperty("java.home") + java.io.File.separator + "bin" + java.io.File.separator + "java";
 	var currentJar = getOpenAFJar();
-	/*try {
-		currentJar = new java.io.File(af.getClass("wedo.openaf.AFCmd").getProtectionDomain().getCodeSource().getLocation().toURI());
-	} catch(e) {
-		currentJar = new java.io.File(java.lang.System.getProperties().getProperty("java.class.path"));
-	}*/
 	
 	/* is it a jar file? */
 	if(!currentJar.endsWith(".jar"))
@@ -1808,6 +1962,11 @@ function restartOpenAF(aCommandLineArray, preLineArray) {
 	if (isDef(preLineArray)) {
 		for(let c in preLineArray) {
 			command.add(preLineArray[c]);
+		}
+	} else {
+		var ar = java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments();
+		for(var ari = 0; ari < ar.size(); ari++) {
+			command.add(String(ar.get(ari)));
 		}
 	}
 	command.add("-jar");
@@ -2058,7 +2217,7 @@ function pidKill(aPidNumber, isForce) {
 function pidCheckOut(aFilename) {
 	try {
 		io.writeFileString(aFilename, "");
-		if (af.rm(aFilename)) {
+		if (io.rm(aFilename)) {
 			return true;
 		}
 	} catch(e) {
@@ -2308,7 +2467,15 @@ function uncompress(aCompressedObject) {
  * Returns true if aObj is an array, false otherwise.
  * </odoc>
  */
-var isArray = Array.isArray;
+const isArray = Array.isArray;
+
+/**
+ * <odoc>
+ * <key>isMap(aObj) : boolean</key>
+ * Returns true if aObj is a map, false otherwise.
+ * </odoc>
+ */
+const isMap = (a) => { return (Object.prototype.toString.call(a) == "[object Object]"); }
 
 /**
  * <odoc>
@@ -2370,6 +2537,16 @@ function isDate(obj) {
 function isJavaObject(obj) {
 	var s = Object.prototype.toString.call(obj);
 	return (s === '[object JavaObject]' || s === '[object JavaArray]');
+}
+
+/**
+ * <odoc>
+ * <key>isByteArray(aObj) : boolean</key>
+ * Returns true if aObj is a byte array object, false otherwise.
+ * </odoc>
+ */
+function isByteArray(obj) {
+	return (isDef(obj.getClass) && obj.getClass().getName() == "byte[]");
 }
 
 /**
@@ -3170,6 +3347,19 @@ function findRandomOpenPort() {
 // STREAM HANDLING
 //
 
+var __ioNIO = true;
+/**
+ * <odoc>
+ * <key>ioSetNIO(aFlag)</key>
+ * Sets the default use of NIO in ioStream* functions. It's overridden if the ioStream* function defines
+ * a value for the useNIO function argument.
+ * </odoc>
+ */
+function ioSetNIO(aFlag) {
+	_$(aFlag).isBoolean();
+	__ioNIO = aFlag;
+}
+
 /**
  * <odoc>
  * <key>ioStreamWrite(aStream, aString, aBufferSize, useNIO)</key>
@@ -3178,8 +3368,9 @@ function findRandomOpenPort() {
  * </odoc>
  */
 function ioStreamWrite(aStream, aString, aBufferSize, useNIO) {
-	if (!useNIO) {
-		aStream.write(af.fromString2Bytes(aString));
+	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
+	if (useNIO) {
+		Packages.org.apache.commons.io.IOUtils.write(aString, aStream, "utf-8");
 	} else {
 		var bufferSize = (isUnDef(aBufferSize)) ? 1024 : aBufferSize;
 		var channel;
@@ -3208,8 +3399,9 @@ function ioStreamWrite(aStream, aString, aBufferSize, useNIO) {
  * </odoc>
  */
 function ioStreamWriteBytes(aStream, aArrayBytes, aBufferSize, useNIO) {
-	if (!useNIO) {
-		aStream.write(aArrayBytes);
+	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
+	if (useNIO) {
+		Packages.org.apache.commons.io.IOUtils.write(aArrayBytes, aStream);
 	} else {
 		var bufferSize = (isUnDef(aBufferSize)) ? 1024 : aBufferSize;
 		var channel;
@@ -3232,13 +3424,15 @@ function ioStreamWriteBytes(aStream, aArrayBytes, aBufferSize, useNIO) {
 
 /**
  * <odoc>
- * <key>ioStreamRead(aStream, aFunction, aBufferSize, useNIO)</key>
+ * <key>ioStreamRead(aStream, aFunction, aBufferSize, useNIO, encoding)</key>
  * Given a Java input or output stream helps to read strings by using aFunction with a string argument for each buffer size 
  * (default 1024 characters). Optionally you can provide a different aBufferSize (default: 1024) and/or also specify that 
- * Java NIO functionality should be used. 
+ * Java NIO functionality should be used. If aFunction returns true the read operation stops.
  * </odoc>
  */
-function ioStreamRead(aStream, aFunction, aBufferSize, useNIO) {
+function ioStreamRead(aStream, aFunction, aBufferSize, useNIO, encoding) {
+	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
+	encoding = _$(encoding).isString().default("UTF-8");
 	var bufferSize = (isUnDef(aBufferSize)) ? 1024 : aBufferSize;
 
 	if (useNIO) {
@@ -3251,19 +3445,27 @@ function ioStreamRead(aStream, aFunction, aBufferSize, useNIO) {
 
 		var buffer = java.nio.ByteBuffer.allocate(bufferSize);
 
-		var bRead = channel.read(buffer);
-		while(bRead != -1) {
+		//var bRead = channel.read(buffer);
+		var bRead = Packages.org.apache.commons.io.IOUtils.read(channel, buffer);
+		while(bRead > 0) {
 			buffer.flip();
 
-			var buf = [];
+			/*var buf = [];
 			while(buffer.hasRemaining()) {
 				buf.push(Number(buffer.get()));
+			}*/
+
+			//var res = aFunction(af.fromBytes2String(af.fromArray2Bytes(buf)));
+			var res = aFunction(String(java.nio.charset.Charset.forName(encoding).newDecoder().decode(buffer).toString()));
+			if (res == true) {
+				channel.close();
+				aStream.close();
+				return;
 			}
 
-			aFunction(af.fromBytes2String(af.fromArray2Bytes(buf)));
-
 			buffer.clear();
-			bRead = channel.read(buffer);
+			//bRead = channel.read(buffer);
+			bRead = Packages.org.apache.commons.io.IOUtils.read(channel, buffer);
 		}
 
 		channel.close();
@@ -3275,7 +3477,10 @@ function ioStreamRead(aStream, aFunction, aBufferSize, useNIO) {
 		do {
 			aRead = aStream.read(buffer, 0, bufferSize);
 			if (aRead > 0) {
-				aFunction(af.fromBytes2String(af.fromArray2Bytes(af.fromBytes2Array(buffer).slice(0, aRead))));
+				var res = aFunction(af.fromBytes2String(af.fromArray2Bytes(af.fromBytes2Array(buffer).slice(0, aRead))));
+				if (res == true) {
+					return;
+				}
 			}
 		} while(aRead >= 0);
 	}
@@ -3285,24 +3490,30 @@ function ioStreamRead(aStream, aFunction, aBufferSize, useNIO) {
  * <odoc>
  * <key>ioStreamReadLines(aStream, aFunctionPerLine, aSeparator, useNIO)</key>
  * Given aStream will read the entire buffer and call aFunctionPerLine(withALine) per each \n found.
- * Aditionally you can specify a different aSeparator for each line other than "\n".
+ * Aditionally you can specify a different aSeparator for each line other than "\n". 
+ * If aFunctionPerLine returns true the read operation stops.
  * </odoc>
  */
 function ioStreamReadLines(aStream, aFunction, aSeparator, useNIO) {
-        var buf = "";
-        if (isUnDef(aSeparator)) aSeparator = "\n";
- 
-        ioStreamRead(aStream, function(buffer) {
-                buf += buffer;
-                while (buf.indexOf(aSeparator) > 0) {
-                        aFunction(buf.substring(0, buf.indexOf(aSeparator)));
-                        buf = buf.substring(buf.indexOf(aSeparator) + 1);
-                }
-        }, undefined, useNIO);
-        while (buf.indexOf(aSeparator) > 0) {
-                aFunction(buf.substring(0, buf.indexOf(aSeparator)));
-                buf = buf.substring(buf.indexOf(aSeparator) + 1);
-        }
+	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
+	var buf = "";
+	if (isUnDef(aSeparator)) aSeparator = "\n";
+
+	ioStreamRead(aStream, function(buffer) {
+		var res;
+		buf += buffer;
+		while (buf.indexOf(aSeparator) >= 0) {
+			res = aFunction(buf.substring(0, buf.indexOf(aSeparator)));
+			buf = buf.substring(buf.indexOf(aSeparator) + 1);
+			if (res == true) return;
+		}
+		return res;
+	}, void 0, useNIO);
+	while (buf.indexOf(aSeparator) >= 0) {
+		var res = aFunction(buf.substring(0, buf.indexOf(aSeparator)));
+		buf = buf.substring(buf.indexOf(aSeparator) + 1);
+		if (res == true) return;
+	}
 }
 
 /**
@@ -3323,13 +3534,14 @@ function ioStreamCopy(aOutputStream, aInputStream) {
  * <key>ioStreamReadBytes(aStream, aFunction, aBufferSize, useNIO)</key>
  * Given a Java input or output stream helps to read an array of bytes by using aFunction with anArrayOfBytes argument for 
  * each buffer size (default 1024 characters). Optionally you can provide a different aBufferSize (default: 1024) and/or 
- * also specify that Java NIO functionality should be used. 
+ * also specify that Java NIO functionality should be used. If aFunction returns true the read operation stops.
  * </odoc>
  */
 function ioStreamReadBytes(aStream, aFunction, aBufferSize, useNIO) {
+	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
 	var bufferSize = (isUnDef(aBufferSize)) ? 1024 : aBufferSize;
 
-	if (!useNIO) {
+	if (useNIO) {
 		var channel;
 		try {
 			channel = aStream.getChannel();
@@ -3338,19 +3550,27 @@ function ioStreamReadBytes(aStream, aFunction, aBufferSize, useNIO) {
 		}
 		var buffer = java.nio.ByteBuffer.allocate(bufferSize);
 
-		var bRead = channel.read(buffer);
-		while(bRead != -1) {
+		var bRead = Packages.org.apache.commons.io.IOUtils.read(channel, buffer);
+		//var bRead = channel.read(buffer);
+		while(bRead > 0) {
 			buffer.flip();
 
-			var buf = [];
+			/*var buf = [];
 			while(buffer.hasRemaining()) {
 				buf.push(Number(buffer.get()));
+			}*/
+			var buf = newJavaArray(java.lang.Byte.TYPE, buffer.remaining());
+			buffer.get(buf, 0, buf.length);
+
+			var res = aFunction(buf);
+			if (res == true) {
+				channel.close();
+				aStream.close();
+				return;
 			}
 
-			aFunction(af.fromArray2Bytes(buf));
-
 			buffer.clear();
-			bRead = channel.read(buffer);
+			bRead = Packages.org.apache.commons.io.IOUtils.read(channel, buffer);
 		}
 
 		channel.close();
@@ -3362,7 +3582,10 @@ function ioStreamReadBytes(aStream, aFunction, aBufferSize, useNIO) {
 		do {
 			aRead = aStream.read(buffer, 0, bufferSize);
 			if (aRead > 0) {
-				aFunction(af.fromArray2Bytes(af.fromBytes2Array(buffer).slice(0, aRead)));
+				var res = aFunction(af.fromArray2Bytes(af.fromBytes2Array(buffer).slice(0, aRead)));
+				if (res == true) {
+					return;
+				}
 			}
 		} while(aRead >= 0);
 
@@ -3574,9 +3797,9 @@ function threadBox(aFunction, aTimeout, aStopFunction) {
  * </odoc>
  */
 function threadBoxCtrlC() {
-	__initializeCon()
+	if (isUnDef(__conStatus)) __initializeCon();
 	var console = __con;
-    if (console.getConsoleReader().getTerminal().isAnsiSupported()) {
+    if (__conAnsi) {
         if (console.readCharNB() == 3) return true; else return false;
     } else {
         return false;
@@ -3658,14 +3881,58 @@ function oJobRun(aJson, args, aId) {
 
 /**
  * <odoc>
- * <key>oJobRunJob(aJob, args, aId)</key>
+ * <key>oJobRunJob(aJob, args, aId) : boolean</key>
  * Shortcut for ow.oJob.runJob. Please see help for ow.oJob.runJob.
- * Optionally you can provide aId to segment this specific job.
+ * Optionally you can provide aId to segment this specific job. If aJob is a string it will try to retrieve the job
+ * from the jobs channel. Returns true if the job executed or false otherwise (e.g. failed deps).
  * </odoc>
  */
 function oJobRunJob(aJob, args, aId) {
 	ow.loadOJob();
-	ow.oJob.runJob(aJob, args, aId);
+	if (isString(aJob)) {
+		if (isUnDef(aId)) aId = "";
+		var job = ow.oJob.getJobsCh().get({ name: aJob });
+		if (isDef(job)) {
+			return ow.oJob.runJob(job, args, aId);
+		} else {
+			throw "Job '" + aJob + "' not found.";
+		}
+	} else {
+		return ow.oJob.runJob(aJob, args, aId);
+	}
+}
+
+/**
+ * <odoc>
+ * <key>oJobRunJobAsync(aJob, args, aId) : oPromise</key>
+ * Creates an oPromise to run the same arguments for oJobRunJob thus executing the job async. Returns
+ * the generate oPromise.
+ * </odoc>
+ */
+function oJobRunJobAsync(aJob, args, aId) {
+	return $do(() => {
+		return oJobRunJob(aJob, args, aId);
+	});
+}
+
+/**
+ * <odoc>
+ * <key>getEnvVar(anEnvironmentVariable) : String</key>
+ * Returns the current value of the operating system anEnvironmentVariable.
+ * </odoc>
+ */
+function getEnv(anEnvironmentVariable) {
+	return java.lang.System.getenv().get(anEnvironmentVariable); 
+}
+
+/**
+ * <odoc>
+ * <key>getEnvVars() : Map</key>
+ * Returns a map of key and values with the operating system environment variables.
+ * </odoc>
+ */
+function getEnvs() {
+	return af.fromJavaMap(java.lang.System.getenv());
 }
 
 /**
@@ -3677,6 +3944,10 @@ function oJobRunJob(aJob, args, aId) {
 function loadJSYAML() {
 	loadCompiledLib("js-yaml_js");
 }
+
+loadCompiledLib("openafsigil_js");
+
+var __correctYAML = true;
 
 /**
  * <odoc>
@@ -3691,7 +3962,14 @@ AF.prototype.toYAML = function(aJson) { loadJSYAML(); return jsyaml.dump(aJson);
  * Tries to parse aYaml into a javascript map.
  * </odoc>
  */
-AF.prototype.fromYAML = function(aYAML) { loadJSYAML(); return jsyaml.load(aYAML); }
+AF.prototype.fromYAML = function(aYAML) { loadJSYAML(); if (__correctYAML) aYAML = aYAML.replace(/^(\t+)/mg, (m) => { if (isDef(m)) return repeat(m.length, "  "); }); return jsyaml.load(aYAML); };
+/**
+ * <odoc>
+ * <key>AF.encryptText()</key>
+ * Interactevly asks to enter a text and then uses af.encrypt to print to stdout the result.
+ * </odoc>
+ */
+AF.prototype.encryptText = function() { plugin("Console"); print("Encrypted text: " + af.encrypt((new Console()).readLinePrompt("Enter text: ", "*"))); };
 /**
  * <odoc>
  * <key>IO.readFileYAML(aYAMLFile) : Object</key>
@@ -3705,7 +3983,61 @@ IO.prototype.readFileYAML = function(aYAMLFile) { return af.fromYAML(io.readFile
  * Tries to write a javascript aObj into a aYAMLFile.
  * </odoc>
  */
-IO.prototype.writeFileYAML = function(aYAMLFile, aObj) { return io.writeFileString(aYAMLFile, af.toYAML(aObj)); }
+IO.prototype.writeFileYAML = function(aYAMLFile, aObj) { return io.writeFileString(aYAMLFile, af.toYAML(aObj)); };
+
+/**
+ * <odoc>
+ * <key>IO.writeLineNDJSON(aNDJSONFile, aObj, aEncode)</key>
+ * Writes aObj into a single line on aNDJSONFile (newline delimited JSON). Optionally you can provide
+ * an encoding.
+ * </odoc>
+ */
+IO.prototype.writeLineNDJSON = function(aNDJSONFile, aObj, aEncode) {
+	io.writeFileString(aNDJSONFile, stringify(aObj, void 0, "")+"\n", aEncode, true);
+};
+
+/**
+ * <odoc>
+ * <key>IO.readLinesNDJSON(aNDJSONFile, aFuncCallback, aErrorCallback)</key>
+ * Opens aNDJSONFile (a newline delimited JSON) as a stream call aFuncCallback with each parse JSON. If
+ * aFuncCallback returns true the cycle will be interrupted. For any parse error it calls the aErrorCallback 
+ * with each exception.
+ * </odoc>
+ */
+IO.prototype.readLinesNDJSON = function(aNDJSONFile, aFuncCallback, aErrorCallback) {
+	var rfs = io.readFileStream(aNDJSONFile);
+	ioStreamReadLines(rfs, (line) => {
+		try {
+			return aFuncCallback(jsonParse(line));
+		} catch(e) {
+			aErrorCallback(e);
+		}
+	});
+};
+
+/**
+ * <odoc>
+ * <key>IO.isBinaryFile(aFile, confirmLimit) : boolean</key>
+ * Tries to determine if the provided aFile is a binary or text file by checking the first 1024 chars (limit can be changed using
+ * confirmLimit). Returns true if file is believed to be binary. Based on the function isBinaryArray.
+ * </odoc>
+ */
+IO.prototype.isBinaryFile = function(aFile, confirmLimit) {
+	var rstream = io.readFileStream(aFile);
+	var rcstream = 0;
+	var isBin = true;
+	confirmLimit = _$(confirmLimit).isNumber().default(1024);
+
+	var v = [];
+	while((rstream.available() > 0) && (confirmLimit > 0 && rcstream < confirmLimit)) {
+		rcstream++;
+		v.push(rstream.read());
+	}
+	rstream.close();
+	isBin = isBinaryArray(v, confirmLimit);
+	
+	return isBin;
+}
 
 /**
  * <odoc>
@@ -3737,14 +4069,14 @@ IO.prototype.writeFileYAML = function(aYAMLFile, aObj) { return io.writeFileStri
  * \
  * Channel basic persistence:\
  * \
- * - storeAdd(aFilename, anArrayOfKeys, shouldCompress)\
+ * - storeAdd(aFilename, anArrayOfKeys, shouldCompress, runSubscribersForAll)\
  * - storeRestore(aFilename, anArrayOfKeys)\
  * \
  * Inter-channel HTTP REST:\
  * \
- * - expose(aLocalPortOrServer, aPath, aAuthFunc, aUnAuthFunc)\
+ * - expose(aLocalPortOrServer, aPath, aLogin, aPassword)\
  * - peer(aLocalPortOrServer, aPath, aRemoteURL, aAuthFunc, aUnAuthFunc)\
- * - createRemote(aURL, aTimeout)
+ * - createRemote(aURL, aTimeout, aLogin, aPass)
  * </odoc>
  */
 $channels = function(a) {
@@ -3771,22 +4103,31 @@ $channels = function(a) {
 		shift        : function(aKey) { return ow.ch.shift(a, aKey); },
 		getVersion   : function() { return ow.ch.getVersion(a); },
 		
-		storeAdd     : function(aFilename, anArrayOfKeys, shouldCompress) { ow.ch.persistence.create(a, aFilename, anArrayOfKeys, shouldCompress); return $channels(a) },
+		storeAdd     : function(aFilename, anArrayOfKeys, shouldCompress, forAll) { ow.ch.persistence.create(a, aFilename, anArrayOfKeys, shouldCompress, forAll); return $channels(a) },
 		storeRestore : function(aFilename, anArrayOfKeys) { ow.ch.persistence.restore(a, aFilename, anArrayOfKeys); return $channels(a); },
 		
 		expose       : function(aLocalPortOrServer, aPath, aAuthFunc, aUnAuthFunc, noCheck) { return ow.ch.server.expose(a, aLocalPortOrServer, aPath, aAuthFunc, aUnAuthFunc, noCheck); },
 		peer         : function(aLocalPortOrServer, aPath, aRemoteURL, aAuthFunc, aUnAuthFunc) { return ow.ch.server.peer(a, aLocalPortOrServer, aPath, aRemoteURL, aAuthFunc, aUnAuthFunc); },
 		
-		createRemote : function(aURL, aTimeout) {
-			var u = new java.net.URL(aURL);
+		createRemote : function(aURL, aTimeout, aLogin, aPassword) {
+			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
 			var urlPort = u.getPort();
 			
 			if (urlPort < 0 && u.getProtocol() == "https") urlPort = 443;
 			if (urlPort < 0) urlPort = 80;
 			
+			var login, pass;
+			if (isUnDef(aLogin)) {
+				login = (u.getUserInfo() != null) ? String(java.net.URLDecoder.decode(u.getUserInfo().substring(0, u.getUserInfo().indexOf(":")), "UTF-8")) : undefined;
+				pass  = (u.getUserInfo() != null) ? String(java.net.URLDecoder.decode(u.getUserInfo().substring(u.getUserInfo().indexOf(":") + 1), "UTF-8")) : undefined;
+			} else {
+				login = aLogin;
+				pass  = aPassword;
+			};
+
 			var opts = {
-				"login"   : (u.getUserInfo() != null) ? String(java.net.URLDecoder.decode(u.getUserInfo().substring(0, u.getUserInfo().indexOf(":")), "UTF-8")) : undefined,
-				"password": (u.getUserInfo() != null) ? String(java.net.URLDecoder.decode(u.getUserInfo().substring(u.getUserInfo().indexOf(":") + 1), "UTF-8")) : undefined,
+				"login"   : login,
+				"password": pass,
 				"url"     : String(u.getProtocol() + "://" + u.getHost() + ":" + urlPort + u.getPath())
 			};
 			
@@ -3843,6 +4184,12 @@ $ch = $channels;
 
 var __threadPool;
 var __threadPoolFactor = 1;
+
+function __resetThreadPool(poolFactor) {
+	__threadPoolFactor = poolFactor;
+	__threadPool = void 0;
+	__getThreadPool();
+}
 
 function __getThreadPool() {
 	if (isUnDef(__threadPool)) {
@@ -4043,6 +4390,12 @@ oPromise.prototype.resolve = function(aValue) {
 	return this;
 };
 
+oPromise.prototype.cancel = function() {
+	if (isDef(this.__f)) {
+		return this.__f.cancel(true);
+	}
+};
+
 oPromise.prototype.__exec = function() {
 	var thisOP = this;
 
@@ -4117,6 +4470,156 @@ oPromise.prototype.__exec = function() {
 
 };
 
+var javaRegExp = (text) => {
+    var s = java.lang.String(text);
+    var calcMods = (mods) => {
+        if (isUnDef(mods)) return 0;
+        if (isNumber(mods)) return mods;
+
+        var v = 0;
+
+        if (mods.indexOf("i") >= 0) v += java.util.regex.Pattern.CASE_INSENSITIVE;
+        if (mods.indexOf("m") >= 0) v += java.util.regex.Pattern.MULTILINE;
+
+        return v;
+    };
+
+    var addPC = (regexp, mods) => {
+        if (isUnDef(global.__javaRegExp)) {
+            global.__javaRegExp = {};
+        }
+
+        var id = regexp + String(mods);
+        global.__javaRegExp[id] = java.util.regex.Pattern.compile(regexp, calcMods(mods));
+        return id;
+    };
+
+    var removePC = (regexp, mods) => {
+        if (isUnDef(global.__javaRegExp)) return;
+        var id = regexp + String(mods);
+        delete global.__javaRegExp[id];
+        return id;
+    };
+
+    var getPC = (regexp, mods) => {
+        if (isUnDef(global.__javaRegExp)) {
+            return java.util.regex.Pattern.compile(regexp, calcMods(mods));
+        } else {
+            var id = regexp + String(mods);
+            if (isDef(global.__javaRegExp[id])) {
+                return global.__javaRegExp[id];
+            } else {
+                return java.util.regex.Pattern.compile(regexp, calcMods(mods));
+            }
+        }
+    };
+
+    return {
+        /**
+		 * <odoc>
+		 * <key>javaRegExp(text).match(regExp, mods) : Array</key>
+		 * Mimics, using Java, the javascript match function. Supported mods are "g", "m" and "i" or the java integer composed 
+		 * mods. Returns the corresponding array.
+		 * </odoc>
+		 */
+        match: (regexp, mods) => {
+            var m = getPC(regexp, mods).matcher(s);
+            var r = [];
+            if (isDef(mods) && mods.indexOf("g") >= 0) {
+                while(m.find()) { r.push(String(m.group())); }
+            } else {
+                m.find();
+                r.push(String(m.group()));
+            }
+            return r;
+        },
+    	/**
+		 * <odoc>
+		 * <key>javaRegExp(text).matchAll(regExp, mods) : Array</key>
+		 * Mimics, using Java, the javascript match function with the "g" modifier. Supported mods are "m" and "i" or the java integer composed 
+		 * mods. Returns the corresponding array.
+		 * </odoc>
+		 */
+        matchAll: (regexp, mods) => {
+            var m = getPC(regexp, mods).matcher(s);
+            var r = [];
+            while(m.find()) { r.push(String(m.group())); }
+            return r;
+        },
+    	/**
+		 * <odoc>
+		 * <key>javaRegExp(text).match(regExp, mods) : Array</key>
+		 * Mimics, using Java, the javascript match function. Supported mods are "g", "m" and "i" or the java integer composed 
+		 * mods. Returns the corresponding array.
+		 * </odoc>
+		 */
+        replace: (regexp, replaceStr, mods) => {
+            var m = getPC(regexp, mods).matcher(s);
+            if (isDef(mods) && mods.indexOf("g") >= 0) {
+                return String(m.replaceAll(replaceStr));
+            } else {
+                return String(m.replaceFirst(replaceStr));
+            }     
+		},
+		/**
+		 * <odoc>
+		 * <key>javaRegExp(text).replaceAll(regExp, mods) : Array</key>
+		 * Mimics, using Java, the javascript replace function with the "g" modifier. Supported mods are "m" and "i" or the java integer composed 
+		 * mods. Returns the corresponding array.
+		 * </odoc>
+		 */
+        replaceAll: (regexp, replaceStr, mods) => {
+            var m = getPC(regexp, mods).matcher(s);
+            return String(m.replaceAll(replaceStr));
+		},
+		/**
+		 * <odoc>
+		 * <key>javaRegExp().preCompile(regExp, mods)</key>
+		 * Pre-compiles the regExp with the corresponding mods to be used by match, matchAll, replace, replaceAll, split and test until removePreCompiled
+		 * is invoked for the same combination of regExp and mods.
+		 * </odoc>
+		 */
+        preCompile: (regexp, mods) => {
+            return addPC(regexp, mods);
+		},
+		/**
+		 * <odoc>
+		 * <key>javaRegExp().removePreCompiled(regExp, mods)</key>
+		 * Removes a previously added pre compiled combination of regExp and mods.
+		 * </odoc>
+		 */
+        removePreCompiled: (regexp, mods) => {
+            return removePC(regexp, mods);
+		},
+		/**
+		 * <odoc>
+		 * <key>javaRegExp(text).split(regExp, mods) : Array</key>
+		 * Returns an array of the result of spliting text using the provided regExp and mods. Supported mods are "g", "m" and "i" or the java integer composed 
+		 * mods.
+		 * </odoc>
+		 */
+        split: (regexp, mods) => {
+			var ar = getPC(regexp, mods).split(s);
+			var res = [];
+			for(var ii = 0; ii < ar.length; ii++) {
+				res.push(String(ar[ii]));
+			}
+			return res;
+		},
+		/**
+		 * <odoc>
+		 * <key>javaRegExp(text).test(regExp, mods) : boolean</key>
+		 * Mimics, using Java, the javascript RegExp test function. Supported mods are "g", "m" and "i" or the java integer composed 
+		 * mods. Returns the corresponding boolean value.
+		 * </odoc>
+		 */
+        test: (regexp, mods) => {
+            var m = getPC(regexp, mods).matcher(s);
+            return m.find();
+        }
+    };
+};
+
 /**
  * <odoc>
  * <key>$do(aFunction, aRejFunction) : oPromise</key>
@@ -4189,6 +4692,12 @@ var $doWait = function(aPromise, aWaitTimeout) {
 	return aPromise;
 }
 
+var __OpenAFUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)";
+function __setUserAgent(aNewAgent) {
+	__OpenAFUserAgent = _$(aNewAgent).isString().default(__OpenAFUserAgent);
+	java.lang.System.setProperty("http.agent", __OpenAFUserAgent);
+}
+
 // Startup
 // -------
 
@@ -4202,13 +4711,20 @@ var $doWait = function(aPromise, aWaitTimeout) {
 		java.lang.System.setProperty("java.util.logging.config.file", "");
 	}
 
-	try {
-		let i = Packages.org.slf4j.LoggerFactory.getLogger(Packages.ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).getLoggerContext().getLoggerList().iterator();
-		while (i.hasNext()) {
-			Packages.org.slf4j.LoggerFactory.getLogger(i.next().getName()).setLevel(Packages.ch.qos.logback.classic.Level.ERROR);
-		}
-	} catch (e) {}
+	if (__noSLF4JErrorOnly) {
+		try {
+			let i = Packages.org.slf4j.LoggerFactory.getLogger(Packages.ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).getLoggerContext().getLoggerList().iterator();
+			while (i.hasNext()) {
+				Packages.org.slf4j.LoggerFactory.getLogger(i.next().getName()).setLevel(Packages.ch.qos.logback.classic.Level.ERROR);
+			}
+		} catch (e) {}
+	}
 };
+
+// Set user agent
+{
+	__setUserAgent();
+}
 
 // ---------------
 // Profile support

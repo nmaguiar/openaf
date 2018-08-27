@@ -4,12 +4,14 @@ plugin("Console");
 var __ansiflag = true;
 var __pinflag = false;
 var __pinprefix = "";
-var CONSOLESEPARATOR = "-- "
+var CONSOLESEPARATOR = "-- ";
 var CONSOLEHISTORY = ".openaf-console_history";
 var CONSOLEPROFILE = ".openaf-console_profile";
 var RESERVEDWORDS = "help|exit|time|output|beautify|desc|scope|alias|color|watch|clear|purge|pause|sql|esql|dsql|pin";
 var __alias = {
 	"opack": "oPack(__aliasparam);",
+	"encryptText": "af.encryptText();",
+	"sh": "sh((!ow.loadFormat().isWindows()?\"stty icanon echo 2>/dev/null && /bin/bash \":\"cmd \")+(__aliasparam.trim().length>0?(ow.format.isWindows()?\" /c \":\" -c \\\"\")+__aliasparam+\"\\\"\":\"\")+(!ow.format.isWindows()?\" && stty -icanon min 1 -echo 2>/dev/null\":\"\"),void 0,void 0,true);void 0;"
 };
 
 var __aliasparam;
@@ -22,7 +24,7 @@ global.CONSOLECTRLC     = false;
 /**
  * Describe an existing class with methods exposed to OpenAF
  *
- * @param  {[type]} aClass The class name (if not found it will search also "wedo.openaf.*")
+ * @param  {[type]} aClass The class name (if not found it will search also "openaf.*")
  */
 function __desc(aClass, retList, noRecursive) {
 	var methods = [];
@@ -43,12 +45,12 @@ function __desc(aClass, retList, noRecursive) {
 		try {
 			if (aClass.toLowerCase() == "io") aClass = "IOBase";
 			if (aClass.toLowerCase() == "af") aClass = "AFBase";
-			classObj = java.lang.Class.forName("wedo.openaf." + aClass);
+			classObj = java.lang.Class.forName("openaf." + aClass);
 			methods = classObj.getMethods();
 			constructors = classObj.getConstructors();
 		} catch(e) {
 			try {
-				classObj = java.lang.Class.forName("wedo.openaf.plugins." + aClass);
+				classObj = java.lang.Class.forName("openaf.plugins." + aClass);
 				methods = classObj.getMethods();
 				constructors = classObj.getConstructors();
 			} catch(e) {
@@ -285,7 +287,7 @@ function __sql(aParams, executeSQL, descSQL, returnOnly) {
 			if (timeCommand) __timeResult = now() - __start;
 			if (res.results.length > 0) {
 				if (!descSQL) {
-					outputres = printTable(res.results, con.getConsoleReader().getTerminal().getWidth(), returnOnly);
+					outputres = printTable(res.results, con.getConsoleReader().getTerminal().getWidth(), returnOnly, con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag);
 				} /* else {
 					outputres = Object.keys(res.results[0]).join("\n");
 				}*/
@@ -647,7 +649,7 @@ function __readProfile(aProfile) {
 		});
 		af.compile(prof);
 	} catch(e) {
-		if (!e.message.match(/java\.io\.FileNotFoundException/)) throw e;
+		if (!String(e).match(/java\.io\.FileNotFoundException/)) throw e;
 	}
 }
 
@@ -787,7 +789,7 @@ function __processCmdLine(aCommand, returnOnly) {
 
 		}
 	} catch(e) {
-		__outputConsoleError(e.message);
+		__outputConsoleError(String(e));
 	}
 
 	internalCommand = false;
@@ -955,7 +957,7 @@ initThread.addThread(function(uuid) {
 	jLineFileHistory = new Packages.jline.console.history.FileHistory(new java.io.File(historyFile));
 	con.getConsoleReader().setHistory(jLineFileHistory);
 	con.getConsoleReader().addCompleter(
-		new Packages.wedo.openaf.jline.OpenAFConsoleCompleter(function(buf, cursor, candidates) {
+		new Packages.openaf.jline.OpenAFConsoleCompleter(function(buf, cursor, candidates) {
 			if (buf == null) return null;
 			var ret = 0;
 
@@ -980,7 +982,7 @@ initThread.addThread(function(uuid) {
 					var tmpbuf = buf.substr(0, cursor).match(/[^a-zA-Z0-9_\[\]\(\)\"\']*([a-zA-Z0-9_\[\]\(\)\"\']+)$/);
 					ret = cursor - tmpbuf[1].length;
 					try {
-						var tmpList = __scope(tmpbuf[1], true);
+						var tmpList = __scope(tmpbuf[1], true).concat(Object.keys(__alias));
 						for(let elem in tmpList) {
 							if(tmpList[elem].indexOf(tmpbuf[1]) == 0) {							
 								candidates.add(tmpList[elem]);
@@ -997,7 +999,11 @@ initThread.addThread(function(uuid) {
 	con.getConsoleReader().getCompletionHandler().setPrintSpaceAfterFullCompletion(false);
 
 	// Read profile
-	__readProfile(java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE);
+	try {
+		__readProfile(java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE);
+	} catch(e) {
+		printErr("Error while loading " + java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE + ": " + String(e));
+	}
 	
 	if (!noHomeComms) __checkVersion();
 	initThread.stop();
