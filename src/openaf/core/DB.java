@@ -7,14 +7,17 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.charset.Charset;
 import java.sql.Connection;
+import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.lang.String;
 
 import org.apache.commons.io.IOUtils;
 import org.h2.tools.Server;
@@ -22,6 +25,7 @@ import org.mozilla.javascript.Scriptable;
 
 import openaf.AFCmdBase;
 import openaf.JSEngine;
+import openaf.OAFdCL;
 import openaf.SimpleLog;
 
 /**
@@ -31,7 +35,10 @@ import openaf.SimpleLog;
  *
  */
 public class DB {
-	protected final String ORACLE_DRIVER = "oracle.jdbc.OracleDriver";
+	static protected final String ORACLE_DRIVER = "oracle.jdbc.OracleDriver";
+	static protected final String POSTGRESQL_DRIVER = "org.postgresql.Driver";
+	static protected final String H2_DRIVER = "org.h2.Driver";
+	static public HashMap<String, String> drivers = new HashMap<String, String>();
 	protected final Long LIMIT_RESULTS = 100000000L;
 	protected Connection con;
 	protected Server h2Server;
@@ -39,24 +46,35 @@ public class DB {
 	protected boolean convertDates = false;
 	public String url;
 	
+	static {
+		drivers.put("jdbc:oracle:", ORACLE_DRIVER);
+		drivers.put("jdbc:postgresql:", POSTGRESQL_DRIVER);
+		drivers.put("jdbc:h2:", H2_DRIVER);
+	}
+
 	/**
 	 * <odoc>
-	 * <key>DB.db(aDriver, aURL, aLogin, aPassword)</key>
+	 * <key>DB.db(aDriver, aURL, aLogin, aPassword, aTimeout)</key>
 	 * Creates a new instance of the object DB providing java class aDriver (e.g. oracle.jdbc.OracleDriver)
 	 * that must be included on OpenAF's classpath, a JDBC aURL, aLogin and aPassword. If the aDriver is 
-	 * null or undefined the Oracle driver will be used. 
+	 * null or undefined the Oracle driver will be used. Optionally you can provide aTimeout in ms.
 	 * </odoc>
 	 */
-	public void newDB(String driver, String url, String login, String pass) throws Exception {
+	public void newDB(String driver, String url, String login, String pass, String timeout) throws Exception {
 		// Are we in the wrong constructor?
-		if (pass == null || pass.equals("undefined")) {
+		if (driver.startsWith("jdbc:")) {
 			if (url != null) {
 				// Ok, use it as if it was another constructor
-				connect(ORACLE_DRIVER, driver, url, login);
+				for(String prefix : drivers.keySet()) {
+					if (driver.startsWith(prefix)) connect(drivers.get(prefix), driver, url, login, pass);
+				}
+				if (url.startsWith("jdbc:oracle"))     connect(ORACLE_DRIVER, driver, url, login, pass);
+				if (url.startsWith("jdbc:postgresql")) connect(POSTGRESQL_DRIVER, driver, url, login, pass);
+				if (url.startsWith("jdbc:h2"))         connect(H2_DRIVER, driver, url, login, pass);
 			}
 		} else {
-			SimpleLog.log(SimpleLog.logtype.DEBUG, "New DB with driver='" + driver + "'|url='" + url + "'|login='"+login+"'|pass='"+pass+"'", null);
-			connect(driver, url, login, pass);
+			SimpleLog.log(SimpleLog.logtype.DEBUG, "New DB with driver='" + driver + "'|url='" + url + "'|login='"+login+"'|pass='"+pass+"'|timeout='"+timeout+"'", null);
+			connect(driver, url, login, pass, timeout);
 		}
 	}
 
@@ -703,17 +721,36 @@ public class DB {
 		}
 	}
 	
-	protected void connect(String driver, String url, String login, String pass) throws Exception {
+	protected void connect(String driver, String url, String login, String pass, String timeout) throws Exception {
 		try {
-			Class.forName(driver);
+			if (OAFdCL.oafdcl != null) 
+				Class.forName(driver, true, OAFdCL.oafdcl);
+			else 
+				Class.forName(driver);
 			this.url = url;
 			
 			Properties props = new Properties();
 			
 			props.setProperty("user", AFCmdBase.afc.dIP(login));
 			props.setProperty("password", AFCmdBase.afc.dIP(pass));
+			try {
+				if (timeout != null && Integer.valueOf(timeout) > 0) {
+					props.setProperty("connectTimeout", timeout);
+				}
+			} catch(java.lang.NumberFormatException e) {
+				// ignore
+			};
 			
-			con = DriverManager.getConnection(url, props);
+			try {
+				con = DriverManager.getConnection(url, props);
+			} catch(SQLException e) {
+				if (e.getMessage().contains("No suitable driver found")) {
+					Driver pdriver = (Driver) Class.forName(driver, true, OAFdCL.oafdcl).getDeclaredConstructor().newInstance();
+					DriverManager.registerDriver(new openaf.DBProxy(pdriver));
+					con = DriverManager.getConnection(url, props);
+				}
+			}
+			
 			con.setAutoCommit(false);
 
 		} catch (ClassNotFoundException | SQLException e) {

@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.lang.String;
 
 import org.eclipse.jgit.api.CheckoutCommand;
 import org.eclipse.jgit.api.CloneCommand;
@@ -100,13 +101,13 @@ public class GIT extends ScriptableObject {
 	
 	/**
 	 * <odoc>
-	 * <key>GIT.clone(aURL, aDirectory, cloneAll, aBranchName)</key>
+	 * <key>GIT.clone(aURL, aDirectory, cloneAll, aBranchName, aUser, aPassword)</key>
 	 * Clones aURL GIT repository to the aDirectory provided. Optionally, if you want all branches cloned you can indicate that
 	 * with cloneAll = true. If don't want all branches cloned but a specific one you can indicate it with aBranchName.
 	 * </odoc>
 	 */
 	@JSFunction
-	public void clone(Object aURL, Object dir, boolean cloneAll, Object branch) throws InvalidRemoteException, TransportException, GitAPIException {
+	public void clone(Object aURL, Object dir, boolean cloneAll, Object branch, String aUser, String aPass) throws InvalidRemoteException, TransportException, GitAPIException {
 		if (!(dir instanceof Undefined) && dir != "" && !(aURL instanceof Undefined) && aURL != "") {
 			CloneCommand clone = ((CloneCommand) setCred(Git.cloneRepository())).setURI((String) aURL).setDirectory(new File((String) dir));
 			if (!(branch instanceof Undefined) && branch != "") {
@@ -114,6 +115,7 @@ public class GIT extends ScriptableObject {
 				clone = clone.setBranch((String) branch);
 				clone = clone.setCloneAllBranches(cloneAll);
 			}
+			if (aUser != null && aPass != null) clone.setCredentialsProvider(new UsernamePasswordCredentialsProvider(AFCmdBase.afc.dIP(aUser), AFCmdBase.afc.dIP(aPass)));
 			git = clone.call();
 		}
 	}
@@ -333,6 +335,23 @@ public class GIT extends ScriptableObject {
 			throw new Exception("Repository not open");
 		
 		return AFCmdBase.jse.newArray(AFCmdBase.jse.getGlobalscope(), records.toArray());
+	}
+
+	/**
+	 * <odoc>
+	 * <key>GIT.branch() : String</key>
+	 * Returns the current branch for the repository.
+	 * </odoc>
+	 */
+	@JSFunction
+	public Object branch() throws Exception {
+		String branch = "";
+
+		if (git != null) {
+			branch = git.status().getRepository().getBranch();
+		}
+
+		return branch;
 	}
 	
 	@JSFunction

@@ -38,6 +38,7 @@ import openaf.AFCmdBase;
 import openaf.JSEngine;
 import openaf.SimpleLog;
 
+import java.lang.String;
 /**
  * Core IO plugin
  * 
@@ -228,6 +229,7 @@ public class IO extends ScriptableObject {
 							records.add(file.toAbsolutePath().toString());
 					}
 				}
+				stream.close();
 			}
 		}
 		
@@ -380,7 +382,7 @@ public class IO extends ScriptableObject {
 	
 	/**
 	 * <odoc>
-	 * <key>io.writeFileString(aFilename, aJSONobject, anEncoding, shouldAppend)</key>
+	 * <key>io.writeFileString(aFilename, aString, anEncoding, shouldAppend)</key>
 	 * Writes a string into the given filename, optionally with the provided encoding and/or determine
 	 * if it shouldAppend to an existing file.
 	 * </odoc>
@@ -613,8 +615,9 @@ public class IO extends ScriptableObject {
 	
 	/**
 	 * <odoc>
-	 * <key>io.writeFileStream(aFilename) : JavaStream</key>
-	 * Creates and returns a JavaStream to write to aFilename. For example:\
+	 * <key>io.writeFileStream(aFilename, shouldAppend) : JavaStream</key>
+	 * Creates and returns a JavaStream to write to aFilename. If shouldAppend = true the stream will 
+	 * append to the existing file. For example:\
 	 * \
 	 * var stream = io.writeFileStream("afile.txt");\
 	 * ioStreamWrite(stream, "Hello "); // you can also use ioStreamWriteBytes \
@@ -624,8 +627,8 @@ public class IO extends ScriptableObject {
 	 * </odoc>
 	 */
 	@JSFunction
-	public static Object writeFileStream(String filename) throws IOException {
-		return FileUtils.openOutputStream(new File(filename));
+	public static Object writeFileStream(String filename, boolean append) throws IOException {
+		return FileUtils.openOutputStream(new File(filename), append);
 	}
 
 	/**
@@ -660,6 +663,17 @@ public class IO extends ScriptableObject {
 	@JSFunction
 	public static boolean fileExists(String aFile) {
 		return (new File(aFile)).exists();
+	}
+
+	/**
+	 * <odoc>
+	 * <key>io.getCanonicalPath(aPath) : String</key>
+	 * Returns the canonical path for the provided aPath either if the file/folder exists or not.
+	 * </odoc>
+	 */
+	@JSFunction
+	public static String getCanonicalPath(String aPath) throws IOException {
+		return (new File(aPath)).getCanonicalFile().toString();
 	}
 
 	/**
@@ -724,8 +738,20 @@ public class IO extends ScriptableObject {
 	 * @throws IOException 
 	 */
 	@JSFunction
-	public boolean cp(String orig, String dest) throws IOException {
-		Files.copy((new File(orig)).toPath(), (new File(dest)).toPath(), new CopyOption[] { StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.ATOMIC_MOVE });
-		return (new File(orig)).delete();
+	public void cp(String orig, String dest) throws IOException {
+		Files.copy((new File(orig)).toPath(), (new File(dest)).toPath(), new CopyOption[] { StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES });
+	}
+
+	/**
+	 * <odoc>
+	 * <key>io.createTempFile(aPrefix, aSuffix) : String</key>
+	 * Creates a temporary with the provided aPrefix and aSuffix that will be deleted upon execution exit. The absolute path for it is returned.
+	 * </odoc>
+	 */
+	@JSFunction
+	public String createTempFile(String prefix, String suffix) throws IOException {
+		File f = File.createTempFile(prefix, suffix);
+		f.deleteOnExit();
+		return f.getAbsolutePath();
 	}
 }

@@ -38,10 +38,20 @@ jobs:
      to  : oJob Test
      exec: args.func = args.tests.testObj2Array;
 
+   - name: Obj::Object schema validation
+     from: Obj::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testSchema;
+
    - name: Obj::Object pool
      from: Obj::Init
      to  : oJob Test
      exec: args.func = args.tests.testObjPool;
+    
+   - name: Obj::Thread-safe array
+     from: Obj::Init
+     to  : oJob Test
+     exec: args.func = args.tests.testSyncArray;
 
    - name: Obj::Object fuzzy search
      from: Obj::Init
@@ -57,6 +67,8 @@ todo:
    - Obj::Get Path
    - Obj::Set Path   
    - Obj::Array to object conversion
+   - Obj::Object schema validation
    - Obj::Object to array conversion
    - Obj::Object pool
    - Obj::Object fuzzy search
+   - Obj::Thread-safe array   

@@ -7,10 +7,13 @@ OpenWrap.ch = function() {
 };
 
 OpenWrap.ch.prototype.subscribers = {};
+OpenWrap.ch.prototype.peers = {};
+OpenWrap.ch.prototype.expose = {};
 OpenWrap.ch.prototype.jobs = {};
 OpenWrap.ch.prototype.vers = {}; 
 OpenWrap.ch.prototype.channels = {};
 OpenWrap.ch.prototype.type = {};
+OpenWrap.ch.prototype.lock = {};
 
 OpenWrap.ch.prototype.__types = {
 	// Obj BIG channel implementation
@@ -85,6 +88,12 @@ OpenWrap.ch.prototype.__types = {
 		setAll: function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
 			this.__channels[aName].setAll(anArrayOfKeys, anArrayOfMapData, aTimestamp);
 		},
+		unsetAll: function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
+			var parent = this;
+			anArrayOfMapData.forEach((aV) => {
+				parent.unset(aName, ow.loadObj().filterKeys(anArrayOfKeys, aV));
+			});
+		},
 		get: function(aName, aKey) {
 			return this.__channels[aName].get(aKey);
 		},
@@ -130,7 +139,199 @@ OpenWrap.ch.prototype.__types = {
 			this.__channels[aName].remove(ak);
 		}
 	},
+	// DB channel implementation
+	//
+	/**
+	 * <odoc>
+	 * <key>ow.ch.types.db</key>
+	 * This OpenAF implementation wraps access to a db table. The creation options are:\
+	 * \
+	 *    - db   (Database) The database object to access the database table.\
+	 *    - from (String)   The name of the database table or object (don't use double quotes).\
+	 *    - keys (Array)    An array of fields keys to use (don't use double quotes).\
+	 *    - cs   (Boolean)  Determines if the database is case sensitive for table and field names (defaults to false).\
+	 * \
+	 * </odoc>
+	 */
 	db: {
+		__options: {},
+		create: function(aName, shouldCompress, options) {
+			options = _$(options, "options").isMap().default({});
+
+			_$(options.db, "options.db").$_();
+			options.from = _$(options.from, "options.from").$_();
+			options.keys = _$(options.keys, "options.keys").isArray().default(void 0);
+
+			options.cs = _$(options.cs, "options.cs").isBoolean().default(false);
+			if (options.cs && options.from.trim().length > 0 && options.from.trim()[0] != "(") {
+				options.from = "\"" + options.from + "\"";
+			};
+
+			if (options.cs && isDef(options.keys)) {
+				options.keys = options.keys.map(k => "\"" + k + "\"");
+			}
+			
+			this.__options[aName] = options;
+		},
+		destroy: function(aName) { 
+			delete this.__options[aName];
+		},
+		size: function(aName) {
+			var options = this.__options[aName];
+			try {
+				var res = options.db.q("select count(1) as C from " + options.from);
+				return Number(res.results[0].C);
+			} catch(e) {
+				return String(e);
+			}
+		},
+		forEach: function(aName, aFunction, x) {
+			var i = this.getKeys(aName);
+			for(var j in i) {
+				aFunction(i[j], this.get(aName, i[j]));
+			}
+		},
+		getKeys: function(aName, full) { 
+			var options = this.__options[aName];
+			full = _$(full, "extra").isString().default(void 0);
+
+			var lst = (isDef(options.keys) ? options.keys.join(", ") : "*");
+
+			try {
+				var res = options.db.q("select " + lst + " from " + options.from + (isDef(full) ? " where " + full : ""));
+				return res.results;
+			} catch(e) {
+				return String(e);
+			}
+		},
+		getSortedKeys: function(aName, full) {
+			return this.getKeys(aName, full);
+		},
+		getSet: function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			/*var res;
+			try {
+				res = this.__db[aName].qs("select key from " + this.__table[aName] + " where key = ? for update", [stringify(aK)], true).results[0].KEY;
+				if (isDef(res) && ($stream([JSON.parse(res)]).anyMatch(aMatch)) ) {
+					this.set(aName, aK, aV, aTimestamp);
+				}
+				this.__db[aName].commit();
+				return res;
+			} catch(e) {
+				this.__db[aName].rollback();
+				throw e;
+			}*/
+		},
+		set: function(aName, aK, aV, aTimestamp, x) { 
+			var options = this.__options[aName];
+
+			var i = this.get(aName, aK);
+			try {
+				var wset = [], wku = [], wv = [], wk = [];
+
+				if (isDef(i)) {
+					for(var ii in aV) {
+						wset.push((options.cs ? "\"" + ii + "\"" : ii) + " = ?");
+						wv.push(aV[ii]);
+					}
+					for(var ii in aK) {
+						if (isDef(options.keys) && options.keys.indexOf((options.cs ? "\"" + ii + "\"" : ii)) < 0) continue;
+						wku.push((options.cs ? "\"" + ii + "\"" : ii) + " = ?");
+						wv.push(aK[ii]);
+					}
+					options.db.us("update " + options.from + " set " + wset.join(", ") + " where " + wku.join(" AND "), wv, true);
+				} else {
+					for(var ii in aV) {
+						wk.push((options.cs ? "\"" + ii + "\"" : ii));
+						wv.push(aV[ii]);
+					}
+					options.db.us("insert into " + options.from + " (" + wk.join(", ") + ") values (" + wv.map(r => "?").join(", ") + ")", wv, true);
+				}
+				options.db.commit();
+			} catch(e) {
+				options.db.rollback();
+				throw e;
+			}
+			return aK;
+		},
+		setAll: function(aName, aKs, aVs, aTimestamp) { 
+			for(var i in aVs) {
+				this.set(aName, ow.loadObj().filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
+			}
+		},
+		unsetAll: function(aName, aKs, aVs, aTimestamp) { 
+			for(var i in aVs) {
+				this.unset(aName, ow.loadObj().filterKeys(aKs, aVs[i]), aTimestamp);
+			}
+		},		
+		get: function(aName, aK, x) {
+			var options = this.__options[aName];
+			var lst = "*";
+			var w = [], wv = [];
+			for(var ii in aK) {
+				if (isDef(options.keys) && options.keys.indexOf((options.cs ? "\"" + ii + "\"" : ii)) < 0) continue;
+				w.push((options.cs ? "\"" + ii + "\"" : ii) + " = ?");
+				wv.push(aK[ii]);
+			}
+
+			var res;
+			try {
+				var res = options.db.qs("select " + lst + " from " + options.from +  " where " + w.join(" and "), wv, true);
+				if (isDef(res) && isArray(res.results) && res.results.length > 0) {
+					return res.results[0];
+				} else {
+					return void 0;
+				}
+			} catch(e) {
+				return String(e);
+			}
+		},
+		getAll: function(aName, full) {
+			var options = this.__options[aName];
+			var res = [], wv = [], wk = [], w = "";
+			if (isDef(full) && isMap(full)) {
+				for(var ii in full) {
+					wk.push((options.cs ? "\"" + ii + "\"" : ii) + " = ?");
+					wv.push(full[ii]);
+				}
+				w = " where " + wk.join(" and ");
+			}
+
+			try {
+				res = options.db.qs("select * from " + options.from + w, wv, true).results;
+			} catch(e) {
+				return String(e);
+			}
+			return res;
+		},		
+		pop: function(aName) { 
+			var aKs = this.getSortedKeys(aName);
+			var aK = aKs[aKs.length - 1];
+			return aK;		
+		},
+		shift: function(aName) {
+			var aK = this.getSortedKeys(aName)[0];
+			return aK;
+		},
+		unset: function(aName, aK, aTimestamp) { 
+			var options = this.__options[aName];
+
+			var w = [], wv = [];
+			for(var ii in aK) {
+				if (isDef(options.keys) && options.keys.indexOf((options.cs ? "\"" + ii + "\"" : ii)) < 0) continue;
+				w.push((options.cs ? "\"" + ii + "\"" : ii) + " = ?");
+				wv.push(aK[ii]);
+			}
+
+			try {
+				options.db.us("delete " + options.from + " where " + w.join(" and "), wv, true);
+				options.db.commit();
+			} catch(e) {
+				options.db.rollback();
+				throw e;
+			}
+		}
+	},	
+	dbOld: {
 		__db: {},
 		__table: {},
 		create: function(aName, shouldCompress, options) {
@@ -193,6 +394,7 @@ OpenWrap.ch.prototype.__types = {
 					this.set(aName, aK, aV, aTimestamp);
 				}
 				this.__db[aName].commit();
+				return res;
 			} catch(e) {
 				this.__db[aName].rollback();
 				throw e;
@@ -211,12 +413,18 @@ OpenWrap.ch.prototype.__types = {
 				this.__db[aName].rollback();
 				throw e;
 			}
+			return aK;
 		},
 		setAll: function(aName, aKs, aVs, aTimestamp) { 
 			for(var i in aVs) {
 				this.set(aName, ow.loadObj().filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
 			}
 		},
+		unsetAll: function(aName, aKs, aVs, aTimestamp) { 
+			for(var i in aVs) {
+				this.unset(aName, ow.loadObj().filterKeys(aKs, aVs[i]), aTimestamp);
+			}
+		},		
 		get: function(aName, aK, x) {
 			var res;
 			try {
@@ -285,6 +493,10 @@ OpenWrap.ch.prototype.__types = {
 			// Not implemented;
 			return undefined;
 		},
+		unsetAll     : function(aName, aKs, aVs, aTimestamp) { 
+			// Not implemented;
+			return undefined;
+		},		
 		get          : function(aName, aK, x) { 
 			return this.set(aName, aK, {}, undefined, x);
 		},
@@ -304,39 +516,78 @@ OpenWrap.ch.prototype.__types = {
 	// Cache implementation
 	//
 	cache: {
-		__cacheFunc: {},
-		__cacheCh  : {},
-		__cacheTTL : {},
+		__cache: {},
+		__cacheStats: {},
 		create       : function(aName, shouldCompress, options) { 
-			this.__cacheFunc[aName] = (isDef(options.func) ? options.func : function() { return {}; });
-			this.__cacheTTL[aName] = (isDef(options.ttl) ? options.ttl : 5000);
+			this.__cache[aName] = {};
+			this.__cacheStats[aName] = {
+				hits: 0,
+				miss: 0,
+				avg: 0
+			};
+			this.__cache[aName].Func = (isDef(options.func) ? function(k) { var res = options.func(k); return (isObject(res) ? res : { result: res }); } : function() { return {}; });
+			this.__cache[aName].TTL = (isDef(options.ttl) ? options.ttl : 5000);
+			this.__cache[aName].Size = (isDef(options.size) ? options.size : -1);
+			this.__cache[aName].__t = nowUTC();
 			if (isUnDef(options.ch)) {
 				$ch(aName + "::__cache").create();
-				this.__cacheCh[aName] = $ch(aName + "::__cache");
+				this.__cache[aName].Ch = $ch(aName + "::__cache");
 			} else {
-				this.__cacheCh[aName] = options.ch;
+				this.__cache[aName].Ch = (isString(options.ch) ? $ch(options.ch) : options.ch);
 			}
 		},
 		destroy      : function(aName) { 
-			if (isDef(this.__cacheFunc[aName])) delete this.__cacheFunc[aName];
-			if (isDef(this.__cacheCh[aName])) delete this.__cacheCh[aName];
-			if (isDef(this.__cacheTTL[aName])) delete this.__cacheTTL[aName];
+			if (isDef(this.__cache[aName].Func)) delete this.__cache[aName].Func;
+			if (isDef(this.__cache[aName].Ch)) delete this.__cache[aName].Ch;
+			if (isDef(this.__cache[aName].TTL)) delete this.__cache[aName].TTL;
+			if (isDef(this.__cache[aName].Size)) delete this.__cache[aName].Size;
+			if (isDef(this.__cacheStats[aName])) delete this.__cacheStats[aName];
 			$ch(aName + "::__cache").destroy();
 		},
+		__refresh    : function(aName, aRemoveNum) {
+			if (isDef(this.__cache[aName].TTL) && nowUTC() > (this.__cache[aName].TTL + this.__cache[aName].__t)) {
+				aRemoveNum = _$(aRemoveNum).isNumber().default(1);
+				for(var ii = 0; ii < aRemoveNum; ii++) {
+					this.__cache[aName].Ch.shift();
+				}
+				var parent = this;
+				$do(() => {
+					parent.getKeys(aName, true).map(v => {
+						try {
+							if (v.____t <= (nowUTC() - parent.__cache[aName].TTL)) 
+								parent.unset(aName, v);
+							else
+								if (parent.__cache[aName].__t > v.____t) parent.__cache[aName].__t = v.____t;
+						} catch(e) {
+							sprintErr(e);
+						}
+					});
+				}).catch((e) => { sprintErr(e) });
+			}
+			this.__cache[aName].__t = nowUTC();
+		},
 		size         : function(aName) { 
-			return this.__cacheCh[aName].size();
+			return this.__cache[aName].Ch.size();
 		},
 		forEach      : function(aName, aFunction, x) { 
-			var aKs = this.getKeys(aName);
+			var aKs = this.getKeys(aName, false);
 			for(var i in aKs) {
 				aFunction(aKs[i], this.get(aName, aKs[i], x));
 			}			
 		},
 		getKeys      : function(aName, full) { 
-			return this.__cacheCh[aName].getKeys(full);
+			if (full) {
+				return this.__cache[aName].Ch.getKeys(full);
+			} else {
+				return this.__cache[aName].Ch.getKeys(full).map(r => {
+					var rr = clone(r);
+					delete rr.____t;
+					return rr;
+				});
+			}
 		},
 		getSortedKeys: function(aName, full) { 
-			return this.getKeys(aName, full).sort();
+			return $from(this.getKeys(aName, full)).sort("____t").select();
 		},
 		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  { 
 			var res;
@@ -347,30 +598,72 @@ OpenWrap.ch.prototype.__types = {
 			return undefined;
 		},
 		set          : function(aName, aK, aV, aTimestamp, x) { 
-			this.__cacheCh[aName].set(aK, this.__cacheFunc[aName](aK), aTimestamp, x);
+			aTimestamp = _$(aTimestamp).default(nowUTC());
+			this.__refresh(aName, 1);
+			if (this.__cache[aName].Size < 0 || this.__cache[aName].Size > this.__cache[aName].Ch.size()) 
+				this.__cache[aName].Ch.set(merge(aK, { ____t: aTimestamp }), this.__cache[aName].Func(aK), aTimestamp, x);
+			return aK;
 		},
 		setAll       : function(aName, aKs, aVs, aTimestamp) { 
 			var avvs = [];
-			for (var i in aKs) {
-				avvs[i] = this.__cacheFunc[aName](aK);
+			this.__refresh(aName, aKs.length);
+			if (this.__cache[aName].Size < 0 || this.__cache[aName].Size >= (this.__cache[aName].Ch.size() + aKs.length)) {
+				for (var i in aKs) {
+					aKs[i] = merge(aKs[i], { ____t: nowUTC() });
+					avvs[i] = this.__cache[aName].Func(aKs[i]);
+				}
+				this.__cache[aName].Ch.setAll(aKs, avvs, aTimestamp);
 			}
-			this.__cacheCh[aName].setAll(aKs, avvs, aTimestamp);
+		},
+		unsetAll       : function(aName, aKs, aVs, aTimestamp) { 
+			var avvs = [];
+			for (var i in aKs) {
+				aKs[i] = merge(aKs[i], { ____t: nowUTC() });
+				avvs[i] = this.__cache[aName].Func(aKs[i]);
+			}
+			this.__cache[aName].Ch.unsetAll(aKs, avvs, aTimestamp);
+		},		
+		getAll       : function(aName, full) {
+			var res = [];
+			this.__cache[aName].Ch.forEach(function(aKey, aValue) {
+				sync(function() { res.push(aValue); }, res);
+			}, full);
+			return res;
 		},
 		get          : function(aName, aK) { 
 			var aVv = {};
-			var ee = $stream(this.getKeys(aName, true)).filter({ "k": aK }).toArray()[0];
+			var ar = this.getKeys(aName, true);
+			var ee = arrayContains(ar, aK, k => { 
+				var o = clone(k);
+				delete o.____t;
+				return o;
+			});
+			ee = (ee > -1 ? ar[ee] : void 0); 
 			if (isDef(ee)) {
-				if (ee.t > (now() - this.__cacheTTL[aName])) {
-					aVv = this.__cacheCh[aName].get(aK);
+				if (ee.____t > (nowUTC() - this.__cache[aName].TTL)) {
+					aVv = this.__cache[aName].Ch.get(ee);
+					this.__cacheStats[aName].hits++;
 				} else {
-					var aVv = this.__cacheFunc[aName](aK);
-					this.__cacheCh[aName].set(aK, aVv);			
-					aVv = this.__cacheCh[aName].get(aK);
+					var init = nowUTC();
+					var aVv = this.__cache[aName].Func(aK);
+					this.__cacheStats[aName].miss++;
+					this.__cacheStats[aName].avg = (this.__cacheStats[aName].avg + (nowUTC() - init)) / (this.__cacheStats[aName].miss + this.__cacheStats[aName].hits);
+					this.__cache[aName].Ch.unset(ee);
+					var eK = merge(aK, { ____t: nowUTC() });
+					this.__cache[aName].Ch.set(eK, aVv);
+					//aVv = this.__cache[aName].Ch.get(eK);
 				}
 			} else {
-				var aVv = this.__cacheFunc[aName](aK);
-				this.__cacheCh[aName].set(aK, aVv);
-				aVv = this.__cacheCh[aName].get(aK);
+				var init = nowUTC();
+				var aVv = this.__cache[aName].Func(aK);
+				this.__cacheStats[aName].miss++;
+				this.__cacheStats[aName].avg = (this.__cacheStats[aName].avg + (nowUTC() - init)) / (this.__cacheStats[aName].miss + this.__cacheStats[aName].hits);
+				this.__refresh(aName, 1);
+				if (this.__cache[aName].Size < 0 || this.__cache[aName].Size > this.__cache[aName].Ch.size()) {
+					var eK = merge(aK, { ____t: nowUTC() });
+					this.__cache[aName].Ch.set(eK, aVv);
+					//aVv = this.__cache[aName].Ch.get(eK);
+				}
 			}
 			return aVv;
 		},
@@ -386,7 +679,11 @@ OpenWrap.ch.prototype.__types = {
 			return aK;	
 		},
 		unset        : function(aName, aK, aTimestamp) { 
-			this.__cacheCh[aName].unset(aK);
+			//var eK = $stream(this.getKeys(aName, true)).filter(aK).toArray()[0];
+			var ar = this.getKeys(aName, true);
+			var eK = arrayContains(ar, aK);
+			eK = (eK > -1 ? ar[eK] : void 0); 
+			if (isDef(eK)) this.__cache[aName].Ch.unset(eK);
 		}	
 	},	
 	// Buffer implementation
@@ -396,11 +693,12 @@ OpenWrap.ch.prototype.__types = {
 	 * <key>ow.ch.types.buffer</key>
 	 * This OpenAF implementation establishes a buffer to another channel. The creation options are:\
 	 * \
-	 *    - bufferCh       (String) The channel that will receive data from the buffer channel.\
-	 *    - bufferIdxs     (Array)  An array of keys to use for faster performance (defaults to []).\
-	 *    - bufferByTime   (Number) How much time before flushing contents from the buffer channel (default 2500ms).\
-	 *    - bufferByNumber (Number) How many entries before flushing contents from the buffer channel (default 100).\
-	 *    - bufferTmpCh    (String) The auxiliary temporary buffer storage channel to use (default creates [name]::__buffer).\
+	 *    - bufferCh       (String)   The channel that will receive data from the buffer channel.\
+	 *    - bufferIdxs     (Array)    An array of keys to use for faster performance (defaults to []).\
+	 *    - bufferByTime   (Number)   How much time before flushing contents from the buffer channel (default 2500ms).\
+	 *    - bufferByNumber (Number)   How many entries before flushing contents from the buffer channel (default 100).\
+	 *    - bufferTmpCh    (String)   The auxiliary temporary buffer storage channel to use (default creates [name]::__bufferStorage).\
+	 *    - bufferFunc     (Function) Optional function that if returns true will trigger the buffer flush to bufferCh.\
 	 * \
 	 * </odoc>
 	 */
@@ -409,9 +707,10 @@ OpenWrap.ch.prototype.__types = {
 			options                 = _$(options).isMap("Options must be a map.").default({});
 			options.bufferByNumber  = _$(options.bufferByNumber).isNumber("bufferByNumber must be a number").default(100);
 			options.bufferByTime    = _$(options.bufferByTime).isNumber("bufferByTime must be a number of ms").default(2500);
-			options.bufferTmpCh     = _$(options.bufferTmpCh).isString("bufferTmpCh must be a string").default(aName + "::__buffer");
+			options.bufferTmpCh     = _$(options.bufferTmpCh).isString("bufferTmpCh must be a string").default(aName + "::__bufferStorage");
 			options.bufferIdxs      = _$(options.bufferIdxs).isArray("bufferIdxs must be an array").default([]);
 			options.timeout         = _$(options.timeout).isNumber("timeout is a number (ms)").default(1500);
+			options.errorFn         = _$(options.errorFn).isFunction().default(void 0);
 			_$(options.bufferCh).isString("bufferCh must be a string").$_("Please provide a bufferCh");
 	
 			var addShut = false;
@@ -422,7 +721,9 @@ OpenWrap.ch.prototype.__types = {
 			if (isUnDef(this.__bt)) this.__bt = {};
 			if (isUnDef(this.__bi)) this.__bi = {};
 			if (isUnDef(this.__t))  this.__t = {};
+			if (isUnDef(this.__lcks))  this.__lcks = {};
 			if (isUnDef(this.__s))  this.__s = {};
+			if (isUnDef(this.__efn)) this.__efn = {};
 			if (isUnDef(this.__f)) { this.__f = {}; addShut = true; }
 			
 			this.__bn[aName] = options.bufferByNumber;
@@ -432,32 +733,60 @@ OpenWrap.ch.prototype.__types = {
 			this.__bt[aName] = options.bufferTmpCh;
 			this.__bi[aName] = options.bufferIdxs;
 			this.__t[aName]  = options.timeout;
+			this.__efn[aName] = options.errorFn;
+
+			if (options.bufferByTime < 0 && options.bufferByNumber < 0) throw "Needs to be buffered by time and/or number.";
 	
+			ow.loadServer();
+			this.__lcks[aName] = new ow.server.locks(true);
+
 			var parent = this;
 			this.__f[aName] = function(force) {
-				if ($ch(parent.__bt[aName]).size() >= parent.__bn[aName] || force) {
-					if (parent.__bi[aName].length > 0) {
-						var ar = [], ak = [];
-						$ch(parent.__bt[aName]).forEach((k, v) => {
-							ak.push(k);
-							ar.push(v); 
-							//$ch(parent.__bt[aName]).unset(k);
-						});
-				
-						if (ar.length > 0) {
-							$ch(parent.__bc[aName]).setAll(parent.__bi[aName], ar);
-							for(var ii in ak) { $ch(parent.__bt[aName]).unset(ak[ii]); }
+				var cont = false;
+
+				if (isDef(parent.__bf[aName]) && isFunction(parent.__bf[aName])) {
+					cont = parent.__bf[aName](parent.__bt[aName]);
+				}
+
+				if ((parent.__bn[aName] >= 0 && $ch(parent.__bt[aName]).size() >= parent.__bn[aName]) || force || cont) {
+					// Lock
+					if (!force) {
+						if (parent.__lcks[aName].lock("openaf::ch::buffer::" + aName, 50, 1)) {
+							cont = true;
+						} else {
+							return true;
 						}
 					} else {
-						$ch(parent.__bt[aName]).forEach((k, v) => {
-							$ch(parent.__bc[aName]).set(k, v); 
-							$ch(parent.__bt[aName]).unset(k);
-						});
+						parent.__lcks[aName].lock("openaf::ch::buffer::" + aName, 50, -1);
 					}
+
+					try {
+						if (parent.__bi[aName].length > 0) {
+							var ak = $ch(parent.__bt[aName]).getKeys();
+							var ar = $ch(parent.__bt[aName]).getAll();
+							if (ar.length > 0) {
+								$ch(parent.__bc[aName]).setAll(parent.__bi[aName], ar);
+								//for(var ii in ak) { $ch(parent.__bt[aName]).unset(ak[ii]); }
+								$ch(parent.__bt[aName]).unsetAll(Object.keys(ak[0]), ak);
+							}
+						} else {
+							$ch(parent.__bt[aName]).forEach((k, v) => {
+								try {
+									$ch(parent.__bc[aName]).set(k, v); 
+									$ch(parent.__bt[aName]).unset(k);
+								} catch(e) { 
+									if (isDef(parent.__efn[aName])) parent.__efn[aName](e);
+								}
+							});
+						}
+					} finally {
+						// Unlock
+						parent.__lcks[aName].unlock("openaf::ch::buffer::" + aName);
+					} 
 				}
 			};
 	
-			if (isDef(this.__bm[aName])) {
+			if (isDef(this.__bm[aName]) && this.__bm[aName] > 0) {
 				plugin("Threads");
 				this.__s[aName] = new Threads();
 				this.__s[aName].addScheduleThreadWithFixedDelay(function() { parent.__f[aName](true); }, this.__bm[aName]);
@@ -466,12 +795,12 @@ OpenWrap.ch.prototype.__types = {
 			if (addShut) {
 				addOnOpenAFShutdown(function() {
 					for(var c in ow.ch.__types.buffer.__s) {
-						if (isDef(ow.ch.__types.buffer.__s)) ow.ch.__types.buffer.__s.stop();
+						if (isDef(ow.ch.__types.buffer.__s[c])) ow.ch.__types.buffer.__s[c].stop();
 					}
 					for(var c in ow.ch.__types.buffer.__f) {
 						ow.ch.__types.buffer.__f[c](true); 
-						$ch(ow.ch.__types.buffer.__bt[aName]).waitForJobs(ow.ch.__types.buffer.__t[aName]);
-						$ch(ow.ch.__types.buffer.__bc[aName]).waitForJobs(ow.ch.__types.buffer.__t[aName]);
+						$ch(ow.ch.__types.buffer.__bt[c]).waitForJobs(ow.ch.__types.buffer.__t[c]);
+						$ch(ow.ch.__types.buffer.__bc[c]).waitForJobs(ow.ch.__types.buffer.__t[c]);
 					}
 				});
 			}
@@ -479,18 +808,19 @@ OpenWrap.ch.prototype.__types = {
 			$ch(options.bufferTmpCh).create();
 		},
 		destroy      : function(aName) {
-			this.__s[aName].stop();
-			this.__f[aName](true);
+			if (isDef(ow.ch.__types.buffer.__s[aName])) ow.ch.__types.buffer.__s[aName].stop();
+			if (isDef(ow.ch.__types.buffer.__f[aName])) ow.ch.__types.buffer.__f[aName](true);
 	
-			delete this.__bn[aName];
-			delete this.__bt[aName];
-			delete this.__bf[aName];
-			delete this.__bc[aName];
-			$ch(this.__bt[aName]).destroy();
-			delete this.__bt[aName];
-			delete this.__bi[aName];
-			delete this.__f[aName];
-			delete this.__s[aName];
+			if (isDef(ow.ch.__types.buffer.__bn[aName])) delete ow.ch.__types.buffer.__bn[aName];
+			if (isDef(ow.ch.__types.buffer.__bf[aName])) delete ow.ch.__types.buffer.__bf[aName];
+			if (isDef(ow.ch.__types.buffer.__bc[aName])) delete ow.ch.__types.buffer.__bc[aName];
+			if (isDef(ow.ch.__types.buffer.__bt[aName])) $ch(ow.ch.__types.buffer.__bt[aName]).destroy();
+			if (isDef(ow.ch.__types.buffer.__bt[aName])) delete ow.ch.__types.buffer.__bt[aName];
+			if (isDef(ow.ch.__types.buffer.__bi[aName])) delete ow.ch.__types.buffer.__bi[aName];
+			if (isDef(ow.ch.__types.buffer.__f[aName])) delete ow.ch.__types.buffer.__f[aName];
+			if (isDef(ow.ch.__types.buffer.__s[aName])) delete ow.ch.__types.buffer.__s[aName];
+			if (isDef(ow.ch.__types.buffer.__efn[aName])) delete ow.ch.__types.buffer.__efn[aName];
+			if (isDef(ow.ch.__types.buffer.__lcks[aName])) delete ow.ch.__types.buffer.__lcks[aName];
 		},
 		size         : function(aName) {
 			return $ch(this.__bc[aName]).size() + $ch(this.__bt[aName]).size();
@@ -510,16 +840,21 @@ OpenWrap.ch.prototype.__types = {
 			return $ch(this.__bc[aName]).getAll(full).concat($ch(this.__bt[aName]).getAll(full));
 		},
 		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
-			$ch(this.__bc[aName]).getSet(aMatch, aK, aV, aTimestamp);		
+			return $ch(this.__bc[aName]).getSet(aMatch, aK, aV, aTimestamp);		
 		},
 		set          : function(aName, ak, av, aTimestamp) {
 			$ch(this.__bt[aName]).set(ak, av, aTimestamp);
 			this.__f[aName]();
+			return ak;
 		},
 		setAll       : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
 			$ch(this.__bt[aName]).setAll(anArrayOfKeys, anArrayOfMapData, aTimestamp);
 			this.__f[aName]();
 		},
+		unsetAll       : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
+			$ch(this.__bt[aName]).unsetAll(anArrayOfKeys, anArrayOfMapData, aTimestamp);
+			this.__f[aName]();
+		},		
 		get          : function(aName, aKey) {
 			var res = $ch(this.__bt[aName]).get(aKey);
 			if (isUnDef(res)) res = $ch(this.__bc[aName]).get(aKey);
@@ -580,6 +915,9 @@ OpenWrap.ch.prototype.__types = {
 		setAll       : function(aName, aKs, aVs, aTimestamp) {
 			return {};		
 		},
+		unsetAll       : function(aName, aKs, aVs, aTimestamp) {
+			return {};		
+		},		
 		get          : function(aName, aK) {
 			return {};
 		},
@@ -591,6 +929,105 @@ OpenWrap.ch.prototype.__types = {
 		},
 		unset        : function(aName, aK, aTimestamp) {
 			return {};
+		}
+	},
+	// Proxy implementation
+	//
+	/**
+	 * <odoc>
+	 * <key>ow.ch.types.proxy</key>
+	 * This OpenAF implementation establishes a proxy to another channel. The creation options are:\
+	 * \
+	 *    - chTarget  (String)   The channel that will receive all operations (if proxyFunc doesn't return).\
+	 *    - proxyFunc (Function) Function that receives a map (by reference that can be changed) with: op (operation),
+	 * name (target channel), function (where applicable), full (where applicable), match (the match of getSet), k (the key(s)),
+	 * v (the value(s)) and timestamp. If this function returns something no operation will be executed on the chTarget and the
+	 * value returned by the function will be the value returned by this channel.\
+	 * \
+	 * </odoc>
+	 */
+	proxy: {
+		__channels: {},
+		create       : function(aName, shouldCompress, options) {
+			this.__channels[aName] = options;
+			options.chTarget = _$(options.chTarget).$_("Need to provide a chTarget.");
+			options.proxyFunc = _$(options.proxyFunc).$_("Need to provide a proxyFunc.");
+		},
+		destroy      : function(aName) {
+			delete this.__channels[aName];
+		},
+		size         : function(aName) {
+			var m = { op: "size", name: this.__channels[aName].chTarget };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).size();
+		},
+		forEach      : function(aName, aFunction) {
+			var m = { op: "forEach", name: this.__channels[aName].chTarget, function: aFunction };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).forEach(m.function);
+		},
+		getAll      : function(aName, full) {
+			var m = { op: "getAll", name: this.__channels[aName].chTarget, full: full };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).getAll(m.full);
+		},
+		getKeys      : function(aName, full) {
+			var m = { op: "getKeys", name: this.__channels[aName].chTarget, full: full };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).getKeys(m.full);
+		},
+		getSortedKeys: function(aName, full) {
+			var m = { op: "getSortedKeys", name: this.__channels[aName].chTarget, full: full };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).getSortedKeys(full);
+		},
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			var m = {
+				op: "getSet", name: this.__channels[aName].chTarget, match: aMatch, k: aK, v: aV, timestamp: aTimestamp
+			};
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).getSet(m.match, m.k, m.v, m.timestamp);
+		},
+		set          : function(aName, aK, aV, aTimestamp) {
+			var m = {
+				op: "set", name: this.__channels[aName].chTarget, k: aK, v: aV, timestamp: aTimestamp
+			};
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).set(m.k, m.v, m.timestamp);
+		},
+		setAll       : function(aName, aKs, aVs, aTimestamp) {
+			var m = {
+				op: "setAll", name: this.__channels[aName].chTarget, k: aKs, v: aVs, timestamp: aTimestamp
+			};
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).setAll(m.k, m.v, m.timestamp);
+		},
+		unsetAll       : function(aName, aKs, aVs, aTimestamp) {
+			var m = {
+				op: "unsetAll", name: this.__channels[aName].chTarget, k: aKs, v: aVs, timestamp: aTimestamp
+			};
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).unsetAll(m.k, m.timestamp);
+		},		
+		get          : function(aName, aK) {
+			var m = { op: "get", name: this.__channels[aName].chTarget, k: aK };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).get(m.k);
+		},
+		pop          : function(aName) {
+			var m = { op: "pop", name: this.__channels[aName].chTarget };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).pop();
+		},
+		shift        : function(aName) {
+			var m = { op: "shift", name: this.__channels[aName].chTarget };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).shift();
+		},
+		unset        : function(aName, aK, aTimestamp) {
+			var m = { op: "unset", name: this.__channels[aName].chTarget, k: aK, timestamp: aTimestamp };
+			var r = this.__channels[aName].proxyFunc(m); if (isDef(r)) return r;
+			return $ch(this.__channels[aName].chTarget).unset(m.k, m.timestamp);
 		}
 	},
 	// Simple implementation
@@ -608,7 +1045,7 @@ OpenWrap.ch.prototype.__types = {
 		},
 		forEach      : function(aName, aFunction) {
 			Object.keys(this.__channels[aName]).forEach((element) => {
-				aFunction(this.__channels[aName][element].k, this.__channels[aName][element].v);
+				try { aFunction(this.__channels[aName][element].k, this.__channels[aName][element].v) } catch(e) {};
 			});
 		},
 		getAll      : function(aName, full) {
@@ -621,18 +1058,19 @@ OpenWrap.ch.prototype.__types = {
 		getKeys      : function(aName, full) {
 			var res = [];
 			Object.keys(this.__channels[aName]).forEach((element) => {
-				res.push(this.__channels[aName][element].k);
+				try { res.push(this.__channels[aName][element].k) } catch(e) {};
 			});
 			return res;
 		},
 		getSortedKeys: function(aName, full) {
 			var res = [];
 			Object.keys(this.__channels[aName]).forEach((element) => {
-				res.push({ k: this.__channels[aName][element].k, t: this.__channels[aName][element].t });
+				try { res.push({ k: this.__channels[aName][element].k, t: this.__channels[aName][element].t }); } catch(e) {};
 			});
-			return $from(res).sort("t").select((r) => {
+			/*return $from(res).sort("t").select((r) => {
 				return r.k;
-			});		
+			});*/
+			return $path(res, "sort_by([], &t)[*].k");		
 		},
 		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
 			var res;
@@ -640,7 +1078,7 @@ OpenWrap.ch.prototype.__types = {
 			if ($stream([res]).anyMatch(aMatch)) {
 				return this.set(aName, aK, aV, aTimestamp);
 			}
-			return undefined;
+			return void 0;
 		},
 		set          : function(aName, aK, aV, aTimestamp) {
 			var id = stringify(aK, void 0, "");
@@ -655,14 +1093,20 @@ OpenWrap.ch.prototype.__types = {
 				old.v = aV;
 				old.t = aTimestamp;
 			}
-			return id;
+			return aK;
 		},
 		setAll       : function(aName, aKs, aVs, aTimestamp) {
 			ow.loadObj();
-			for(let i in aVs) {
+			for(var i in aVs) {
 				this.set(aName, ow.obj.filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
 			}
 		},
+		unsetAll     : function(aName, aKs, aVs, aTimestamp) {
+			ow.loadObj();
+			for(var i in aVs) {
+				this.unset(aName, ow.obj.filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
+			}
+		},		
 		get          : function(aName, aK) {
 			var id = stringify(aK, void 0, "");
 			var res = this.__channels[aName][id];
@@ -674,16 +1118,16 @@ OpenWrap.ch.prototype.__types = {
 		pop          : function(aName) {
 			var elems = this.getSortedKeys(aName);
 			var elem = elems[elems.length - 1];
-			var res = clone(this.get(aName, elem));
-			this.unset(aName, elem);
-			return res;
+			//var res = clone(this.get(aName, elem));
+			//this.unset(aName, elem);
+			return elem;
 		},
 		shift        : function(aName) {
 			var elems = this.getSortedKeys(aName);
 			var elem = elems[0];
-			var res = clone(this.get(aName, elem));
-			this.unset(aName, elem);
-			return res;
+			//var res = clone(this.get(aName, elem));
+			//this.unset(aName, elem);
+			return elem;
 		},
 		unset        : function(aName, aK, aTimestamp) {
 			var id = stringify(aK, void 0, "");
@@ -696,13 +1140,16 @@ OpenWrap.ch.prototype.__types = {
 		__channels: {},
 		create       : function(aName, shouldCompress, options) {
 			ow.loadObj();
+			if (isUnDef(options)) options = {};
+			if (isUnDef(options.throwExceptions)) options.throwExceptions = true;
 			this.__channels[aName] = options;
 		},
 		destroy      : function(aName) {
 			delete this.__channels[aName];
 		},
 		size         : function(aName) {
-			return this.getKeys(aName).length;
+			var r = this.getKeys(aName);
+			if (isDef(r)) return r.length;
 		},
 		forEach      : function(aName, aFunction) {
 			var aKs = this.getKeys(aName);
@@ -711,25 +1158,108 @@ OpenWrap.ch.prototype.__types = {
 			}
 		},
 		getAll      : function(aName, full) {
-			return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "a" }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			//return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "a" }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).get(this.__channels[aName].url + $rest().index({ o: "a" })).r;
 		},
 		getKeys      : function(aName, full) {
-			return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "k" }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			//return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "k" }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).get(this.__channels[aName].url + $rest().index({ o: "k" })).r;
 		},
 		getSortedKeys: function(aName, full) {
-			return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "s" }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;				
+			//return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "s" }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;		
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).get(this.__channels[aName].url + $rest().index({ o: "s" })).r;		
 		},
 		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
-			return ow.obj.rest.jsonSet(this.__channels[aName].url, { "o": "es", "m": aMatch, "k": aK, "t": aTimestamp }, aV, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			//return ow.obj.rest.jsonSet(this.__channels[aName].url, { "o": "es", "m": aMatch, "k": aK, "t": aTimestamp }, aV, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).put(this.__channels[aName].url + $rest().index({ o: "es", m: aMatch, k: aK, t: aTimestamp }), aV).r;	
 		},
 		set          : function(aName, aK, aV, aTimestamp) {
-			return ow.obj.rest.jsonSet(this.__channels[aName].url, { "o": "e", "k": aK, "t": aTimestamp }, aV, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			//return ow.obj.rest.jsonSet(this.__channels[aName].url, { "o": "e", "k": aK, "t": aTimestamp }, aV, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).put(this.__channels[aName].url + $rest().index({ o: "e", k: aK, t: aTimestamp }), aV).r;				
 		},
 		setAll       : function(aName, aKs, aVs, aTimestamp) {
-			return ow.obj.rest.jsonSet(this.__channels[aName].url, { "o": "a", "k": aKs, "t": aTimestamp }, aVs, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;		
+			//return ow.obj.rest.jsonSet(this.__channels[aName].url, { "o": "a", "k": aKs, "t": aTimestamp }, aVs, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;		
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).put(this.__channels[aName].url + $rest().index({ o: "a", k: aKs, t: aTimestamp }), aVs).r;		
 		},
+		unsetAll     : function(aName, aKs, aVs, aTimestamp) {
+			//return ow.obj.rest.jsonSet(this.__channels[aName].url, { "o": "ua", "k": aKs, "t": aTimestamp }, aVs, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;		
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).put(this.__channels[aName].url + $rest().index({ o: "ua", k: aKs, t: aTimestamp }), aVs).r;		
+		},		
 		get          : function(aName, aK) {
-			return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "e", "k": aK }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			//return ow.obj.rest.jsonGet(this.__channels[aName].url, { "o": "e", "k": aK }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout).r;
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).get(this.__channels[aName].url + $rest().index({ o: "e", k: aK })).r;	
 		},
 		pop          : function(aName) {
 			var aKs = this.getSortedKeys(aName);
@@ -743,7 +1273,17 @@ OpenWrap.ch.prototype.__types = {
 			return aK;
 		},
 		unset        : function(aName, aK, aTimestamp) {
-			return ow.obj.rest.jsonRemove(this.__channels[aName].url, { "o": "e", "k": aK, "t": aTimestamp }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout);
+			//return ow.obj.rest.jsonRemove(this.__channels[aName].url, { "o": "e", "k": aK, "t": aTimestamp }, this.__channels[aName].login, this.__channels[aName].password, this.__channels[aName].timeout);
+			return $rest({
+				login: this.__channels[aName].login,
+				pass: this.__channels[aName].password,
+				connectionTimeout: this.__channels[aName].timeout,
+				default: this.__channels[aName].default,
+				timeout: this.__channels[aName].timeout,
+				stopWhen: this.__channels[aName].stopWhen,
+				throwExceptions: this.__channels[aName].throwExceptions,
+				preAction: this.__channels[aName].preAction
+			}).delete(this.__channels[aName].url + $rest().index({ o: "e", k: aK, t: aTimestamp })).r;
 		}
 	},
 	/**
@@ -787,14 +1327,21 @@ OpenWrap.ch.prototype.__types = {
 			url += "/_count";
 			var parent = this;
 			
-			var res = ow.obj.rest.jsonGet(url, {}, function(h) { 
+			/*var res = ow.obj.rest.jsonGet(url, {}, function(h) { 
 				if (isDef(parent.__channels[aName].user))
 					h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
-			});
+			});*/
+			var res = $rest({
+				login: function(h) { 
+					if (isDef(parent.__channels[aName].user))
+						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
+				},
+				preAction: this.__channels[aName].preAction
+			}).get(url);
 			if (isDef(res) && isDef(res.count)) {
-				return res.count
+				return res.count;
 			} else {
-				return undefined
+				return void 0;
 			}
 		},
 		forEach      : function(aName, aFunction) {
@@ -811,10 +1358,17 @@ OpenWrap.ch.prototype.__types = {
 			if (isDef(full) && isObject(full)) { ops = full; } 
 				
 			var parent = this;
-			var res = ow.obj.rest.jsonCreate(url, {}, ops, function(h) { 
+			/*var res = ow.obj.rest.jsonCreate(url, {}, ops, function(h) { 
 				if (isDef(parent.__channels[aName].user))
 					h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
-			});
+			});*/
+			var res = $rest({
+				login: function(h) { 
+					if (isDef(parent.__channels[aName].user))
+						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
+				},
+				preAction: this.__channels[aName].preAction
+			}).post(url, ops);
 			if (isDef(res) && isDef(res.hits) && isDef(res.hits.hits)) {
 				return $stream(res.hits.hits).map(function(r) {
 					r._source._id = r._id;
@@ -832,10 +1386,17 @@ OpenWrap.ch.prototype.__types = {
 			if (isDef(full) && isObject(full)) { ops = full; } 
 				
 			var parent = this;
-			var res = ow.obj.rest.jsonCreate(url, {}, merge(ops, { _source: false }), function(h) { 
+			/*var res = ow.obj.rest.jsonCreate(url, {}, merge(ops, { _source: false }), function(h) { 
 				if (isDef(parent.__channels[aName].user))
 					h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
-			});
+			});*/
+			var res = $rest({
+				login: function(h) { 
+					if (isDef(parent.__channels[aName].user))
+						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
+				},
+				preAction: this.__channels[aName].preAction
+			}).post(url, merge(ops, { _source: false }));
 			if (isDef(res) && isDef(res.hits) & isDef(res.hits.hits)) {
 				return $stream(res.hits.hits).map("_id").toArray();
 			} else {
@@ -853,16 +1414,19 @@ OpenWrap.ch.prototype.__types = {
 			url += "/" + this.__channels[aName].idKey;
 			
 			if (isDef(aK) && isObject(aK) && isDef(aK[this.__channels[aName].idKey])) { 
-				url += "/" + aK[this.__channels[aName].idKey];
+				url += "/" + encodeURIComponent(aK[this.__channels[aName].idKey]);
 			} else {
-				if (isDef(aK.key)) url += "/" + aK.key;
+				if (isDef(aK.key)) url += "/" + encodeURIComponent(aK.key);
 			}
 				
 			var parent = this;
-			var res = ow.obj.rest.jsonSet(url, {}, aV, function(h) { 
-				if (isDef(parent.__channels[aName].user))
-					h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
-			});
+			var res = $rest({
+				login: function(h) { 
+					if (isDef(parent.__channels[aName].user))
+						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
+				},
+				preAction: this.__channels[aName].preAction
+			}).put(url, aV);
 			return res;		
 		},
 		setAll       : function(aName, aKs, aVs, aTimestamp) {
@@ -884,6 +1448,7 @@ OpenWrap.ch.prototype.__types = {
 			}
 			
 			if (ops.length > 0) {
+				ow.loadObj();
 				var h = new ow.obj.http();
 				if (isDef(this.__channels[aName].user))
 					h.login(this.__channels[aName].user, this.__channels[aName].pass, true);
@@ -895,22 +1460,60 @@ OpenWrap.ch.prototype.__types = {
 				}
 			}
 		},
+		unsetAll     : function(aName, aKs, aVs, aTimestamp) {
+			var url = this.__channels[aName].url;
+			url += "/_bulk";
+			var ops = "";
+			
+			if (isDef(aVs) && isArray(aVs) && aVs.length <= 0) return;
+
+			for(var ii in aVs) {
+				if (aVs[ii] != null && isDef(aVs[ii][this.__channels[aName].idKey])) {
+					ops += stringify({ delete: {
+						_index: this.__channels[aName].fnIndex(aKs[ii]), 
+						_type : this.__channels[aName].idKey,
+						_id   : aVs[ii][this.__channels[aName].idKey] 
+					}}, void 0, "") + "\n" + 
+					stringify(aVs[ii], void 0, "") + "\n";
+				}
+			}
+			
+			if (ops.length > 0) {
+				ow.loadObj();
+				var h = new ow.obj.http();
+				if (isDef(this.__channels[aName].user))
+					h.login(this.__channels[aName].user, this.__channels[aName].pass, true);
+				try {
+					return h.exec(url, "POST", ops, {"Content-Type":"application/json"});
+				} catch(e) {
+					e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse());
+					throw e;
+				}
+			}
+		},		
 		get          : function(aName, aK) {
 			var url = this.__channels[aName].url + "/" + this.__channels[aName].fnIndex(aK);
 			url += "/" + this.__channels[aName].idKey;
 			
 			if (isDef(aK) && isObject(aK) && isDef(aK[this.__channels[aName].idKey])) { 
-				url += "/" + aK[this.__channels[aName].idKey];
+				url += "/" + encodeURIComponent(aK[this.__channels[aName].idKey]);
 			} else {
-				if (isDef(aK.key)) url += "/" + aK.key;
+				if (isDef(aK.key)) url += "/" + encodeURIComponent(aK.key);
 			}
 				
 			var parent = this;
-			var res = ow.obj.rest.jsonGet(url, {}, function(h) { 
+			/*var res = ow.obj.rest.jsonGet(url, {}, function(h) { 
 				if (isDef(parent.__channels[aName].user))
 					h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
-			});
-			
+			});*/
+			var res = $rest({
+				login: function(h) { 
+					if (isDef(parent.__channels[aName].user))
+						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
+				},
+				preAction: this.__channels[aName].preAction
+			}).get(url);
+
 			if (isDef(res) && res.found) {
 				return res._source;
 			} else {
@@ -933,16 +1536,23 @@ OpenWrap.ch.prototype.__types = {
 			url += "/" + this.__channels[aName].idKey;
 			
 			if (isDef(aK) && isObject(aK) && isDef(aK[this.__channels[aName].idKey])) { 
-				url += "/" + aK[this.__channels[aName].idKey];
+				url += "/" + encodeURIComponent(aK[this.__channels[aName].idKey]);
 			} else {
-				if (isDef(aK.key)) url += "/" + aK.key;
+				if (isDef(aK.key)) url += "/" + encodeURIComponent(aK.key);
 			}
 				
 			var parent = this;
-			var res = ow.obj.rest.jsonRemove(url, {}, function(h) { 
+			/*var res = ow.obj.rest.jsonRemove(url, {}, function(h) { 
 				if (isDef(parent.__channels[aName].user))
 					h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
-			});
+			});*/
+			var res = $rest({
+				login: function(h) { 
+					if (isDef(parent.__channels[aName].user))
+						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
+				},
+				preAction: this.__channels[aName].preAction
+			}).delete(url);
 			return res;	
 		}
 	},
@@ -958,7 +1568,7 @@ OpenWrap.ch.prototype.__types = {
 	 *    - map (String/Function) The map name (defaults to 'default'). If defined as a function it will receive the key as argument if possible (only for get/set/unset/setall)
 	 * for sharding proposes.\
 	 * \
-	 * The map will be created if it doesn't exist.\
+	 * The map will be created if it doesn't exist. Operations getKeys/getAll can be paginated with the extra map argument containing start and end\
 	 * </odoc>
 	 */
 	mvs: {
@@ -971,6 +1581,8 @@ OpenWrap.ch.prototype.__types = {
 			if (isUnDef(this.__m)) this.__m = {};
 			if (isUnDef(this.__o)) this.__o = {};
 
+			var shut = _$(options.closeOnShutdown).isBoolean().default(true);
+
 			var existing = false, absFile;
 			if (isDef(options.file)) {
 				absFile = String((new java.io.File(options.file)).getAbsoluteFile());
@@ -981,6 +1593,8 @@ OpenWrap.ch.prototype.__types = {
 			
 			if (isUnDef(this.__f[absFile])) {
 				this.__s[aName] = Packages.org.h2.mvstore.MVStore.Builder();
+				this.__s[aName] = this.__s[aName].autoCommitDisabled();
+
 				if (absFile != "memory") this.__s[aName] = this.__s[aName].fileName(absFile);
 				if (shouldCompress) this.__s[aName] = this.__s[aName].compress();
 				this.__s[aName] = this.__s[aName].open();
@@ -990,6 +1604,9 @@ OpenWrap.ch.prototype.__types = {
 				existing = true;
 				this.__s[aName] = this.__f[absFile];
 			}
+
+			//this.__s[aName].setVersionsToKeep(2);
+			this.__s[aName].setReuseSpace(true);
 
 			if (isUnDef(options.map)) {
 				options.map = function() { return "default"; };
@@ -1006,6 +1623,12 @@ OpenWrap.ch.prototype.__types = {
 			}
 
 			this.__o[aName] = options;
+			if (isUnDef(options.internalTrim)) this.__o[aName].stry = ""; else this.__o[aName].stry = options.internalTrim;
+
+			if (shut) {
+				var parent = this;
+				addOnOpenAFShutdown(function() { if (isDef(parent.__s[aName])) parent.destroy(aName);	});
+			}
 		},
 		destroy      : function(aName) {
 			if (isDef(this.__o[aName].compact) && this.__o[aName].compact) {
@@ -1034,16 +1657,38 @@ OpenWrap.ch.prototype.__types = {
 		forEach      : function(aName, aFunction, x) {
 			var aKs = this.getKeys(aName, x);
 
-			for(let i in aKs) {
+			for(var i in aKs) {
 				aFunction(aKs[i], this.get(aName, aKs[i], x));
 			}
 		},
 		getKeys      : function(aName, full) {
 			var res = [];
+			full = _$(full, "full").isMap().default({});
+
 			var map = this.__s[aName].openMap(this.__m[aName](full));
 
-			for(let i = 0; i < this.size(aName); i++) {
+			var start = _$(full.start, "full.start").isNumber().default(0);
+			var max = this.size(aName);
+			var limit = _$(full.end, "full.end").isNumber().default(max);
+
+			for(var i = start; i < limit && i < max; i++) {
 				res.push(jsonParse(map.getKey(i)));
+			}
+
+			return res;
+		},
+		getAll      : function(aName, full) {
+			var res = [];
+			full = _$(full, "full").isMap().default({});
+
+			var map = this.__s[aName].openMap(this.__m[aName](full));
+
+			var start = _$(full.start, "full.start").isNumber().default(0);
+			var max = this.size(aName);
+			var limit = _$(full.end, "full.end").isNumber().default(max);
+
+			for(var i = start; i < limit && i < max; i++) {
+				res.push(jsonParse(map.get(map.getKey(i))));
 			}
 
 			return res;
@@ -1062,18 +1707,37 @@ OpenWrap.ch.prototype.__types = {
 		set          : function(aName, ak, av, aTimestamp) {
 			var map = this.__s[aName].openMap(this.__m[aName](ak));
 
-			map.put(stringify(ak), stringify(av));
+			map.put(stringify(ak, void 0, this.__o[aName].stry), stringify(av, void 0, this.__o[aName].stry));
 			this.__s[aName].commit();
+			return ak;
 		},
 		setAll       : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
-			for(let i in anArrayOfMapData) {
-				this.set(aName, ow.loadObj().filterKeys(anArrayOfKeys, anArrayOfMapData[i]), anArrayOfMapData[i], aTimestamp);
+			ow.loadObj();
+			for(var iii in anArrayOfMapData) {
+				var ak = ow.obj.filterKeys(anArrayOfKeys, anArrayOfMapData[iii]);
+				var av = anArrayOfMapData[iii];
+				var map = this.__s[aName].openMap(this.__m[aName](ak));
+				map.put(stringify(ak, void 0, this.__o[aName].stry), stringify(av, void 0, this.__o[aName].stry));
 			}
+			this.__s[aName].sync();
+			this.__s[aName].commit();
+		},
+		unsetAll       : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
+			ow.loadObj();
+			for(var iii in anArrayOfMapData) {
+				var ak = ow.obj.filterKeys(anArrayOfKeys, anArrayOfMapData[iii]);
+				//var av = anArrayOfMapData[iii];
+				var map = this.__s[aName].openMap(this.__m[aName](ak));
+				map.remove(stringify(ak, void 0, this.__o[aName].stry));
+			}
+			this.__s[aName].sync();
+			this.__s[aName].commit();
 		},
 		get          : function(aName, aKey) {
 			var map = this.__s[aName].openMap(this.__m[aName](aKey));
 
-			return jsonParse(map.get(stringify(aKey)));
+			var r = map.get(stringify(aKey, void 0, this.__o[aName].stry));
+			if (r == null || isUnDef(r)) return void 0; else return jsonParse(r);
 		},
 		pop          : function(aName) {
 			var map = this.__s[aName].openMap(this.__m[aName]());
@@ -1088,7 +1752,7 @@ OpenWrap.ch.prototype.__types = {
 		unset        : function(aName, aKey) {
 			var map = this.__s[aName].openMap(this.__m[aName](aKey));
 
-			return jsonParse(map.remove(stringify(aKey)));
+			return jsonParse(map.remove(stringify(aKey, void 0, this.__o[aName].stry)));
 		}
 	},
 	/**
@@ -1103,9 +1767,22 @@ OpenWrap.ch.prototype.__types = {
 	 */
 	ignite: {
 		create       : function(aName, shouldCompress, options) {
+			if (isDef(getOPackPath("plugin-Ignite"))) loadExternalJars(getOPackPath("plugin-Ignite"));
 			plugin("Ignite");
 			if (isUnDef(options) || isUnDef(options.ignite)) this.__ig = new Ignite(); else this.__ig = options.ignite;
-			if (isUnDef(options) || isUnDef(options.gridName)) this.__ig.start(); else this.__ig.start(options.gridName);
+			if (isDef(options) && isDef(options.persist)) {
+				var storageCfg = new Packages.org.apache.ignite.configuration.DataStorageConfiguration();
+				storageCfg.getDefaultDataRegionConfiguration().setPersistenceEnabled(true);
+				storageCfg.setStoragePath(options.persist);
+				storageCfg.setWalPath(options.persist);
+				storageCfg.setWalArchivePath(options.persist);
+
+				this.__ig.getConfiguration().setDataStorageConfiguration(storageCfg);
+			}
+			if (isUnDef(options) || isUnDef(options.gridName)) this.__ig.start(); else this.__ig.start(options.gridName, void 0, options.client);
+			if (isDef(options) && isDef(options.persist)) {
+				this.__ig.getIgnite().active(true);
+			}
 			var ch = this.__ig.getIgnite().getOrCreateCache(aName);
 		},
 		destroy      : function(aName) {
@@ -1118,7 +1795,7 @@ OpenWrap.ch.prototype.__types = {
 		},
 		forEach      : function(aName, aFunction) {
 			var keys = this.getKeys(aName);
-			for(let o in keys) {
+			for(var o in keys) {
 				aFunction(keys[o], this.get(aName, keys[o]));
 			}
 		},
@@ -1145,6 +1822,7 @@ OpenWrap.ch.prototype.__types = {
 				} else {
 					tx.rollback();
 				}
+				return res;
 			} catch(e) {
 				tx.rollback();
 				throw e;
@@ -1160,6 +1838,11 @@ OpenWrap.ch.prototype.__types = {
 				this.set(aName, ow.loadObj().filterKeys(anArrayOfKeys, anArrayOfMapData[i]), anArrayOfMapData[i], aTimestamp);
 			}
 		},
+		unsetAll     : function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp) {
+			for(var i in anArrayOfMapData) {
+				this.unset(aName, ow.loadObj().filterKeys(anArrayOfKeys, anArrayOfMapData[i]), anArrayOfMapData[i], aTimestamp);
+			}
+		},		
 		get          : function(aName, aKey) {
 			var ch = this.__ig.getIgnite().getCache(aName);
 			return af.fromJavaMap(ch.get(af.toJavaMap(aKey)));
@@ -1179,6 +1862,367 @@ OpenWrap.ch.prototype.__types = {
 			var ch = this.__ig.getIgnite().getCache(aName);
 			ch.remove(af.toJavaMap(aKey));
 		}
+	},
+	// etcd implementation (etcd v2)
+	//
+	etcd: {
+		__channels: {},
+		__escape: (s) => {
+			return encodeURIComponent(stringify(s, void 0, "")).replace(/%2F/g, "%25--%3B");
+		},
+		__unescape: (s) => {
+			return jsonParse(s.replace(/\%--\;/g, "/"));
+		},
+		create       : function(aName, shouldCompress, options) {
+			this.__channels[aName] = {};
+			options = _$(options).isMap().default({});
+			_$(options.url).isString().$_("A string etcd daemon url is mandatory.");
+			options.folder = _$(options.folder).isString().default("");
+			options.folder = (options.folder != "" ? options.folder.replace(/^\/*/, "/").replace(/\/+$/, "").replace(/\/+/g, "/") : "");
+			options.throwExceptions = _$(options.throwExceptions).default(true);
+			options.default = _$(options.default).default(void 0);
+
+			this.__channels[aName] = options;
+		},
+		destroy      : function(aName) {
+			delete this.__channels[aName];
+		},
+		size         : function(aName) {
+			var res = $rest({ preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).get(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder);
+			if (isDef(res) && isUnDef(res.error) && isDef(res.node) && isDef(res.node.nodes)) {
+				return $from(res.node.nodes).notEquals("dir", true).count();
+			} else {
+				return 0;
+			}
+		},
+		forEach      : function(aName, aFunction) {
+			var res = $rest({ preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).get(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder);
+			var parent = this;
+			if (isDef(res) && isUnDef(res.error) && isDef(res.node) && isDef(res.node.nodes)) {
+				res.node.nodes.forEach((a) => {
+					if (isUnDef(a.dir)) {
+						aFunction(parent.__unescape(a.key), jsonParse(a.value));
+					}
+				});
+				return mapArray(res.node.nodes, ["key"]);
+			} else {
+				return void 0;
+			}
+		},
+		getAll      : function(aName, full) {
+			var res = $rest({ preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).get(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder);
+			if (isDef(res) && isUnDef(res.error) && isDef(res.node) && isDef(res.node.nodes)) {
+				return $from(res.node.nodes).notEquals("dir", true).select((r) => { return jsonParse(r.value); });
+			} else {
+				return [];
+			}
+		},
+		getKeys      : function(aName, full) {
+			var res = $rest({ preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).get(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder);
+			var parent = this;
+			if (isDef(res) && isUnDef(res.error) && isDef(res.node) && isDef(res.node.nodes)) {
+				return $from(res.node.nodes).notEquals("dir", true).select((r) => { return parent.__unescape(r.key.replace(new RegExp("^/*" + parent.__channels[aName].folder + "/"), "")); });
+			} else {
+				return [];
+			}
+		},
+		getSortedKeys: function(aName, full) {
+			var res = $rest({ preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).get(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder);
+			var parent = this;
+			if (isDef(res) && isUnDef(res.error) && isDef(res.node) && isDef(res.node.nodes)) {
+				return $from(res.node.nodes).notEquals("dir", true).sort("modifiedIndex").select((r) => { return parent.__unescape(r.key.replace(new RegExp("^/*" + parent.__channels[aName].folder + "/"), "")); });
+			} else {
+				return [];
+			}
+		},
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			/*var res;
+			res = this.get(aName, aK);
+			if ($stream([res]).anyMatch(aMatch)) {
+				return this.set(aName, aK, aV, aTimestamp);
+			}
+			return void 0;*/
+			throw "Not implemented yet";
+		},
+		set          : function(aName, aK, aV, aTimestamp) {
+			var res = $rest({ urlEncode:true, preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).put(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder + "/" + this.__escape(aK), { value: stringify(aV, void 0, "") });
+			if (isDef(res) && isDef(res.node) && isDef(res.node.value)) {
+				return jsonParse(res.node.value);
+			} else {
+				return void 0;
+			}
+		},
+		setAll       : function(aName, aKs, aVs, aTimestamp) {
+			ow.loadObj();
+			for(var i in aVs) {
+				this.set(aName, ow.obj.filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
+			}
+		},
+		unsetAll     : function(aName, aKs, aVs, aTimestamp) {
+			ow.loadObj();
+			for(var i in aVs) {
+				this.unset(aName, ow.obj.filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
+			}
+		},		
+		get          : function(aName, aK) {
+			var res = $rest({ preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).get(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder + "/" + this.__escape(aK));
+			if (isDef(res) && isDef(res.node)) 
+				return jsonParse(res.node.value);
+			else
+				return void 0;
+		},
+		pop          : function(aName) {
+			var elems = this.getSortedKeys(aName);
+			var elem = elems[elems.length - 1];
+			return elem;
+		},
+		shift        : function(aName) {
+			var elems = this.getSortedKeys(aName);
+			var elem = elems[0];
+			return elem;
+		},
+		unset        : function(aName, aK, aTimestamp) {
+			$rest({ preAction: this.__channels[aName].preAction, throwExceptions: this.__channels[aName].throwExceptions, default: this.__channels[aName].default }).delete(this.__channels[aName].url + "/v2/keys" + this.__channels[aName].folder + "/" + this.__escape(aK));
+		}
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.ch.types.all</key>
+	 * This channel type aggregates access to several channels. The creation options are:\
+	 * \
+	 *    - chs      (Array)    An array of names of channels to aggregate.\
+	 *    - fn       (Function) A function that will receive an operation and a key to return which channel name should be used (if no return or void all channels will be considered).\
+	 *    - errFn    (Function) A function to call with: the name of this channel, the exception, the target channel, the operation and the arguments whenever a error occurs accessing a channel.\
+	 *    - fnTrans  (Function) A function to translate the key (for example, to remove elements used only on fn).\
+	 *    - treatAll (Boolean)  If true size, setAll and unsetAll will be executed individually and fn called for each (default is false and size will take the first result)\
+	 * \
+	 * </odoc>
+	 */
+	all: {
+		__o: {},
+		__r: function(aName, aCh, op, args) {
+			try {
+				return $ch(aCh)[op].apply(this, args);
+			} catch(e) {
+				this.__o[aName].errFn(aName, e, aCh, op, args);
+			}
+		},
+		create       : function(aName, shouldCompress, options) {
+			options.ch = _$(options.chs, "chs").isArray().default([]);
+			options.errFn = _$(options.errFn, "errFn").isFunction().default(e => {
+				logErr(e);
+			});
+			options.fn = _$(options.fn, "fn").isFunction().default((aOp, k) => {
+				return void 0;
+			});
+			options.fnTrans = _$(options.fnTrans, "fnTrans").isFunction().default(k => {
+				return k;
+			});
+			options.treatAll = _$(options.treatAll, "treatAll").isBoolean().default(false);
+			this.__o[aName] = options;
+		},
+		destroy      : function(aName) {
+			delete this.__o[aName];
+		},
+		size         : function(aName) {
+			var arr = [];
+			var _lst = this.__o[aName].fn("size", void 0);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+
+			if (this.__o[aName].treatAll) {
+				var res = $atomic(0);
+				
+				lst.map(c => {
+					arr.push($do( () => {
+						var _o = this.__r(aName, c, "size");
+						if (isDef(_o)) res.getAdd(_o);
+					}));
+				});
+		
+				$doWait($doAll(arr));
+				return res.get();
+			} else {
+				var res;
+
+				lst.map(c => {
+					arr.push($do( () => {
+						if (isUnDef(res)) {
+							var _o = this.__r(aName, c, "size");
+							if (isDef(_o)) res = _o;
+						}
+					}));
+				});
+		
+				$doWait($doAll(arr));
+				return res;
+			}
+
+		},		
+		get          : function(aName, aK) {
+			ow.loadObj();
+			var arr = [], res = new ow.obj.syncArray();
+			var _lst = this.__o[aName].fn("get", aK);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => {
+					var _o = this.__r(aName, c, "get", [ this.__o[aName].fnTrans(aK) ]);
+					if (isDef(_o)) res.add(_o);
+				}));
+			});
+	
+			$doWait($doFirst(arr));
+	
+			return (res.length() > 0 ? res.get(0) : void 0);
+		},
+		forEach      : function(aName, aFunction) {
+			var arr = [];
+			var _lst = this.__o[aName].fn("foreach", void 0);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => this.__r(aName, c, "forEach", [ aFunction ]) ));
+			});
+	
+			$doWait($doAll(arr));
+	
+			return this;
+		},
+		getAll       : function(aName, full) {
+			ow.loadObj();
+			var arr = [], res = new ow.obj.syncArray();
+			var _lst = this.__o[aName].fn("getall", void 0);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => {
+					res.addAll( this.__r(aName, c, "getAll", [ full ]) );
+				}));
+			});
+	
+			$doWait($doAll(arr));
+	
+			return res.toArray();
+		},
+		getKeys      : function(aName, full) {
+			ow.loadObj();
+			var arr = [], res = new ow.obj.syncArray();
+			var _lst = this.__o[aName].fn("getkeys", void 0);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => {
+					res.addAll( this.__r(aName, c, "getKeys", [ full ]) );
+				}));
+			});
+	
+			$doWait($doAll(arr));
+	
+			return res.toArray();
+		},
+		getSortedKeys: function(aName, full) {
+			var arr = [], res = new ow.obj.syncArray();
+			var _lst = this.__o[aName].fn("getsortedkeys", void 0);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => {
+					res.addAll( this.__r(aName, c, "getSortedKeys", [ full ]) );
+				}));
+			});
+	
+			$doWait($doAll(arr));
+	
+			return res.toArray();		
+		},
+		getSet       : function getSet(aName, aMatch, aK, aV, aTimestamp)  {
+			ow.loadObj();
+			var arr = [], res = new ow.obj.syncArray();
+			var _lst = this.__o[aName].fn("getset", aK);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => {
+					res.add( this.__r(aName, c, "getSet", [ aMatch, this.__o[aName].fnTrans(aK), aV, aTimestamp ]) );
+				}));
+			});
+	
+			$doWait($doAll(arr));
+	
+			return res.toArray();
+		},
+		set          : function(aName, aK, aV, aTimestamp) {
+			var arr = [], res = new ow.obj.syncArray();
+			var _lst = this.__o[aName].fn("set", aK);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => {
+					res.add( this.__r(aName, c, "set", [ this.__o[aName].fnTrans(aK), aV, aTimestamp ]) );
+				}));
+			});
+	
+			$doWait($doAll(arr));
+	
+			return res.toArray();
+		},
+		setAll       : function(aName, aKs, aVs, aTimestamp) {
+			ow.loadObj();
+			if (this.__o[aName].treatAll) {
+				aVs.map(v => this.set(aName, ow.obj.filterKeys(aKs, v), v));
+			} else {
+				var arr = [];
+				var _lst = this.__o[aName].fn("setall", aKs);
+				var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+				var naKs = aKs.map(this.__o[aName].fnTrans);
+				lst.map(c => arr.push($do( () => this.__r(aName, c, "setAll", [ naKs, aVs, aTimestamp ]) )) );
+	
+				$doWait($doAll(arr));
+			}
+	
+			return void 0;
+		},
+		unsetAll     : function(aName, aKs, aVs, aTimestamp) {
+			if (this.__o[aName].treatAll) {
+				ow.loadObj();
+				aVs.map(v => this.unset(aName, ow.obj.filterKeys(aKs, v), v) );
+			} else {
+				var arr = [];
+				var _lst = this.__o[aName].fn("unsetall", aKs);
+				var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+				var naKs = aKs.map(this.__o[aName].fnTrans);
+				lst.map(c => {
+					arr.push($do( () => {
+						res.add( this.__r(aName, c, "unsetAll", [ naKs, aVs, aTimestamp ]) );
+					}));
+				});
+		
+				$doWait($doAll(arr));
+			}
+			return void 0;
+		},
+		pop          : function(aName) {
+			var elems = this.getSortedKeys(aName);
+			var elem = elems[elems.length - 1];
+			var res = clone(this.get(aName, elem));
+			this.unset(aName, elem);
+			return elem;
+		},
+		shift        : function(aName) {
+			var elems = this.getSortedKeys(aName);
+			var elem = elems[0];
+			var res = clone(this.get(aName, elem));
+			this.unset(aName, elem);
+			return elem;
+		},
+		unset        : function(aName, aK, aTimestamp) {
+			ow.loadObj();
+			var arr = [], res = new ow.obj.syncArray();
+			var _lst = this.__o[aName].fn("unset", aK);
+			var lst = (isDef(_lst) ? _lst : this.__o[aName].chs);
+			lst.map(c => {
+				arr.push($do( () => {
+					res.add( this.__r(aName, c, "unset", [ this.__o[aName].fnTrans(aK), aTimestamp ]) );
+				}));
+			});
+	
+			$doWait($doAll(arr));
+	
+			return res.toArray();
+		}
 	}
 };
 	
@@ -1193,14 +2237,17 @@ OpenWrap.ch.prototype.__types = {
 OpenWrap.ch.prototype.create = function(aName, shouldCompress, type, options) {
 	if (Object.keys(this.channels).indexOf(aName) < 0) {
 		plugin("Threads");
-		type = (isDef(type)) ? type : "big";
+		type = (isDef(type)) ? type : "simple";
 
 		this.__types[type].create(aName, shouldCompress, options);
 
 		this.subscribers[aName] = {};
+		this.peers[aName] = {};
+		this.expose[aName] = [];
 		this.jobs[aName] = {};
 		this.channels[aName] = type;
 		this.vers[aName] = nowUTC();
+		this.lock[aName] = new java.util.concurrent.locks.ReentrantLock();
 	}
 	return this;
 };
@@ -1226,15 +2273,17 @@ OpenWrap.ch.prototype.getVersion = function(aName) {
  */
 OpenWrap.ch.prototype.waitForJobs = function(aName, aTimeout) {
 	aTimeout = _$(aTimeout).isNumber("aTimeout should be a number").default(-1);
-	var shouldContinue = false, tini = now();
+	var shouldContinue = 0, tini = now();
 	do {
-		for(let ii in this.jobs[aName]) {
+		shouldContinue = 0;
+		for(var ii in this.jobs[aName]) {
 			if (this.jobs[aName][ii].state == this.jobs[aName][ii].states.NEW) {
-				shouldContinue = true;
 				$doWait(this.jobs[aName][ii], (aTimeout >= 0 ? aTimeout : void 0));
+			} else {
+				shouldContinue++;
 			}
 		}
-	} while(shouldContinue && (now() - tini) < aTimeout);		
+	} while(shouldContinue >= Object.keys(this.jobs[aName]).length && (now() - tini) < aTimeout);		
 	return this;
 },
 	
@@ -1280,6 +2329,8 @@ OpenWrap.ch.prototype.destroy = function(aName) {
 		
 		delete this.channels[aName];
 		delete this.subscribers[aName];
+		delete this.peers[aName];
+		delete this.expose[aName];
 		delete this.jobs[aName];
 		delete this.vers[aName];
 	}
@@ -1298,13 +2349,13 @@ OpenWrap.ch.prototype.close = function(aName) {
  * </odoc>
  */
 OpenWrap.ch.prototype.size = function(aName) {
-	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
-//	switch(this.channels[aName]) {
-//	case "ignite": { return this.__types.ignite.size(aName); break; }
-//	case "remote": { return this.__types.remote.size(aName); break; }
-//	default      : { return this.__types.big.size(aName); }
+	if (isUnDef(ow.ch.channels[aName])) throw "Channel " + aName + " doesn't exist.";
+//	switch(ow.ch.channels[aName]) {
+//	case "ignite": { return ow.ch.__types.ignite.size(aName); break; }
+//	case "remote": { return ow.ch.__types.remote.size(aName); break; }
+//	default      : { return ow.ch.__types.big.size(aName); }
 //	}
-	return this.__types[this.channels[aName]].size(aName);
+	return ow.ch.__types[ow.ch.channels[aName]].size(aName);
 };
 
 OpenWrap.ch.prototype.__errorHandle = function(id, e) {
@@ -1326,8 +2377,8 @@ OpenWrap.ch.prototype.__errorHandle = function(id, e) {
  * <odoc>
  * <key>ow.ch.subscribe(aName, aFunction, onlyFromNowm, anId) : String</key>
  * Adds a callback function to the channel aName. The callback function will receive, as arguments:
- * the channel name, the operation, a key or an array of keys (for operation = setall), a value or an array 
- * of values (for operation = setall) and the ow.ch object. Returns the subscriber id.
+ * the channel name, the operation, a key or an array of keys (for operation = setall/unsetall), a value or an array 
+ * of values (for operation = setall/unsetall) and the ow.ch object. Returns the subscriber id.
  * Optionally you can specify that existing
  * elements won't trigger operation = set callback calls and/or a custom subscriber anId.\
  * \
@@ -1335,6 +2386,7 @@ OpenWrap.ch.prototype.__errorHandle = function(id, e) {
  *    - set\
  *    - setall\
  *    - unset\
+ *    - unsetall\
  * \
  * </odoc>
  */
@@ -1382,7 +2434,12 @@ OpenWrap.ch.prototype.subscribe = function(aName, aFunction, onlyFromNow, anId) 
 OpenWrap.ch.prototype.unsubscribe = function(aName, aId) {
 	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
 
-	delete this.subscribers[aName][aId];
+	var parent = this;
+	delete parent.subscribers[aName][aId];
+	Object.keys(parent.peers[aName]).forEach((v) => {
+		if (parent.peers[aName][v].indexOf(aId) >= 0) 
+			parent.peers[aName][v] = deleteFromArray(parent.peers[aName][v], parent.peers[aName][v].indexOf(aId));
+	});
 	return this;
 };
 
@@ -1396,6 +2453,7 @@ OpenWrap.ch.prototype.unsubscribeAll = function(aName) {
 	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
 	
 	this.subscribers[aName] = {};
+	this.peers[aName] = {};
 	return this;
 };
 	
@@ -1406,11 +2464,11 @@ OpenWrap.ch.prototype.unsubscribeAll = function(aName) {
  * </odoc>
  */
 OpenWrap.ch.prototype.forEach = function(aName, aFunction, x) {
-	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
+	if (isUnDef(ow.ch.channels[aName])) throw "Channel " + aName + " doesn't exist.";
 
-	this.__types[this.channels[aName]].forEach(aName, aFunction, x);
+	ow.ch.__types[ow.ch.channels[aName]].forEach(aName, aFunction, x);
 
-	return this;
+	return ow.ch;
 };
 	
 /**
@@ -1420,20 +2478,38 @@ OpenWrap.ch.prototype.forEach = function(aName, aFunction, x) {
  * </odoc>
  */
 OpenWrap.ch.prototype.getAll = function(aName, x) {
-	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";	
+	if (isUnDef(ow.ch.channels[aName])) throw "Channel " + aName + " doesn't exist.";	
 
-	var res = [];
+	var res = [], error;
 	var parent = this;
 	
-	if (isDef(this.__types[this.channels[aName]].getAll)) {
-		sync(function() {
-			res = res.concat(parent.__types[parent.channels[aName]].getAll(aName, x));
-		}, x);
+	if (isDef(ow.ch.__types[ow.ch.channels[aName]].getAll)) { 
+		ow.ch.lock[aName].lock();
+		//sync(function() {
+			try {
+				res = res.concat(parent.__types[parent.channels[aName]].getAll(aName, x));
+			} catch(e) {
+				error = e;
+			} finally {
+				ow.ch.lock[aName].unlock();
+			}
+		//}, x);
 	} else {
-		this.forEach(aName, function(aKey, aValue) {
-			sync(function() { res.push(aValue); }, res);
+		ow.ch.forEach(aName, function(aKey, aValue) {
+ 
+			ow.ch.lock[aName].lock();
+			//sync(function() { 
+				try {
+					res.push(aValue); 
+				} catch(e) {
+					error = e;
+				} finally {
+					ow.ch.lock[aName].unlock();
+				}
+			//}, res);
 		}, x);
 	}
+	if (isDef(error)) throw error;
 
 	return res;
 };
@@ -1446,9 +2522,9 @@ OpenWrap.ch.prototype.getAll = function(aName, x) {
  * </odoc>
  */
 OpenWrap.ch.prototype.getKeys = function(aName, full, x) {
-	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
+	if (isUnDef(ow.ch.channels[aName])) throw "Channel " + aName + " doesn't exist.";
 	
-	return this.__types[this.channels[aName]].getKeys(aName, full, x);
+	return ow.ch.__types[ow.ch.channels[aName]].getKeys(aName, full, x);
 };
 	
 /**
@@ -1459,14 +2535,14 @@ OpenWrap.ch.prototype.getKeys = function(aName, full, x) {
  * </odoc>
  */
 OpenWrap.ch.prototype.getSortedKeys = function(aName, full, x) {
-	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
+	if (isUnDef(ow.ch.channels[aName])) throw "Channel " + aName + " doesn't exist.";
 	
-//	switch(this.channels[aName]) {
-//	case "ignite": { return this.__types.ignite.getSortedKeys(aName, full); break; }
-//	case "remote": { return this.__types.remote.getSortedKeys(aName, full); break; }
-//	default      : { return this.__types.big.getSortedKeys(aName, full); }
+//	switch(ow.ch.channels[aName]) {
+//	case "ignite": { return ow.ch.__types.ignite.getSortedKeys(aName, full); break; }
+//	case "remote": { return ow.ch.__types.remote.getSortedKeys(aName, full); break; }
+//	default      : { return ow.ch.__types.big.getSortedKeys(aName, full); }
 //	}
-	return this.__types[this.channels[aName]].getSortedKeys(aName, full, x);
+	return ow.ch.__types[ow.ch.channels[aName]].getSortedKeys(aName, full, x);
 };
 	
 /**
@@ -1489,12 +2565,19 @@ OpenWrap.ch.prototype.set = function(aName, aKey, aValue, aTimestamp, aUUID, x) 
 	if (typeof aValue != "object") av = { "key": aKey, "value": aValue };
  
 	var parent = this;
-	var res;
-
-	sync(function() {
-		res = parent.__types[parent.channels[aName]].set(aName, ak, av, aTimestamp, x); 
-		parent.vers[aName] = nowUTC();
-	}, this.channels[aName]);
+	var res, error; 
+	this.lock[aName].lock();
+	//sync(function() {
+		try {
+			res = parent.__types[parent.channels[aName]].set(aName, ak, av, aTimestamp, x); 
+			parent.vers[aName] = nowUTC();
+		} catch(e) {
+			error = e;
+		} finally {
+			this.lock[aName].unlock();
+		}
+	//}, this.channels[aName]);
+	if (isDef(error)) throw error;
 
 	if (Object.keys(this.subscribers[aName]).length > 0) {
 		for(var _i in this.subscribers[aName]) {
@@ -1559,12 +2642,20 @@ OpenWrap.ch.prototype.setAll = function(aName, anArrayOfKeys, anArrayOfMapData, 
 	}
 
 	var parent = this;
-	var res;
-	
-	sync(function() {
-		res = parent.__types[parent.channels[aName]].setAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp, x);
-		parent.vers[aName] = nowUTC();
-	}, this.channels[aName]);
+	var res, error;
+ 
+	this.lock[aName].lock();
+	//sync(function() {
+		try {
+			res = parent.__types[parent.channels[aName]].setAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp, x);
+			parent.vers[aName] = nowUTC();
+		} catch(e) {
+			error = e;
+		} finally {
+			this.lock[aName].unlock();
+		}
+	//}, this.channels[aName]);
+	if (isDef(error)) throw error;
 
 	if (Object.keys(this.subscribers[aName]).length > 0) {
 		for(var _i in this.subscribers[aName]) {
@@ -1599,6 +2690,70 @@ OpenWrap.ch.prototype.setAll = function(aName, anArrayOfKeys, anArrayOfMapData, 
 	
 /**
  * <odoc>
+ * <key>ow.ch.unsetAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp)</key>
+ * Given anArrayOfKeys composed of strings identifying the key fields from the anArrayOfMapData provided
+ * will try to delete all values on the channel identified by aName. Optionally you can provide aTimestamp 
+ * (if the provided aTimestamp is smaller than getVersion
+ * the value will not be set)
+ * </odoc>
+ */
+OpenWrap.ch.prototype.unsetAll = function(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp, aUUID, x) {
+	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
+	if (isUnDef(aTimestamp)) {
+		aTimestamp = nowUTC();
+		if (this.getVersion(aName) > aTimestamp) return this;
+	}
+
+	var parent = this;
+	var res, error;
+	
+	if (isUnDef(parent.__types[parent.channels[aName]].unsetAll)) return void 0; 
+	this.lock[aName].lock();
+	//sync(function() {
+		try {
+			res = parent.__types[parent.channels[aName]].unsetAll(aName, anArrayOfKeys, anArrayOfMapData, aTimestamp, x);
+			parent.vers[aName] = nowUTC();
+		} catch(e) {
+			error = e;
+		} finally {
+			this.lock[aName].unlock();
+		}
+	//}, this.channels[aName]);
+	if (isDef(error)) throw error;
+
+	if (Object.keys(this.subscribers[aName]).length > 0) {
+		for(var _i in this.subscribers[aName]) {
+			if (isUnDef(parent.jobs[aName][_i])) {
+				var f = (ii) => {
+					return () => {				
+						parent.subscribers[aName][ii](aName, "unsetall", anArrayOfKeys, anArrayOfMapData, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i] = $do(f(_i)).catch((e) => { 
+					ow.ch.__errorHandle({ 
+						chName: aName,
+						op: "unset",
+						key: aKey
+					}, e);
+				});
+			} else {				
+				var f = (ii) => {
+					return () => {
+						parent.subscribers[aName][ii](aName, "unsetall", anArrayOfKeys, anArrayOfMapData, parent, aTimestamp, aUUID, x);
+						return ii;
+					};
+				};
+				parent.jobs[aName][_i].then(f(_i));
+			}
+		}		
+	}
+
+	return res;
+};
+
+/**
+ * <odoc>
  * <key>ow.ch.get(aName, aKey) : ow.ch</key>
  * Returns the value associated with the provided aKey on the channel identified by aName.
  * </odoc>
@@ -1608,11 +2763,20 @@ OpenWrap.ch.prototype.get = function(aName, aKey, x) {
 
 	if (typeof aKey != "object") aKey = { "key": aKey };
 
-	var res;
-	var parent = this;
-	sync(function() {
-		res = parent.__types[parent.channels[aName]].get(aName, aKey, x);
-	}, this.channels[aName]);
+	var res, error;
+	var parent = this 
+	this.lock[aName].lock();
+	//sync(function() {
+		try {
+			res = parent.__types[parent.channels[aName]].get(aName, aKey, x);
+		} catch(e) {
+			error = e;
+		} finally {
+			this.lock[aName].unlock();
+		}
+	//}, this.channels[aName]);
+	if (isDef(error)) throw error;
+
 	if (isDef(res) && Object.keys(res) == [ "value" ])
 		return res.value;
 	else
@@ -1650,12 +2814,20 @@ OpenWrap.ch.prototype.pop = function(aName) {
 OpenWrap.ch.prototype.getSet = function(aName, aMatch, aKey, aValue, aTimestamp, aUUID, x) {
 	if (isUnDef(this.channels[aName])) throw "Channel " + aName + " doesn't exist.";
 	
-	var res, out;
-	var parent = this;
-	sync(function() {
-		res = parent.__types[parent.channels[aName]].getSet(aName, aMatch, aKey, aValue, aTimestamp, x); 
-		parent.vers[aName] = nowUTC();
-	}, this.channels[aName]);
+	var res, out, error;
+	var parent = this 
+	this.lock[aName].lock();
+	//sync(function() {
+		try {
+			res = parent.__types[parent.channels[aName]].getSet(aName, aMatch, aKey, aValue, aTimestamp, x); 
+			parent.vers[aName] = nowUTC();
+		} catch(e) {
+			error = e;
+		} finally {
+			this.lock[aName].unlock();
+		}
+	//}, this.channels[aName]);
+	if (isDef(error)) throw error;
 	
 	if (Object.keys(this.subscribers[aName]).length > 0) {
 		for(var _i in this.subscribers[aName]) {
@@ -1729,11 +2901,19 @@ OpenWrap.ch.prototype.unset = function(aName, aKey, aTimestamp, aUUID, x) {
 	var ak = aKey;
 	if (typeof aKey != "object") ak = { "key": aKey };
 
-	var parent = this;
-	sync(function() {	
-		res = parent.__types[parent.channels[aName]].unset(aName, ak, x);
-		parent.vers[aName] = nowUTC();
-	}, this.channels[aName]);
+	var parent = this, res, error; 
+	this.lock[aName].lock();
+	//sync(function() {	
+		try {
+			res = parent.__types[parent.channels[aName]].unset(aName, ak, x);
+			parent.vers[aName] = nowUTC();
+		} catch(e) {
+			error = e;
+		} finally {
+			this.lock[aName].unlock();
+		}
+	//}, this.channels[aName]);
+	if (isDef(error)) throw error;
 
 	if (Object.keys(this.subscribers[aName]).length > 0) {
 		for(var _i in this.subscribers[aName]) {
@@ -1762,7 +2942,7 @@ OpenWrap.ch.prototype.unset = function(aName, aKey, aTimestamp, aUUID, x) {
 			}
 		}
 	}	
-	return this;
+	return res;
 };
 	
 OpenWrap.ch.prototype.utils = {
@@ -1801,6 +2981,7 @@ OpenWrap.ch.prototype.utils = {
 			if (isUnDef(res) || isArray(res) || !isObject(res)) res = {};
 			if (useId) res["id"] = nowNano();
 
+			ow.loadObj();
 			$ch(named).set(ow.obj.filterKeys(withKeys, res), res);
 		};
 
@@ -1829,7 +3010,261 @@ OpenWrap.ch.prototype.utils = {
 			};
 		}
 	},
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.flushBuffer(aName)</key>
+	 * Tries to flush a channel buffer with aName (if not provided assumes all buffer type channels).
+	 * </odoc>
+	 */
+	flushBuffer: function(aName) {
+		if (isDef(aName)) {
+			ow.ch.__types.buffer.__f[aName](true); 
+			$ch(ow.ch.__types.buffer.__bt[aName]).waitForJobs(ow.ch.__types.buffer.__t[aName]);
+			$ch(ow.ch.__types.buffer.__bc[aName]).waitForJobs(ow.ch.__types.buffer.__t[aName]);
+		} else {
+			for(var c in ow.ch.__types.buffer.__f) {
+				ow.ch.__types.buffer.__f[c](true); 
+				$ch(ow.ch.__types.buffer.__bt[c]).waitForJobs(ow.ch.__types.buffer.__t[c]);
+				$ch(ow.ch.__types.buffer.__bc[c]).waitForJobs(ow.ch.__types.buffer.__t[c]);
+			}
+		}
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.closeBuffer(aName)</key>
+	 * Tries to close and flush a channel buffer with aName (if not provided assumes all buffer type channels).
+	 * </odoc>
+	 */
+	closeBuffer: function(aName) {
+		if (isDef(aName)) {
+			if (isDef(ow.ch.__types.buffer.__s[aName])) ow.ch.__types.buffer.__s[aName].stop();
+		} else {
+			for(var c in ow.ch.__types.buffer.__s) {
+				if (isDef(ow.ch.__types.buffer.__s[c])) ow.ch.__types.buffer.__s[c].stop();
+			}
+		}
+		this.flushBuffer(aName);
+		if (isDef(aName)) {
+			$ch(aName).destroy();
+		} else {
+			for(var c in ow.ch.__types.buffer.__s) {
+				$ch(c).destroy();
+			}
+		}
+	},	
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.getBufferSubscriber(aSourceCh, indexes, byNumber, byTimeInMs, aBufferCh, aTmpBufferCh, aFilterFunc, aBufferFunc) : Function</key>
+	 * Returns a channel subscriber function that will buffer set, setall, unsetall and unset operations from aSourceCh channel to aBufferCh (by
+	 * default a dummy channel to be subscribed, if not defined the name will be aSourceCh + "::buffer"). As a temporary buffer channel
+	 * aTmpBufferCh will be used (if not defined the name will be aSourceCh + "::__bufferStorage"). The aBufferCh will be configured with
+	 * the provided indexes, byNumber (number of times to trigger the buffer) and byTimeInMs (amount of time in ms to trigger the buffer).
+	 * Additionally you can specify aFilterFunc (with arguments channel, operation, key(s) and value(s)) that will only buffer if returns false
+	 * and aBufferFunc that will trigger the buffer flush if it returns true.\
+	 * \
+	 * NOTE: do call ow.ch.utils.closeBuffer(aSourceCh) when it's no longer needed.\
+	 * \
+	 * </odoc>
+	 */
+	getBufferSubscriber: function(aSourceCh, idxs, byNumber, byTime, aBufferCh, aTmpBufferCh, aFilterFunc, aBufferFunc) {
+		aBufferCh = _$(aBufferCh).isString().default(aSourceCh + "::buffer");
+		aTmpBufferCh = _$(aTmpBufferCh).isString().default(aSourceCh + "::__bufferTransit");
+		_$(idxs).isArray().$_("Need to provide a source channel indexes");
 
+		$ch(aBufferCh).create(1, "dummy");
+		$ch(aTmpBufferCh).create(1, "buffer", {
+			bufferCh      : aBufferCh,
+			bufferIdxs    : idxs,
+			bufferByNumber: byNumber,
+			bufferByTime  : byTime,
+			bufferFunc    : aBufferFunc
+		});
+
+		return function(aC, aO, aK, aV) {
+			var cont = true;
+			if (isDef(aFilterFunc) && isFunction(aFilterFunc)) cont = aFilterFunc(aC, aO, aK, aV);
+			if (cont) {
+				switch(aO) {
+				case "set"   : 
+					aK = merge(aK, { ___bufferT: nowNano() }); 
+					$ch(aTmpBufferCh).set(aK, aV);    
+					break;
+				case "setall": 
+					aK.push("___bufferT"); 
+					aV = merge(aV,  { ___bufferT: nowNano() }); 
+					$ch(aTmpBufferCh).setAll(aK, aV); 
+					break;
+				case "unsetall": 
+					aK.push("___bufferT"); 
+					aV = merge(aV,  { ___bufferT: nowNano() }); 
+					$ch(aTmpBufferCh).unsetAll(aK, aV); 
+					break;					
+				case "unset" : 
+					aK = merge(aK, { ___bufferT: nowNano() }); 
+					$ch(aTmpBufferCh).unset(aK);      
+					break;
+				}
+			}
+		};
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.getStatsProxyFunction(aStatsCh) : Function</key>
+	 * Returns a proxy function to be use with a proxy channel. The aStatsCh where to store the channel access statistics.
+	 * </odoc>
+	 */
+	getStatsProxyFunction: function (aStatsCh) {
+		aStatsCh = _$(aStatsCh).isString().$_("Please provide a statistics channel.");
+
+		return function (m) {
+			var r = $ch(aStatsCh).get(m.name);
+			if (isUnDef(r)) r = {};
+			if (isUnDef(r.name)) r.name = m.name;
+			if (isUnDef(r[m.op])) r[m.op] = {
+				count: 0
+			};
+
+			r[m.op].count++;
+
+			switch (m.op) {
+				case "size":
+					break;
+				case "forEach":
+					break;
+				case "getAll":
+					var rr = $ch(m.name).getAll(m.full);
+					if (isUnDef(r[m.op].countValues))
+						r[m.op].countValues = rr.length;
+					else
+						r[m.op].countValues += rr.length;
+					$ch(aStatsCh).set(m.name, r);
+					return rr;
+				case "getKeys":
+					var rr = $ch(m.name).getKeys(m.full);
+					if (isUnDef(r[m.op].countValues))
+						r[m.op].countValues = rr.length;
+					else
+						r[m.op].countValues += rr.length;
+					$ch(aStatsCh).set(m.name, r);
+					return rr;
+				case "getSortedKeys":
+					var rr = $ch(m.name).getSortedKeys(m.full);
+					if (isUnDef(r[m.op].countValues))
+						r[m.op].countValues = rr.length;
+					else
+						r[m.op].countValues += rr.length;
+					$ch(aStatsCh).set(m.name, r);
+					return rr;
+				case "getSet":
+					break;
+				case "set":
+					break;
+				case "setAll":
+					if (isUnDef(r[m.op].countValues))
+						r[m.op].countValues = m.v.length;
+					else
+						r[m.op].countValues += m.v.length;
+					break;
+				case "unsetAll":
+					if (isUnDef(r[m.op].countValues))
+						r[m.op].countValues = m.v.length;
+					else
+						r[m.op].countValues -= m.v.length;
+					break;					
+				case "get":
+					break;
+				case "pop":
+					break;
+				case "shift":
+					break;
+				case "unset":
+					break;
+			}
+
+			$ch(aStatsCh).set(m.name, r);
+		};
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.syncCh(aIdxsArray, aSource, aTarget, aSyncFn, aLogFn)</key>
+	 * Tries to sync all values from aSource with aTarget channel using the aIdxsArray (list of value indexes field).
+	 * Optionally aSyncFn can be provided to decide how to sync the values between source and target (defaults to return always true). A aLogFn
+	 * can be provided so all sync actions can be logged.\
+	 * \
+	 * Table of sync actions given the return values of a custom syncFn(source, target) : boolean\
+	 * \
+	 *   | source | target | return true | return false |\
+	 *   |--------|--------|-------------|--------------|\
+	 *   | void 0 | def    | del target  | add source   |\
+	 *   | def    | void 0 | add target  | del source   |\
+	 *   | def    | def    | set target  | set source   |\
+	 * \
+	 * </odoc>
+	 */
+	syncCh: function(idxs, source, target, syncFn, logFn) {
+		var sks = $ch(source).getAll();
+		var tks = $ch(target).getAll();
+
+		syncFn = _$(syncFn).isFunction().default(() => { return true; });
+		idxs = _$(idxs).$_("Please provide a list of field indexes");
+		if (isString(idxs)) idxs = [ idxs ];
+
+		ow.loadObj();
+
+		// Indexing
+		var skis = {};
+		for(let ik in sks) {
+			var sv = sks[ik];
+			var si = stringify(ow.obj.filterKeys(idxs, sv), void 0, "");
+			skis[si] = sv;
+		}
+		var tkis = {};
+		for(let ik in tks) {
+			var tv = tks[ik];
+			var ti = stringify(ow.obj.filterKeys(idxs, tv), void 0, "");
+			tkis[ti] = tv;
+		}
+
+		// Compare values
+		var addToTarget = [], delFromTarget = [], addToSource = [], delFromSource = [];
+		for(let ik in skis) {
+			if (isUnDef(tkis[ik])) {
+				if (syncFn(skis[ik], void 0)) {
+					logFn("adding " + ik + " to target.");
+					addToTarget.push(skis[ik]);
+				} else {
+					logFn("deleting " + ik + " from source.");
+					delFromSource.push(skis[ik]);
+				}
+			} else {
+				if (!(compare(skis[ik], tkis[ik]))) {
+					if (syncFn(skis[ik], tkis[ik])) {
+						logFn("updating " + ik + " on target.");
+						addToTarget.push(skis[ik]);
+					} else {
+						logFn("updating " + ik + " on source.");
+						addToSource.push(tkis[ik]);
+					}
+				}
+			}
+		}
+		for(let ik in tkis) {
+			if (isUnDef(skis[ik])) {
+				if (syncFn(void 0, tkis[ik])) {
+					logFn("deleting " + ik + " from target.");
+					delFromTarget.push(tkis[ik]);
+				} else {
+					logFn("add " + ik + " to source.");
+					addToSource.push(tkis[ik]);
+				}
+			} 
+		}
+
+		if (addToTarget.length > 0)   $ch(target).setAll(idxs, addToTarget);
+		if (addToSource.length > 0)   $ch(source).setAll(idxs, addToSource);
+		if (delFromSource.length > 0) $ch(source).unsetAll(idxs, delFromSource);
+		if (delFromTarget.length > 0) $ch(target).unsetAll(idxs, delFromTarget);
+	},
     /**
      * <odoc>
      * <key>ow.ch.utils.getMirrorSubscriber(aTargetCh, aFunc) : Function</key>
@@ -1853,6 +3288,13 @@ OpenWrap.ch.prototype.utils = {
 					if(aFunc(aV[v])) sV.push(aV[v]);
 				}
 				$ch(aTargetCh).setAll(aK, sV);
+				break;
+			case "unsetall":
+				var sV = [];
+				for (var v in aV) {
+					if(aFunc(aV[v])) sV.push(aV[v]);
+				}
+				$ch(aTargetCh).unsetAll(aK, sV);
 				break;
 			case "unset": 
 				if (aFunc(aK)) $ch(aTargetCh).unset(aK);
@@ -2171,7 +3613,46 @@ OpenWrap.ch.prototype.utils = {
 
 OpenWrap.ch.prototype.comms = {
 	__counter: {},
-	
+
+	getRetrySubscriberFunc: function(subsFunc, aMaxTime, aMaxCount, aUUID) {
+		aMaxTime = _$(aMaxTime).isNumber("Please provide a number max time.").default(void 0);
+		aMaxCount = _$(aMaxCount).isNumber("Please provide a number max count.").default(10);
+
+		return function(aN, aOp, aK, aV) {
+			if (isDef(aMaxTime)) {
+				$from($ch("__comm::" + aN).getKeys())
+				.lessEquals("timeStamp", (now() - aMaxTime))
+				.select((r) => {
+					$ch("__comm::" + aN).unset(r);
+				});
+			}
+
+			if (isDef(aMaxCount)) {
+				if ($ch("__comm::" + aN).size() >= aMaxCount) {
+					$from($ch("__comm::" + aN).getKeys())
+					.sort("timeStamp")
+					.select()
+					.forEach((v) => {
+						if ($ch("__comm::" + aN).size() >= aMaxCount) $ch("__comm::" + aN).unset(v);
+					});
+				}
+			}
+
+			$from($ch("__comm::" + aN).getAll())
+			.sort("timeStamp")
+			.select((v) => {
+				if (isDef(v) && isDef(v.operation)) {
+					subsFunc(aN, v.operation, v.keys, v.values, void 0, v.forcedTimeStamp, aUUID);
+					$ch("__comm::" + aN).unset({
+						timeStamp: v.timeStamp,
+						operation: v.operation,
+						keys     : v.keys
+					});
+				}
+			});
+		};
+	},
+
 	/**
 	 * <odoc>
 	 * <key>ow.ch.comms.getSubscriberFunc(aURL, aUUID, aLogin, aPassword, aTimeout)</key>
@@ -2180,7 +3661,7 @@ OpenWrap.ch.prototype.comms = {
 	 * Optionally you can provide aLogin, aPassword and/or a aTimeout (in ms). 
 	 * </odoc>
 	 */
-	getSubscribeFunc: function(aURL, aUUID, aL, aP, aT) {
+	getSubscribeFunc: function(aURL, aUUID, aL, aP, aT, aPA) {
 		return  function(na, op, k, v, al, t, sUUID) {
 			if (isUnDef(sUUID)) sUUID = genUUID();
 			if (sUUID == aUUID) return;
@@ -2220,7 +3701,13 @@ OpenWrap.ch.prototype.comms = {
 						
 						sync(function() { ow.ch.comms.__counter[na] = 0; }, ow.ch.comms.__counter[na]);
 						sync(function() {
-							ow.obj.rest.set(aURL, { "o": "r", "k": Object.keys(ow.ch.getKeys(na)[0]), "t": t }, ow.ch.getAll(na), aL, aP, aT);
+							//ow.obj.rest.set(aURL, { "o": "r", "k": Object.keys(ow.ch.getKeys(na)[0]), "t": t }, ow.ch.getAll(na), aL, aP, aT);
+							$rest({
+								login: aL,
+								pass: aP,
+								connectionTimeout: aT,
+								preAction: aPA
+							}).put(aURL, ow.ch.getAll(na), { "o": "r", "k": Object.keys(ow.ch.getKeys(na)[0]), "t": t });
 						}, aURL);
 					}
 				}
@@ -2238,15 +3725,46 @@ OpenWrap.ch.prototype.comms = {
 					}, ow.ch.comms.__counter[na]);
 					var res;
 					sync(function() {
-						res = ow.obj.rest.jsonSet(aURL, { "o": "a", "k": k, "t": t }, v, aL, aP, aT); 
+						//res = ow.obj.rest.jsonSet(aURL, { "o": "a", "k": k, "t": t }, v, aL, aP, aT); 
+						res = $rest({
+							login: aL,
+							pass: aP,
+							connectionTimeout: aT,
+							preAction: aPA
+						}).put(aURL, v, { "o": "a", "k": k, "t": t });
 						shouldReset(res);
 					}, aURL);
 					break;
+				case "unsetall": 
+					sync(function() { 
+						if (ow.ch.comms.__counter[na] != 0)
+							ow.ch.comms.__counter[na]++;
+						else
+							ow.ch.comms.__counter[na] = 1;
+					}, ow.ch.comms.__counter[na]);
+					var res;
+					sync(function() {
+						//res = ow.obj.rest.jsonSet(aURL, { "o": "ua", "k": k, "t": t }, v, aL, aP, aT); 
+						res = $rest({
+							login: aL,
+							pass: aP,
+							connectionTimeout: aT,
+							preAction: aPA
+						}).put(aURL, v, { "o": "ua", "k": k, "t": t });
+						shouldReset(res);
+					}, aURL);
+					break;					
 				case "set"   : 
 					sync(function() { ow.ch.comms.__counter[na]++; }, ow.ch.comms.__counter[na]);
 					var res;
 					sync(function() {
-						res = ow.obj.rest.jsonSet(aURL, { "o": "e", "k": ak, "t": t }, av, aL, aP, aT);
+						//res = ow.obj.rest.jsonSet(aURL, { "o": "e", "k": ak, "t": t }, av, aL, aP, aT);
+						res = $rest({
+							login: aL,
+							pass: aP,
+							connectionTimeout: aT,
+							preAction: aPA
+						}).put(aURL, av, { "o": "e", "k": ak, "t": t });
 						shouldReset(res);
 					}, aURL);
 					break;
@@ -2254,16 +3772,37 @@ OpenWrap.ch.prototype.comms = {
 					sync(function() { ow.ch.comms.__counter[na]++; }, ow.ch.comms.__counter[na]);
 					var res;
 					sync(function() {
-						res = ow.obj.rest.jsonRemove(aURL, { "o": "e", "k": ak, "t": t }, aL, aP, aT); 
+						//res = ow.obj.rest.jsonRemove(aURL, { "o": "e", "k": ak, "t": t }, aL, aP, aT); 
+						res = $rest({
+							login: aL,
+							pass: aP,
+							connectionTimeout: aT,
+							preAction: aPA
+						}).delete(aURL, { "o": "e", "k": ak, "t": t });
 						shouldReset(res);
 					}, aURL);
 					break;				
 				default      : 
-					var res;
+					var res, resk;
 				    sync(function() {
-				    	res = ow.obj.rest.jsonGet(aURL, { "o": "e", "k": ak }, aL, aP, aT);
+						//res = ow.obj.rest.jsonGet(aURL, { "o": "e", "k": ak }, aL, aP, aT);
+						//res = ow.obj.rest.jsonGet(aURL, { "o": "a" }, aL, aP, aT);
+						res = $rest({
+							login: aL,
+							pass: aP,
+							connectionTimeout: aT,
+							preAction: aPA
+						}).get(aURL, { "o": "a" });
+						//resk = ow.obj.rest.jsonGet(aURL, { "o": "k" }, aL, aP, aT);
+						resk = $rest({
+							login: aL,
+							pass: aP,
+							connectionTimeout: aT,
+							preAction: aPA
+						}).get(aURL, { "o": "k" });
 						shouldReset(res);
-				    }, aURL);
+					}, aURL);
+					if (res.r.length > 0) $do(() => { $ch(na).setAll(Object.keys(resk.r[0]), res.r); });
 				}
 			} catch(e) {
 				recordError(op, t, ak, v, e);
@@ -2394,14 +3933,31 @@ OpenWrap.ch.prototype.server = {
 	 * </odoc>
 	 */
 	expose: function(aName, aLocalPortORServer, aPath, aAuthFunc, aUnAuthFunc, noCheck) {
+		if (isUnDef(aLocalPortORServer)) return void 0;
+		if (isUnDef(aPath)) aPath = "/" + aName;
+
+		if (isDef(ow.ch.expose[aName])) {
+			var res = $from(ow.ch.expose[aName])
+			.equals("path", aPath)
+			.select((r) => {
+				if (isDef(r.hs) && r.hs.isAlive()) {
+					return r.uuid;
+				} else {
+					return null;
+				}
+			});
+			if (res[0] != null) return res[0];
+		};
+
 		var hs;
 		var uuid = genUUID();
 		ow.loadServer();
 
 		//noCheck = (isUnDef(noCheck)) ? false : noCheck;
-
+ 
 		if (!noCheck) {
-			if (isUnDef(ow.ch.size(aName))) throw "Channel " + aName + " doesn't exist.";
+			//if (isUnDef(ow.ch.size(aName))) throw "Channel " + aName + " doesn't exist.";
+			try { ow.ch.size(aName); } catch(e) { ow.ch.create(aName); }
 		}
 
 		if (!(isObject(aLocalPortORServer))) {
@@ -2413,8 +3969,6 @@ OpenWrap.ch.prototype.server = {
 		} else {
 			hs = aLocalPortORServer;
 		}
-
-		if (isUnDef(aPath)) aPath = "/" + aName;
 
 		var routes = {};
 		if (isDef(aAuthFunc)) {
@@ -2444,37 +3998,78 @@ OpenWrap.ch.prototype.server = {
 		if (isUnDef(droute)) droute = function (r) { return hs.reply("not found", ow.server.httpd.mimes.TXT, ow.server.httpd.codes.NOTFOUND) };
 		
 		ow.server.httpd.route(hs, ow.server.httpd.mapWithExistingRoutes(hs, routes), droute);
+		ow.ch.expose[aName].push({
+			uuid: uuid,
+			hs: hs,
+			path: aPath
+		});
 
 		return uuid;
 	},
 
 	/**
 	 * <odoc>
-	 * <key>ow.ch.server.peer(aName, aLocalPortORServer, aPath, aRemoteURLArray, aAuthFunc, aUnAuthFunc)</key>
+	 * <key>ow.ch.server.peer(aName, aLocalPortORServer, aPath, aRemoteURLArray, aAuthFunc, aUnAuthFunc, aMaxTime, aMaxCount)</key>
 	 * Exposes aName channel in the same way as ow.ch.server.expose but it also add a subscribe function to 
 	 * the aName channel to remotely peer with other expose channel(s) given aRemoteURLArray. Optionally
 	 * you can also provide aAuthFunc(user, pass) and aUnAuthFunc(aServer, aRequest) functions using ow.server.httpd.authBasic.
-	 * The aAuthFunc can add aRequest.channelPermission to enforce read and/or write permissions on a channel (e.g. "r", "rw").\
+	 * The aAuthFunc can add aRequest.channelPermission to enforce read and/or write permissions on a channel (e.g. "r", "rw").
+	 * Optionally you can provide aMaxTime for expiration of commands to retry to communicate and aMaxCount of commands to retry to communicate.\
 	 * \
 	 * Example:\
 	 * \
-	 * ow.ch.server.peer("__log", 8090, [ "http://server1.local:8090/log", "https://l:p@server2.local:8090/log" ]);\
+	 * ow.ch.server.peer("__log", 8090, "/log", [ "http://server1.local:8090/log", "https://l:p@server2.local:8090/log" ]);\
 	 * \
 	 * </odoc>
 	 */
-	peer: function(aName, aLocalPortORServer, aPath, aRemoteURLArray, aAuthFunc, aUnAuthFunc) {
+	peer: function(aName, aLocalPortORServer, aPath, aRemoteURLArray, aAuthFunc, aUnAuthFunc, aMaxTime, aMaxCount) {
 		var uuid = ow.ch.server.expose(aName, aLocalPortORServer, aPath, aAuthFunc, aUnAuthFunc);
 		var res = [];
 
-		if (isArray(aRemoteURLArray)) {
-			for(let i in aRemoteURLArray) {
-				res.push(ow.ch.subscribe(aName, ow.ch.comms.getSubscribeFunc(aRemoteURLArray[i], uuid)));
+		if (!(isArray(aRemoteURLArray))) aRemoteURLArray = [ aRemoteURLArray ];
+		
+		ow.loadObj();
+		for(var i in aRemoteURLArray) {
+			if (isDef(ow.ch.peers[aName][aRemoteURLArray[i]])) {
+				res = res.concat(ow.ch.peers[aName][aRemoteURLArray[i]]);
+			} else {
+				var fn = ow.ch.comms.getSubscribeFunc(aRemoteURLArray[i], uuid);
+				var hkfn = ow.ch.comms.getRetrySubscriberFunc(fn, aMaxTime, aMaxCount, uuid);
+				fn(aName, "reset");
+	
+				var sfn = ow.ch.subscribe(aName, fn);
+				var shkfn = ow.ch.subscribe(aName, hkfn);
+	
+				res.push(sfn);
+				res.push(shkfn);
+	
+				if (isUnDef(ow.ch.peers[aName])) ow.ch.peers[aName] = {};
+				if (isUnDef(ow.ch.peers[aName][aRemoteURLArray[i]])) ow.ch.peers[aName][aRemoteURLArray[i]] = [];
+	
+				ow.ch.peers[aName][aRemoteURLArray[i]].push(sfn);
+				ow.ch.peers[aName][aRemoteURLArray[i]].push(shkfn);
 			}
-		} else {
-			res.push(ow.ch.subscribe(aName, ow.ch.comms.getSubscribeFunc(aRemoteURLArray, uuid)));
+		}
+	
+		return res;
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.ch.server.unpeer(aName, aRemoteURL)</key>
+	 * Remove all subscribers related with aRemoteURL from the aName channel effectively "unpeering" it from the aRemoteURL.
+	 * </odoc>
+     */
+	unpeer: function(aName, aURL) {
+		var toDelete = [];
+
+		for(var ii in ow.ch.peers[aName][aURL]) {
+			toDelete.push(ow.ch.peers[aName][aURL][ii]);
 		}
 
-		return res;
+		toDelete.forEach((v) => {
+			$ch(aName).unsubscribe(v);
+		});
 	},
 
 	/**
@@ -2485,7 +4080,7 @@ OpenWrap.ch.prototype.server = {
 	 * Depending on aRequest.channelPermission some operations may not execute:\
 	 * \
 	 * - "r" - allows channel get/getAll operations\
-	 * - "w" - allows channel set/setAll/getSet/unset operations\
+	 * - "w" - allows channel set/setAll/getSet/unset/unsetAll operations\
 	 * \
 	 * Example:\
 	 * \
@@ -2522,6 +4117,14 @@ OpenWrap.ch.prototype.server = {
 						return { "c": cc, "r": rt };
 					} 
 					break;
+				case "ua":
+					//if (k.t < $ch(aName).getVersion()) return undefined;
+					if (isArray(k.k) && isArray(v)) {
+						sync(function() { cc = --ow.ch.server.__counter[aName]; }, ow.ch.server.__counter);
+						var rt = $ch(aName).unsetAll(k.k, v, k.t, aaUUID, aRequest);
+						return { "c": cc, "r": rt };
+					} 
+					break;					
 				case "r":
 					if (isArray(k.k) && isArray(v)) {
 						var keysToInclude = [];

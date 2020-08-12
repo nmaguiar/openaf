@@ -72,8 +72,23 @@ const $$ = function(aObj) {
         isFunction: () => { return typeof aObj == 'function' || false; },
         isString: () => { return typeof aObj == 'string' || false; },
         isNumber: () => { return !isNaN(parseFloat(aObj)) && isFinite(aObj); },
+        isTNumber: () => { return typeof aObj == 'number' || false; },
+        isBoolean: () => { return typeof aObj == 'boolean' || false; },
+        isNull: () => { return null == aObj || false; },
         isDate: () => { return (null != aObj) && !isNaN(aObj) && ("undefined" !== typeof aObj.getDate); },
-        isRegExp: () => { return (aObj instanceof RegExp); }
+        isRegExp: () => { return (aObj instanceof RegExp); },
+        isUUID: () => { return (aObj.match(/^\b[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b$/) ? true : false); },
+        isSchema: (aSchema, aOptions) => {
+            if (typeof Ajv == 'undefined') {
+                if (typeof loadAjv != 'undefined')
+                    loadAjv();
+                else
+                    throw "Ajv library not loaded.";
+            }
+
+            ow.loadObj();
+            return ow.obj.schemaValidate(aSchema, aObj, aOptions);
+        }
 	};
 	return _r;
 };
@@ -88,7 +103,7 @@ const _$ = function(aValue, aPrefixMessage) {
         // Defaults
         /**
          * <odoc>
-         * <key>_$(aObject)</key>
+         * <key>_$(aObject, anErrorMessagePrefix)</key>
          * Shortcut to facilitate argument pre-validation and promote defensive programming.\
          * \
          * .default(aNewObject) : aObject\
@@ -102,7 +117,7 @@ const _$ = function(aValue, aPrefixMessage) {
             if (!defined) return aVal; else return aValue;
         },
         $_ : (aMessage) => {
-			if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "not available";
+			if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "not defined or assigned";
 			if (!defined) throw aMessage;
 			return aValue;
 		},
@@ -111,6 +126,11 @@ const _$ = function(aValue, aPrefixMessage) {
         isNumber: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not a number";
             if (defined && !$$(aValue).isNumber()) throw aMessage;
+            return __r;
+        },
+        isTNumber: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not a number type";
+            if (defined && !$$(aValue).isTNumber()) throw aMessage;
             return __r;
         },
         isString: (aMessage) => {
@@ -162,8 +182,34 @@ const _$ = function(aValue, aPrefixMessage) {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not an instance of " + aClass;
             if (defined && !(aValue instanceof aClass)) throw aMessage;
             return __r;
-		},
+        },
+        isNotNull: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is null";
+            if (defined && (aValue == null)) throw aMessage;
+            return __r;
+        },
+        isUUID: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not an UUID";
+            if (defined && (!$$(aValue).isString() || aValue.match(/^\b[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b$/))) throw aMessage;
+            return __r;
+        },
+        isSchema: (aSchema, aMessage, aOptions) => {
+            if (typeof Ajv == 'undefined') {
+                if (typeof loadAjv != 'undefined')
+                    loadAjv();
+                else
+                    throw "Ajv library not loaded.";
+            }
 
+            ow.loadObj(); 
+            try { 
+                ow.obj.schemaValidate(aSchema, aValue, aOptions);
+            } catch(e) { 
+                if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + " " + String(e);
+                throw aMessage;
+            }
+            return __r;
+        },
 		// Generic validations
         check: (aFunction, aMessage) => {
 			if (!$$(aFunction).isFunction() && !$$(aFunction).isString()) throw "please provide a function to check";
@@ -209,11 +255,11 @@ const _$ = function(aValue, aPrefixMessage) {
 		// Numeric validations
         between: (aValA, aValB, aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not between " + aValA + " and " + aValB;
-            if (defined && (aValue < aValB && aValue > aValA)) throw aMessage;
+            if (defined && (aValue >= aValB || aValue <= aValA)) throw aMessage;
         },
         betweenEquals: (aValA, aValB, aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not between " + aValA + " and " + aValB;
-            if (defined && (aValue <= aValB && aValue >= aValA)) throw aMessage;
+            if (defined && (aValue > aValB || aValue < aValA)) throw aMessage;
         },        
         less: (aVal, aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is less than " + aVal;

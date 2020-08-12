@@ -29,14 +29,33 @@
     };
 
     exports.testCreateChannel = function() {
-        $ch(this.chType).create(true, this.chType);
+        var ops;
+        if (this.chType == "cache") {
+            ops = {
+                func: (aK) => {
+                    return aK;
+                }
+            };
+        }
+        $ch(this.chType).create(true, this.chType, ops);
         $ch(this.chType).size();
     };
 
     exports.testSettingData = function() {
         var l = listFilesRecursive(".");
+        $ch(this.chType).unsetAll(["filepath"], $ch(this.chType).getKeys());
         $ch(this.chType).setAll(["filepath"], l);
         ow.test.assert(l.length, $ch(this.chType).size(), "Channel didn't store all values.");
+    };
+
+    exports.testUnsettingData = function() {
+        var l1 = listFilesRecursive(".");
+        var l2 = listFilesRecursive("..");
+        $ch(this.chType).setAll(["filepath"], l1);
+        $ch(this.chType).setAll(["filepath"], l2);
+        ow.test.assert(Number(l1.length) + Number(l2.length), $ch(this.chType).size(), "Channel didn't store all values for unset test.");
+        $ch(this.chType).unsetAll(["filepath"], l2);
+        ow.test.assert(Number(l1.length), $ch(this.chType).size(), "Channel didn't unset all values correclty.");
     };
 
     exports.testDestroyChannel = function() {
@@ -120,7 +139,7 @@
         while($ch(this.chType + "HK").size() > 3) {
             sleep(1000);
         }
-        $ch(this.chType + "HK").waitForJobs(30000);
+        $ch(this.chType + "HK").waitForJobs(15000);
         ow.test.assert($ch(this.chType + "HK").size(), 3, "Housekeep subscriber didn't remove all values in time.");
 
         for(var i = 10; i < 20; i++) {
@@ -130,9 +149,36 @@
         while($ch(this.chType + "HK").size() > 3) {
             sleep(1000);
         }
-        $ch(this.chType + "HK").waitForJobs(30000);
+        $ch(this.chType + "HK").waitForJobs(15000);
         ow.test.assert($ch(this.chType + "HK").size(), 3, "Housekeep subscriber didn't remove all values after setting.");
         $ch(this.chType + "HK").destroy();
+    };
+ 
+    exports.testAll = function() {
+        $ch("allA").destroy();
+        $ch("allB").destroy();
+        $ch("allC").destroy();
+
+        $ch("allA").create();
+        $ch("allB").create();
+        var flag = false;
+        $ch("allC").create(1, "all", { chs: [ "allA", "allB" ], fn: (aOp, aK) => { 
+           if (flag) {
+             return ["allB"];
+           } else {
+             return ["allA", "allB"];
+           } 
+        }});
+
+        $ch("allC").setAll(["canonicalPath"], io.listFiles(".").files);
+
+        ow.test.assert($ch("allA").size(), $ch("allB").size(), "Problem 1 with all channel sync");
+        ow.test.assert($ch("allA").size(), $ch("allC").size(), "Problem 2 with all channel sync");
+    
+        flag = true; 
+        $ch("allC").set({ canonicalPath: "_mytest" }, { canonicalPath: "_mytest" });
+        ow.test.assert($ch("allA").size() < $ch("allB").size(), true, "Problem with all channel with function");
+        ow.test.assert($ch("allB").size(), $ch("allC").size(), "Problem with all channel sync with function");
     };
 
     exports.setChType = function(aChType) {

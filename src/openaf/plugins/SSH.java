@@ -15,9 +15,11 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Vector;
+import java.lang.String;
 
 import org.apache.commons.io.IOUtils;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.Function;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.Undefined;
@@ -34,6 +36,9 @@ import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.ChannelSftp.LsEntry;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
+import com.jcraft.jsch.ProxyHTTP;
+import com.jcraft.jsch.ProxySOCKS4;
+import com.jcraft.jsch.ProxySOCKS5;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.SftpException;
 import com.jcraft.jsch.SftpStatVFS;
@@ -56,6 +61,7 @@ public class SSH extends ScriptableObject {
 	protected Session session;
 	protected String identity = null;
 	protected boolean compression = false;
+	public boolean strictHostKeyChecking = true;
 	protected JSch jsch;
 	protected int timeout = -1;
 	protected Channel sftpChannel;
@@ -68,7 +74,7 @@ public class SSH extends ScriptableObject {
 
 	/**
 	 * <odoc>
-	 * <key>SSH.SSH(aHost, aPort, aLogin, aPass, anIdentificationKey, withCompression, aTimeout) : SSH</key>
+	 * <key>SSH.SSH(aHost, aPort, aLogin, aPass, anIdentificationKey, withCompression, aTimeout, noStrictHostKeyChecking) : SSH</key>
 	 * Creates an instance of a SSH client (and connects) given a host, port, login username, password and, 
 	 * optionally a identity file path and the indication of use of compression. Alternatively you can provide 
 	 * just a simple url where aHost = ssh://user:pass@host:port/identificationKey?timeout=1234&amp;compression=true.
@@ -76,7 +82,7 @@ public class SSH extends ScriptableObject {
 	 * @throws Exception
 	 */
 	@JSConstructor
-	public void newSSH(String host, int port, String login, String pass, Object identityFile, boolean compression, int timeout) throws Exception {
+	public void newSSH(String host, int port, String login, String pass, Object identityFile, boolean compression, int timeout, boolean noStrictHostKeyChecking) throws Exception {
 		if (host.toLowerCase().startsWith(("ssh:"))) {
 			URI uri = new URI(host);
 
@@ -115,41 +121,53 @@ public class SSH extends ScriptableObject {
 			this.compression = compression;
 			if (timeout > 0) setTimeout(timeout);
 		}
+
+		this.strictHostKeyChecking = !noStrictHostKeyChecking;
 	
 		connectSSH();
 	}
 	
 	/**
 	 * <odoc>
-	 * <key>SSH.exec(aCommand, aStdIn, shouldOutputAlso, pty, outputMap) : Object</key>
+	 * <key>SSH.exec(aCommand, aStdIn, shouldOutputAlso, pty, outputMap, callbackFunc) : Object</key>
 	 * Executes a command over the SSH connection. You can optionally provide the input and indicate that it shouldOutputAlso 
 	 * (boolean) to stdout and if you want to allocate a pty (boolean). The stderr will be stored in __stderr and also output 
 	 * if shouldOutputAlso = true. If outputMap instead of the stdout string a map with stdout, stderr and exitcode will be returned.
+	 * A callbackFunc can be provided, if shouldOutputAlso is undefined or false, that will receive, as parameters, an output stream, a error stream and an input stream. If defined the stdout and stderr won't
+	 * be available for the outputMap if true. Example:\
+	 * \
+	 * ssh.exec("someCommand", void 0, void 0, false, void 0, false, function(o, e, i) { ioStreamReadLines(o, (f) => { print("TEST | " + String(f)) }, void 0, false) });\
+	 * \
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object exec(String command, String input, boolean shouldOutputAlso, boolean pty, boolean returnMap) throws JSchException, IOException {
-		return executeSSH(command, input, shouldOutputAlso, pty, returnMap);
+	public Object exec(String command, String input, boolean shouldOutputAlso, boolean pty, boolean returnMap, Object callbackFunc) throws JSchException, IOException {
+		return executeSSH(command, input, shouldOutputAlso, pty, returnMap, callbackFunc);
 	}
 	
 	/**
 	 * <odoc>
-	 * <key>SSH.execSudo(aCommandWithSudo, aUser, aStdIn, shouldOutputAlso, pty, outputMap) : Object</key>
+	 * <key>SSH.execSudo(aCommandWithSudo, aUser, aStdIn, shouldOutputAlso, pty, outputMap, callbackFunc) : Object</key>
 	 * Executes a command over the SSH connection using sudo to aUser. You can optionally provide the input and indicate that
 	 * it shouldOutputAlso (boolean) to stdout and if you want to allocate a pty (boolean). The stderr will be stored in 
 	 * __stderr and also output if shouldOutputAlso = true. If outputMap instead of the stdout string a map with stdout, stderr and exitcode will be returned.
+	 * A callbackFunc can be provided, if shouldOutputAlso is undefined or false, that will receive, as parameters, an output stream, a error stream and an input stream. If defined the stdout and stderr won't
+	 * be available for the outputMap if true. Example:\
+	 * \
+	 * ssh.execSudo("someCommand", void 0, void 0, false, void 0, false, function(o, e) { ioStreamReadLines(o, (f) => { print("TEST | " + String(f)) }) });\
+	 * \
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object execSudo(String command, Object user, String input, boolean shouldOutputAlso, boolean pty, boolean returnMap) throws JSchException, IOException {
+	public Object execSudo(String command, Object user, String input, boolean shouldOutputAlso, boolean pty, boolean returnMap, Object callbackFunc) throws JSchException, IOException {
 		String u = "";
 		if (user != null && user instanceof Undefined) {
 			u = AFCmdBase.afc.dIP((String) user);
 		}
 		if (this.identity == null)
-			return executeSSH("echo " + AFCmdBase.afc.dIP(password) + " | sudo -i -u " + user + " -S /bin/sh -c '" + command + "'", input, shouldOutputAlso, pty, returnMap);
+			return executeSSH("echo " + AFCmdBase.afc.dIP(password) + " | sudo -i -u " + user + " -S /bin/sh -c '" + command + "'", input, shouldOutputAlso, pty, returnMap, callbackFunc);
 		else
-			return executeSSH("sudo -i -u " + user + " -S /bin/sh -c '" + command + "'", input, shouldOutputAlso, pty, returnMap);
+			return executeSSH("sudo -i -u " + user + " -S /bin/sh -c '" + command + "'", input, shouldOutputAlso, pty, returnMap, callbackFunc);
 	}
 	
 	public static class SUserInfo implements UserInfo, UIKeyboardInteractive {
@@ -218,10 +236,10 @@ public class SSH extends ScriptableObject {
 		if (SimpleLog.getCurrentLogLevel() == logtype.DEBUG) 
 			JSch.setLogger(new SSHLogger());
 		
-     	JSch jsch = new JSch(); 
+     	this.jsch = new JSch(); 
      	
      	if (this.identity != null && this.identity.length() > 0) {
-     		jsch.addIdentity(this.identity);
+			jsch.addIdentity(this.identity);
      	}
      	
 	    session = jsch.getSession(login, host, port);
@@ -233,12 +251,21 @@ public class SSH extends ScriptableObject {
      		session.setConfig("compression.c2s", "zlib@openssh.com,zlib,none");
      		session.setConfig("compression_level", "9");
      	}
-     	
+		 
+		if (!this.strictHostKeyChecking) {
+			session.setConfig("StrictHostKeyChecking", "no");
+		}
+
      	session.setConfig("PreferredAuthentications", "publickey,keyboard-interactive,password");
 	    
 		session.connect();
 		execChannel = null;
 		sftpChannel = null;
+	}
+
+	@JSFunction
+	public Object getJsch() {
+		return this.jsch;
 	}
 	
 	/**
@@ -637,7 +664,7 @@ public class SSH extends ScriptableObject {
 		return no;
 	}
 	
-	protected Object executeSSH(String command, String input, boolean outputStdout, boolean pty, boolean returnMap) throws JSchException, IOException {
+	protected Object executeSSH(String command, String input, boolean outputStdout, boolean pty, boolean returnMap, Object callbackFunc) throws JSchException, IOException {
 		Channel channel = null;
 		String output = null;
 		String outputErr = "";
@@ -657,29 +684,40 @@ public class SSH extends ScriptableObject {
 				stdin.write(input.getBytes());
 				stdin.close();
 			}
-				
-			BufferedReader br = new BufferedReader(new InputStreamReader(ce.getInputStream()));
-			BufferedReader bre = new BufferedReader(new InputStreamReader(ce.getErrStream()));
 			
 			if (channel.isConnected()) {
 				StringBuilder sb = new StringBuilder();
 				
-				for(String line = br.readLine(); line != null; line = br.readLine()) {
-                    sb.append(line);
-                    sb.append("\n");
-                    if (outputStdout) System.out.println(line);
+				Context cx;
+				if (callbackFunc != null && callbackFunc instanceof Function) {
+					cx = (Context) AFCmdBase.jse.enterContext();
+					try {
+						((Function) callbackFunc).call(cx, (Scriptable) AFCmdBase.jse.getGlobalscope(), cx.newObject((Scriptable) AFCmdBase.jse.getGlobalscope()), new Object[] { ce.getInputStream(), ce.getErrStream(), ce.getOutputStream() });
+					} finally {
+						if (callbackFunc != null) AFCmdBase.jse.exitContext();
+					}
+				} else {
+					BufferedReader br = new BufferedReader(new InputStreamReader(ce.getInputStream()));
+					BufferedReader bre = new BufferedReader(new InputStreamReader(ce.getErrStream()));
+					
+					for(String line = br.readLine(); line != null; line = br.readLine()) {
+						sb.append(line);
+						sb.append("\n");
+						if (outputStdout) System.out.println(line);
+					}
+					
+					output = sb.toString();
+					sb = new StringBuilder();
+					
+					for(String line = bre.readLine(); line != null; line = bre.readLine()) {
+						sb.append(line);
+						sb.append("\n");
+						if (outputStdout) System.err.println(line);
+					}
+					
+					outputErr = sb.toString();
+					br.close();
 				}
-				
-				output = sb.toString();
-				sb = new StringBuilder();
-				
-				for(String line = bre.readLine(); line != null; line = bre.readLine()) {
-                    sb.append(line);
-                    sb.append("\n");
-                    if (outputStdout) System.err.println(line);
-				}
-				
-				outputErr = sb.toString();
 			}
 			
 			if (returnMap) {
@@ -697,8 +735,6 @@ public class SSH extends ScriptableObject {
 
 				res = output;
 			}
-
-			br.close();
 			//channel.disconnect();
 		}
 		

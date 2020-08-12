@@ -3,6 +3,7 @@ package openaf;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.String;
 
 import org.apache.commons.io.FileUtils;
 import org.mozilla.javascript.Scriptable;
@@ -114,7 +115,7 @@ public class IOBase extends openaf.core.IO {
 		Object res = openaf.core.IO.readFile(filename, encoding);
 	  
 		if (encoding == null || encoding.equals("undefined")) encoding = "UTF-8";
-		return openaf.AFBase.jsonParse((String) res);
+		return openaf.AFBase.jsonParse((String) res, true);
 	}	
 
 	@JSFunction
@@ -148,7 +149,7 @@ public class IOBase extends openaf.core.IO {
 	}
 	
 	@JSFunction
-	public static Object writeFileStream(String filename) throws IOException {
-		return openaf.core.IO.writeFileStream(filename);
+	public static Object writeFileStream(String filename, boolean shouldAppend) throws IOException {
+		return openaf.core.IO.writeFileStream(filename, shouldAppend);
 	}
 }

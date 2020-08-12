@@ -30,16 +30,20 @@ import com.google.gson.JsonObject;
 
 import openaf.SimpleLog.logtype;
 
+import java.lang.String;
+
 /**
  * 
  * @author Nuno Aguiar
  * 
  */
 public class AFCmdOS extends AFCmdBase {
+
 	final public static String argHelp = "Usage: openaf [options]\n\n"
 			+ "Options:\n" 
 			+ "   -e (input)         - provide input directly instead of using stdin\n"
 			+ "   -p                 - received streaming input (OS pipe)\n"
+			+ "   -o                 - output mode (__pmOut displayed)\n"
 			+ "   -f (script file)   - provide a script file directly\n"
 			+ "\n"
 			+ "   --install          - generates scripts to use openaf on the current directory\n"
@@ -49,13 +53,15 @@ public class AFCmdOS extends AFCmdBase {
 			+ "   --repack           - repack OpenAF.jar for faster startup times\n"
 			+ "   --daemon           - executes a script/opack as a daemon\n"
 			+ "   --script           - executes a script/opack\n"
+			+ "   --sb               - generates or pre-appends openaf shebang to a js script\n"
 			+ "\n"
 			+ "   -h                 - show this help information\n"
 			+ "   -helpscript (term) - show help on a search term on scripting\n"
 			+ "\n(version " + VERSION + " (" + DISTRIBUTION + "), " + LICENSE + ")";
-	final protected static String OPTION_OUTPUT_TYPE = "-o";
+	final protected static String OPTION_OUTPUT_MODE = "-o";
 	final protected static String OPTION_DEBUG = "-debug";
 	final protected static String OPTION_EXPR = "-e";
+	final protected static String OPTION_SILENT = "-s";
 	final protected static String OPTION_HELP = "-h";
 	final protected static String OPTION_SCRIPTHELP = "-helpscript";
 	final protected static String OPTION_INPUT_TYPE = "-i";
@@ -71,16 +77,13 @@ public class AFCmdOS extends AFCmdBase {
 	final protected static String OPTION_PIPE = "-p";
 	final protected static String OPTION_CODE = "-c";
 	final protected static String OPTION_SCRIPTFILE = "-f";
+	final protected static String OPTION_SB = "--sb";
 	final protected static String OPTION_INTERPRET = "--i";
 	final protected static String PREFIX_SCRIPT = "script:";
 	final protected static String OPACK = ".package.json";
 	public static enum outputtype { OUTPUT_JSON };
 	public static enum inputtype { INPUT_EXPR, INPUT_JSON, INPUT_SCRIPT, INPUT_AUTO };
 
-	
-	//public static org.mozilla.javascript.Context cx;
-	//public static ScriptableObject globalscope;
-	//public static JSEngine jse;
 	public static ZipFile zip;
 	
 	protected inputtype INPUT_TYPE = inputtype.INPUT_AUTO;
@@ -94,7 +97,7 @@ public class AFCmdOS extends AFCmdBase {
 	
 	protected boolean __noSLF4JErrorOnly = true;
 
-	protected boolean silentMode = false;
+	protected boolean silentMode = true;
 	protected boolean silenceRepack = false;
 	protected boolean pipe = false;
 	protected boolean compile = false;
@@ -138,6 +141,13 @@ public class AFCmdOS extends AFCmdBase {
 		super();
 		afc = this;
 		afcmd = "AFCmdOS";
+	}
+
+	public AFCmdOS(boolean isEmbedded) {
+		super();
+		afc = this;
+		afcmd = "AFCmdOS";
+		this.__noSLF4JErrorOnly = !isEmbedded;
 	}
 	
 	public void setNoSLF4JErrorOnly(boolean aFlag) {
@@ -235,8 +245,6 @@ public class AFCmdOS extends AFCmdBase {
 	 */
 	protected void processArgs(String[] args) throws MalformedURLException {
 		boolean checkNext = false;
-		boolean url = false;
-		boolean operation = false;
 		String checkOption = "";
 		
 		for (String a : args) {
@@ -248,6 +256,9 @@ public class AFCmdOS extends AFCmdBase {
 					continue;
 				case OPTION_SCRIPTFILE:
 					scriptfile = a;
+					continue;
+				case OPTION_SB:
+					exprInput = a;
 					continue;
 				case OPTION_DAEMON:
 					scriptfile = a;
@@ -261,9 +272,11 @@ public class AFCmdOS extends AFCmdBase {
 			case OPTION_PIPE:
 				pipe = true;
 				continue;
-			case OPTION_OUTPUT_TYPE:
-				checkNext = true;
-				checkOption = OPTION_OUTPUT_TYPE;
+			case OPTION_SILENT:
+				silentMode = true;
+				continue;
+			case OPTION_OUTPUT_MODE:
+				silentMode = false;
 				continue;
 			case OPTION_INPUT_TYPE:
 				checkNext = true;
@@ -280,6 +293,7 @@ public class AFCmdOS extends AFCmdBase {
 				checkNext = true;
 				checkOption = OPTION_SCRIPTFILE;
 				filescript = true;
+				silentMode = true;
 				continue;
 			case OPTION_SCRIPTOPTION:
 				checkNext = true;
@@ -327,6 +341,15 @@ public class AFCmdOS extends AFCmdBase {
 				injectclass = true;
 				injectclassfile = "opack_js";
 				continue;
+			case OPTION_SB:
+				checkNext = true;
+                filescript = false;
+                silentMode = true;
+				INPUT_TYPE = inputtype.INPUT_SCRIPT;
+				checkOption = OPTION_SB;
+				injectclass = true;
+                injectclassfile = "genSB_js";
+                continue;
             case OPTION_OJOB:
                 filescript = false;
                 silentMode = true;
@@ -404,15 +427,11 @@ public class AFCmdOS extends AFCmdBase {
 		
 		StringBuilder input = new StringBuilder();
 		
-		// Check repack
-		if (this.getClass().getResourceAsStream("/js.jar") != null && !silenceRepack)
-			System.err.println("Warning: Please consider repacking OpenAF (use --repack).");
 		
 		// 1. Read the input from stdin and option -e and from a file
 		//
 		
 		StringBuilder theInput = new StringBuilder();
-		pmIn = new JsonObject();
 		
 		BufferedReader br = new BufferedReader(new InputStreamReader(in));
 		
@@ -444,25 +463,34 @@ public class AFCmdOS extends AFCmdBase {
 		
 		// 2. Recognize input
 		//
-		pmOut = new JsonObject();
 		
 		// 2.1 Auto detect the input
-		if (INPUT_TYPE == inputtype.INPUT_AUTO) {
-			if (theInput.toString().startsWith(PREFIX_SCRIPT) || theInput.toString().startsWith("#!")) 
-				INPUT_TYPE = inputtype.INPUT_SCRIPT;
-		} 
-		
 		if (theInput.length() > 0) {
+			if (INPUT_TYPE == inputtype.INPUT_AUTO) {
+				if (theInput.toString().startsWith(PREFIX_SCRIPT) || theInput.toString().startsWith("#!")) 
+					INPUT_TYPE = inputtype.INPUT_SCRIPT;
+				else
+					INPUT_TYPE = inputtype.INPUT_JSON;
+			} 
+		
 			switch(INPUT_TYPE) {
 			case INPUT_JSON:
-				pmIn = (new com.google.gson.Gson()).fromJson(theInput.toString(), JsonObject.class);
-				break;
+				try {
+					pmIn = (new com.google.gson.Gson()).fromJson(theInput.toString(), JsonObject.class);
+					break;
+				} catch(Exception e) {
+					INPUT_TYPE = inputtype.INPUT_SCRIPT;
+				}
 			case INPUT_SCRIPT:
+				pmIn = new JsonObject();
 				processScript = true;
 				break;
 			default:
+				pmIn = new JsonObject();
 				break;
 			}
+		} else {
+			pmIn = new JsonObject();
 		}
 		
 		JsonObject pmOut = execute(pmIn, op, processScript, theInput, false);
@@ -497,9 +525,6 @@ public class AFCmdOS extends AFCmdBase {
 		
 		if (((!pipe) && (!filescript) && (!processScript) && (!injectcode) && (!injectclass))) {
 			if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-				/*injectscript = true;
-				injectscriptfile = "/js/openafgui.js";
-				filescript = true;*/
 				injectclass = true;
 				injectclassfile = "openafgui_js";
 				filescript = false;
@@ -509,7 +534,7 @@ public class AFCmdOS extends AFCmdBase {
 
 		if (processScript || filescript || injectcode || injectclass) {
 			// Obtain script
-			String script = null;
+			String script = "";
 			
 			if (filescript) {				
 				if (injectscript) {
@@ -520,30 +545,32 @@ public class AFCmdOS extends AFCmdBase {
 			    	com.google.gson.JsonObject pm = null;
 			    	ZipFile tmpZip = null;
 			    	
-			    	// Determine if it's opack/zip
-			    	DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(scriptfile.replaceFirst("::[^:]+$", ""))));
-			    	int test = dis.readInt();
-			    	dis.close();
-			    	if (test == 0x504b0304) {
-			    		isZip = true;
-				    	try {
-				    		tmpZip = new ZipFile(scriptfile.replaceFirst("::[^:]+$",  ""));
-				    		isOpack = tmpZip.getEntry(OPACK) != null;
-				    		zip = tmpZip;
-				    	} catch(Exception e) {}
-				    
-				    	if (isOpack) {
-				    		if (scriptfile.indexOf("::") <= 0) {
-					    		pm = new Gson().fromJson(IOUtils.toString(zip.getInputStream(zip.getEntry(OPACK)), (Charset) null), JsonObject.class);
-					    		try {
-					    			pm.get("main");
-					    		} catch(Exception e) { 
-					    			isZip = false; 
-					    		}
-				    		} 
-				    	}
-			    	}
-   	
+					// Determine if it's opack/zip
+					if (!scriptfile.endsWith(".js")) {
+						DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(scriptfile.replaceFirst("::[^:]+$", ""))));
+						int test = dis.readInt();
+						dis.close();
+						if (test == 0x504b0304) {
+							isZip = true;
+							try {
+								tmpZip = new ZipFile(scriptfile.replaceFirst("::[^:]+$",  ""));
+								isOpack = tmpZip.getEntry(OPACK) != null;
+								zip = tmpZip;
+							} catch(Exception e) {}
+						
+							if (isOpack) {
+								if (scriptfile.indexOf("::") <= 0) {
+									pm = new Gson().fromJson(IOUtils.toString(zip.getInputStream(zip.getEntry(OPACK)), (Charset) null), JsonObject.class);
+									try {
+										pm.get("main");
+									} catch(Exception e) { 
+										isZip = false; 
+									}
+								} 
+							}
+						}
+					}
+			    	
 			    	// Read normal script or opack/zip
 			    	if (isZip) {
 			    		if (scriptfile.indexOf("::") <= 0 && isOpack) {
@@ -571,8 +598,10 @@ public class AFCmdOS extends AFCmdBase {
 			}
 			
 			if (script != null) {
-				script = script.replaceAll("^#.*", "//");
-				script = script.replaceFirst(PREFIX_SCRIPT, "");
+				if (script.startsWith("#") || script.startsWith(PREFIX_SCRIPT)) {
+					script = script.replaceAll("^#.*", "//");
+					script = script.replaceFirst(PREFIX_SCRIPT, "");
+				}
 				
 				if (daemon) script = "ow.loadServer().simpleCheckIn('" + scriptfile + "'); " + script + "; ow.loadServer().daemon();";
 				if (injectcode) script += code;
@@ -581,12 +610,11 @@ public class AFCmdOS extends AFCmdBase {
 			Context cx = (Context) jse.getNotSafeContext();
 			cx.setErrorReporter(new OpenRhinoErrorReporter());
 			
-			String includeScript = "";
 			NativeObject jsonPMOut = new NativeObject();
 			
 			synchronized(this) {
 				Object opmIn;
-				opmIn = AFBase.jsonParse(pmIn.toString());
+				opmIn = AFBase.jsonParse(pmIn.toString(), false);
 				
 				Object noSLF4JErrorOnly = Context.javaToJS(__noSLF4JErrorOnly, (Scriptable) jse.getGlobalscope());
 				ScriptableObject.putProperty((Scriptable) jse.getGlobalscope(), "__noSLF4JErrorOnly", noSLF4JErrorOnly);
@@ -626,9 +654,7 @@ public class AFCmdOS extends AFCmdBase {
 				
 				// Add this object
 				Scriptable afScript = null;
-				//if  (!ScriptableObject.hasProperty((Scriptable) jse.getGlobalscope(), "AF")) {
-					afScript = (Scriptable) jse.newObject((Scriptable) jse.getGlobalscope(), "AF");
-				//}
+				afScript = (Scriptable) jse.newObject((Scriptable) jse.getGlobalscope(), "AF");
 				
 				if (!ScriptableObject.hasProperty((Scriptable) jse.getGlobalscope(), "af"))
 					((IdScriptableObject) jse.getGlobalscope()).put("af", (Scriptable) jse.getGlobalscope(), afScript);
@@ -639,15 +665,6 @@ public class AFCmdOS extends AFCmdBase {
 				
 			}
 			
-			// Compile & execute script
-			/*try {
-				InputStream in1 = getClass().getResourceAsStream("/js/openaf.js");
-				includeScript = IOUtils.toString(in1, (Charset) null);
-				numberOfIncludedLines = numberOfIncludedLines + includeScript.split("\r\n|\r|\n").length;
-				AFCmdBase.jse.addNumberOfLines(includeScript);
-			} catch (Exception e) {
-				SimpleLog.log(logtype.DEBUG, "Error including openaf.js", e);
-			}*/
 			AFBase.runFromClass(Class.forName("openaf_js").getDeclaredConstructor().newInstance());
 			cx.setErrorReporter(new OpenRhinoErrorReporter());
 			
@@ -658,7 +675,7 @@ public class AFCmdOS extends AFCmdBase {
 			Object res = null;
 			if (injectscript || filescript || injectcode || processScript) {
 				Context cxl = (Context) jse.enterContext();
-				org.mozilla.javascript.Script compiledScript = cxl.compileString(includeScript + script, scriptfile, 1, null);
+				org.mozilla.javascript.Script compiledScript = cxl.compileString(script, scriptfile, 1, null);
 				res = compiledScript.exec(cxl, (Scriptable) jse.getGlobalscope());
 				jse.exitContext();
 			} 
@@ -676,12 +693,14 @@ public class AFCmdOS extends AFCmdBase {
 			
 			// Convert to ParameterMap
 			Object stringify = NativeJSON.stringify(cx, (Scriptable) jse.getGlobalscope(), jsonPMOut, null, null);
-			com.google.gson.Gson gson = new com.google.gson.Gson();
-			pmOut = gson.fromJson(stringify.toString(), com.google.gson.JsonObject.class);
-			
-			// Leave Rhino
-			//org.mozilla.javascript.Context.exit();
-			//jse.exitContext();
+			try {
+				// Issue #125
+				Class.forName("com.google.gson.Gson");
+				Gson gson = new Gson();
+				pmOut = gson.fromJson(stringify.toString(), JsonObject.class);
+			} catch(Exception e) {
+				//
+			}
 		}
 		
 		return pmOut;
@@ -693,17 +712,16 @@ public class AFCmdOS extends AFCmdBase {
 	 * @param args
 	 */
 	public static void main(String[] args) {
-		
 		// Java version check
-		String version = System.getProperty("java.version");
+		/*String version = System.getProperty("java.version");
 		if (version.startsWith("1.7") && version.lastIndexOf('_') > 0 &&
 			Integer.valueOf(version.substring(version.lastIndexOf('_') +1)) < 32) {
 			System.err.println("Warning: You are using java " + version + ". Please consider upgrading to >= 1.7.0_32.");
-		}
-	
+		}*/
+
 		AFCmdOS afc = new AFCmdOS();
 		AFCmdBase.args = args;
-		
+
 		try {			
 			afc.processArgs(args);				
 		} catch (MalformedURLException e1) {

@@ -3,7 +3,8 @@ include:
 
 ojob:
    sequential: false
-   channels:
+   async     : true
+   channels  :
      expose : true
      port   : 17878
      log    : true
@@ -35,6 +36,13 @@ jobs:
        tprint("Tests PASSED: {{pass}}/{{count}}", args.results);
        tprint("Tests FAILED: {{fail}}/{{count}}", args.results);
        if (args.results.fail > 0) printErr("There are failed tests");
+
+       // Write a simple json result file
+       io.writeFile("autoTestAll.results.json", {
+         pass: args.results.pass,
+         fail: args.results.fail,
+         count: args.results.count
+       })
 
    - name: JUnit results
      to  : oJob Generate JUnit XML

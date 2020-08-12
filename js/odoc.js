@@ -23,7 +23,7 @@ ODoc.prototype.add = function(aKey, aFullKey, aValue) {
 		"t": aValue
 	};
 
-	this.odoc[aKey] = compress(item);
+	this.odoc[aKey] = item;
 }
 
 /**
@@ -33,7 +33,7 @@ ODoc.prototype.add = function(aKey, aFullKey, aValue) {
  * </odoc>
  */
 ODoc.prototype.get = function(aKey) {
-	return uncompress(this.odoc[aKey]);
+	return this.odoc[aKey];
 }
 
 /**
@@ -56,7 +56,7 @@ ODoc.prototype.getAll = function() {
 	var ret = {};
 
 	for(var i in this.odoc) {
-		ret[i] = uncompress(this.odoc[i]);
+		ret[i] = this.odoc[i];
 	}
 
 	return ret;
@@ -70,7 +70,7 @@ ODoc.prototype.getAll = function() {
  */
 ODoc.prototype.addAll = function(aODoc) {
 	for(var i in aODoc) {
-		this.odoc[i] = compress(aODoc[i]);
+		this.odoc[i] = aODoc[i];
 	}
 }
 
@@ -93,9 +93,22 @@ var ODocs = function(aPath, aODocs, anArrayURLs, offline) {
 	this.keysfile = "__odockeys";
 	this.arrayurls = anArrayURLs;
 	this.aFilename = (isUnDef(aPath)) ? getOpenAFJar() : aPath;
-	try { this.load(); if(!this.offline) this.backgroundLoadWeb(); } catch(e) {}
+	this.filesIds = {};
+	this.loadFile();
 	if (isDef(aODocs)) this.addAll(aODocs);
-}
+};
+
+ODocs.prototype.loadFile = function(aPath) {
+	try { 
+		this.load(void 0, aPath); 
+		if(!this.offline && isUnDef(aPath)) {
+			this.backgroundLoadWeb(); 
+		}
+	} catch(e) { 
+		// Try another way
+		if (isUnDef(aPath)) this.loadWeb();
+	}
+};
 
 /**
  * <odoc>
@@ -211,17 +224,17 @@ ODocs.prototype.loadWeb = function(aID) {
 	}
 }
 
-ODocs.prototype.load = function(aID) {
+ODocs.prototype.load = function(aID, aFilename) {
 	plugin("ZIP");
 
 	var zip;
-	if (this.aFilename.match(/\.(jar|db|zip)$/)) {
+	if (isUnDef(aFilename) && isDef(this.filesIds[aID])) aFileName = this.filesIds[aID];
+	if (aFilename.match(/\.(jar|db|zip)$/)) {
 		var zipContainer = new ZIP();
-		zipContainer.loadFile(this.aFilename);
-		zip = new ZIP(zipContainer.getFile(".odoc.db"));
+		zip = new ZIP(zipContainer.streamGetFile(aFilename, ".odoc.db"));
 	} else {
 		zip = new ZIP();
-		zip.loadFile(this.aFilename + "/.odoc.db");
+		zip.loadFile(aFilename + "/.odoc.db");
 	}
 
 	if (this.offline) this.keyLoadFromWeb = false;
@@ -232,6 +245,8 @@ ODocs.prototype.load = function(aID) {
 			var b = zip.getFile(i);
 			if (b.length > 1) this.aodocskeys = merge(af.fromJson(af.fromBytes2String(b)), this.aodocskeys);
 			continue;
+		} else {
+			this.filesIds[i] = aFilename;
 		}
 
 		if (i == aID) {
@@ -242,7 +257,7 @@ ODocs.prototype.load = function(aID) {
 	}
 
 	zip.close();
-}
+};
 
 ODocs.prototype.search = function(aTerm, anArrayOfIds) {
 	var ids = (isUnDef(anArrayOfIds)) ? Object.keys(this.aodocskeys) : anArrayOfIds;
@@ -283,10 +298,15 @@ ODocs.prototype.get = function(aID, aKey) {
     if (isUnDef(this.aodocskeys) ||
         this.aodocskeys == {} || 
         isUnDef(this.aodocs[aID])) {
-    	this.load(aID);
-    	if(!this.offline) {
-    		this.backgroundLoadWeb(aID);
-    	}
+    	try {
+			this.load(aID, this.filesIds[aID]);
+			if(!this.offline) {
+				this.backgroundLoadWeb(aID);
+			}
+		} catch(e) {
+			// Try another way
+			this.loadWeb(aID);
+		}
     }
 
     return this.aodocs[aID].get(aKey);

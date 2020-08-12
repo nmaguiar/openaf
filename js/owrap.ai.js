@@ -3,7 +3,8 @@
 
 OpenWrap.ai = function() {
     if (isUnDef(this.synaptic)) {
-        this.synaptic = require(getOpenAFJar() + "::js/synaptic.js");        
+        //this.synaptic = require(getOpenAFJar() + "::js/synaptic.js");        
+        this.synaptic = loadCompiledRequire("synaptic_js"); 
     }
     return ow.ai;
 }
@@ -112,6 +113,21 @@ OpenWrap.ai.prototype.network.prototype.get = function(inputData) {
     if (isUnDef(this.__net)) throw "Network not initialized.";
 
     return this.__net.activate(inputData);
+};
+
+/**
+ * <odoc>
+ * <key>ow.ai.network.put(inputArray, outputArray, learningRate)</key>
+ * Given an inputArray of decimal values, normalize between 0 and 1, will activate the current network and then
+ * the outputArray of decimal values, normalize between 0 and 1, with an optionial learningRate (defaults to 0.3).
+ * </odoc>
+ */
+OpenWrap.ai.prototype.network.prototype.put = function(inputData, outputData, learningRate) {
+    _$(this.__net).$_("Network not initialized.");
+    learningRate = _$(learningRate).isNumber().default(0.3);
+
+    this.__net.activate(inputData);
+    this.__net.propagate(learningRate, outputData);
 };
 
 /**

@@ -1,18 +1,23 @@
 
 plugin("Console");
 
-var __ansiflag = true;
+var __codepage;
 var __pinflag = false;
 var __pinprefix = "";
+var __autoupdate = false;
+var __autoupdateResume = true;
 var CONSOLESEPARATOR = "-- ";
+var CONSOLESEPARATOR_ANSI = "── ";
 var CONSOLEHISTORY = ".openaf-console_history";
 var CONSOLEPROFILE = ".openaf-console_profile";
-var RESERVEDWORDS = "help|exit|time|output|beautify|desc|scope|alias|color|watch|clear|purge|pause|sql|esql|dsql|pin";
+var RESERVEDWORDS = "help|exit|time|output|beautify|desc|scope|alias|color|watch|clear|purge|pause|table|view|sql|esql|dsql|pin";
 var __alias = {
 	"opack": "oPack(__aliasparam);",
 	"encryptText": "af.encryptText();",
-	"sh": "sh((!ow.loadFormat().isWindows()?\"stty icanon echo 2>/dev/null && /bin/bash \":\"cmd \")+(__aliasparam.trim().length>0?(ow.format.isWindows()?\" /c \":\" -c \\\"\")+__aliasparam+\"\\\"\":\"\")+(!ow.format.isWindows()?\" && stty -icanon min 1 -echo 2>/dev/null\":\"\"),void 0,void 0,true);void 0;"
+	"sh": "sh((!ow.loadFormat().isWindows()?\"stty icanon echo 2>/dev/null && /bin/sh \":\"cmd \")+(__aliasparam.trim().length>0?(ow.format.isWindows()?\" /c \":\" -c \\\"\")+__aliasparam+\"\\\"\":\"\")+(!ow.format.isWindows()?\" && stty -icanon min 1 -echo 2>/dev/null\":\"\"),void 0,void 0,true);void 0;",
+    "ojob": "(()=>{var f = __aliasparam.split(\" \"); var o = processExpr(\" \", false, __aliasparam); delete o[f[0]]; oJobRunFile(f[0], o);})()"
 };
+var __exitActions = [];
 
 var __aliasparam;
 var __message = "";
@@ -26,13 +31,16 @@ global.CONSOLECTRLC     = false;
  *
  * @param  {[type]} aClass The class name (if not found it will search also "openaf.*")
  */
-function __desc(aClass, retList, noRecursive) {
+function __desc(aClass, retList, noRecursive, javaMethods) {
 	var methods = [];
 	var constructors = [];
 	var isJavascript = false;
 	var classObj;
 	var isScriptableObject = false;
 	var ret = [];
+	var aClassJava;
+
+	javaMethods = _$(javaMethods).default([]);
 
 	// No need for Packages reference
 	aClass = aClass.replace(/^Packages\./, "");
@@ -43,20 +51,21 @@ function __desc(aClass, retList, noRecursive) {
 		constructors = classObj.getConstructors();
 	} catch(e) {
 		try {
-			if (aClass.toLowerCase() == "io") aClass = "IOBase";
-			if (aClass.toLowerCase() == "af") aClass = "AFBase";
-			classObj = java.lang.Class.forName("openaf." + aClass);
+			aClassJava = aClass;
+			if (aClass.toLowerCase() == "io") aClassJava = "IOBase";
+			if (aClass.toLowerCase() == "af") aClassJava = "AFBase";
+			classObj = java.lang.Class.forName("openaf." + aClassJava);
 			methods = classObj.getMethods();
 			constructors = classObj.getConstructors();
 		} catch(e) {
 			try {
-				classObj = java.lang.Class.forName("openaf.plugins." + aClass);
+				classObj = java.lang.Class.forName("openaf.plugins." + aClassJava);
 				methods = classObj.getMethods();
 				constructors = classObj.getConstructors();
 			} catch(e) {
 				try {
-					if(Object.prototype.toString.call(af.eval(aClass)) === '[object JavaObject]') {
-						classObj = af.eval(aClass + ".getClass()");
+					if(Object.prototype.toString.call(af.eval(aClassJava)) === '[object JavaObject]') {
+						classObj = af.eval(aClassJava + ".getClass()");
 						methods = classObj.getMethods();
 						constructors = classObj.getConstructors();
 					} else {
@@ -93,33 +102,38 @@ function __desc(aClass, retList, noRecursive) {
 					(!isScriptableObject)
 				   ) {
 
-					if (retList)
-						ret.push(method.getName() + "");
-					else {
-						__outputConsoleCommentsNoEnd(CONSOLESEPARATOR + method.getName()); __outputConsoleCommentsNoEnd("(");
-					}
+					if (javaMethods.indexOf(String(method.getName())) < 0) {
+						if (retList)
+							ret.push(method.getName() + "");
+						else {
+							__outputConsoleCommentsNoEnd(CONSOLESEPARATOR + method.getName()); __outputConsoleCommentsNoEnd("(");
+						}
 
-					if (!retList) {
-						var types = method.getParameterTypes();
-						var first = true;
-						for(x in types) {
-							if(!first && x < types.length) {
-								__outputConsoleCommentsNoEnd(", ");
-							} else {
-								first = false;
+						javaMethods.push(String(method.getName()));
+
+						if (!retList) {
+							var types = method.getParameterTypes();
+							var first = true;
+							for(var x in types) {
+								if(!first && x < types.length) {
+									__outputConsoleCommentsNoEnd(", ");
+								} else {
+									first = false;
+								}
+								var type = types[x];
+
+								__outputConsoleNoEnd((type.getCanonicalName() +"").replace(/^.*\./, ""));
 							}
-							var type = types[x];
+							__outputConsoleCommentsNoEnd(")");
+							if (withRets) {
+								if (method.getReturnType().getCanonicalName() != 'void')
+									__outputConsoleNoEnd(" : " + (method.getReturnType().getCanonicalName() +"").replace(/^.*\./, ""));
+							}
 
-							__outputConsoleNoEnd((type.getCanonicalName() +"").replace(/^.*\./, ""));
+							__outputConsoleCommentsEnd("");
 						}
-						__outputConsoleCommentsNoEnd(")");
-						if (withRets) {
-							if (method.getReturnType().getCanonicalName() != 'void')
-								__outputConsoleNoEnd(" : " + (method.getReturnType().getCanonicalName() +"").replace(/^.*\./, ""));
-						}
-
-						__outputConsoleCommentsEnd("");
 					}
+
 				}
 			}
 		}
@@ -129,7 +143,7 @@ function __desc(aClass, retList, noRecursive) {
 	} 
 	//else {
 	
-        var methods = [];
+		var methods = [];
 
         if(aClass.match(/ *JSON */)) return ret;
 		try {
@@ -160,7 +174,7 @@ function __desc(aClass, retList, noRecursive) {
 							(objType == 'Object') &&
 							(!aClass.match(/\.constructor$/)) && 
 							 !noRecursive ) {
-							var tempret = __desc(aClass + ".constructor", retList, true);
+							var tempret = __desc(aClass + ".constructor", retList, true, javaMethods);
 							ret = ret.concat(tempret);
 							if (tempret.length < 1) {
 								var listScope = af.getScopeIds();
@@ -168,7 +182,7 @@ function __desc(aClass, retList, noRecursive) {
 									try {
 										if (eval(listScope[i] + " instanceof Object") && 
 										    eval(aClass + " instanceof " + listScope[i]))
-												ret = ret.concat(__desc(String(listScope[i]), retList, true));
+												ret = ret.concat(__desc(String(listScope[i]), retList, true, javaMethods));
 									} catch(e) {}
 								}
 							}
@@ -177,7 +191,7 @@ function __desc(aClass, retList, noRecursive) {
 				}
 				
 				if (!aClass.match(/\.constructor$/) && !noRecursive)
-					ret = ret.concat(__desc(af.eval(aClass + ".constructor.name"), retList, true));
+					ret = ret.concat(__desc(af.eval(aClass + ".constructor.name"), retList, true, javaMethods));
 				
 				return ret;
 			}
@@ -195,9 +209,9 @@ function __desc(aClass, retList, noRecursive) {
 			    return result;
 			}
 
-			for(i in methods) {
+			for(var i in methods) {
 				if (methods[i] !== 'constructor') { ret.push(methods[i]); }
-				if (!retList) {
+				if (!retList && javaMethods.indexOf(methods[i]) < 0) {
 					__outputConsoleCommentsNoEnd(CONSOLESEPARATOR + "FUNC: " + methods[i]); __outputConsoleCommentsNoEnd("(");
 				}
 				if (!retList) {
@@ -245,10 +259,10 @@ function __scope(aRegExpRestriction, retList) {
 }
 
 function __sql(aParams, executeSQL, descSQL, returnOnly) {
-	var params = aParams.match(/^([^ ]+) +(.*)/, "")
+	var params = aParams.match(/^([^ ]+) +(.*)/, "");
 
 	var _db;
-	if (isUndefined(params[1])) {
+	if (isUnDef(params[1])) {
 		__outputConsoleError("Needs to be a DB object followed by a SQL statement");
 		return;
 	}
@@ -260,57 +274,63 @@ function __sql(aParams, executeSQL, descSQL, returnOnly) {
 	}
 
 	var outputres = "";
-	var res;
-	var __start;
-	
-	if (timeCommand) __start = now();
-	if (!executeSQL) {
-		var sql = params[2];
-		sql = sql.replace(/\;\s*/, "");
+	try {
+		var res;
+		var __start;
+		__timeResult = void 0;
 		
-		if (descSQL) {
-			res = _db.qsRS(sql);
-			if (timeCommand) __timeResult = now() - __start;
-			for(let i = 1; i <= res.getMetaData().getColumnCount(); i++) {
-				outputres += res.getMetaData().getColumnName(i) + ": " + res.getMetaData().getColumnTypeName(i) + "(" + res.getMetaData().getColumnDisplaySize(i) + ((res.getMetaData().getScale(i) > 0) ? "," + res.getMetaData().getScale(i) : "" ) + ")\n";
-			}
+		if (timeCommand) __start = now();
+		if (!executeSQL) {
+			var sql = params[2];
+			sql = sql.replace(/\;\s*/, "");
 			
-			if (!returnOnly) {
-				var __pres = 0;
-				var __lines = String(outputres).replace(/\"/g, "").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
-				while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
-			}
-			
-			res.close();
-		} else {
-			res = _db.q(sql);
-			if (timeCommand) __timeResult = now() - __start;
-			if (res.results.length > 0) {
-				if (!descSQL) {
-					outputres = printTable(res.results, con.getConsoleReader().getTerminal().getWidth(), returnOnly, con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag);
-				} /* else {
-					outputres = Object.keys(res.results[0]).join("\n");
-				}*/
+			if (descSQL) {
+				res = _db.qsRS(sql);
+				if (timeCommand) __timeResult = now() - __start;
+				for(let i = 1; i <= res.getMetaData().getColumnCount(); i++) {
+					outputres += res.getMetaData().getColumnName(i) + ": " + res.getMetaData().getColumnTypeName(i) + "(" + res.getMetaData().getColumnDisplaySize(i) + ((res.getMetaData().getScale(i) > 0) ? "," + res.getMetaData().getScale(i) : "" ) + ")\n";
+				}
 				
 				if (!returnOnly) {
 					var __pres = 0;
 					var __lines = String(outputres).replace(/\"/g, "").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
 					while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
-					__outputConsoleComments(res.results.length + " rows selected.");
 				}
+				
+				res.close();
 			} else {
-				if (returnOnly)
-					outputres += "No results.";
-				else
-					__outputConsoleComments("No results.");
+				res = _db.q(sql);
+				if (timeCommand) __timeResult = now() - __start;
+				if (res.results.length > 0) {
+					if (!descSQL) {
+						outputres = printTable(res.results, con.getConsoleReader().getTerminal().getWidth(), returnOnly, __ansiflag && con.isAnsiSupported(), (isDef(__codepage) ? "utf" : void 0));
+					} /* else {
+						outputres = Object.keys(res.results[0]).join("\n");
+					}*/
+					
+					if (!returnOnly) {
+						var __pres = 0;
+						var __lines = String(outputres).replace(/\"/g, "").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
+						while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
+						__outputConsoleComments(res.results.length + " rows selected.");
+					}
+				} else {
+					if (returnOnly)
+						outputres += "No results.";
+					else
+						__outputConsoleComments("No results.");
+				}
 			}
+		} else {
+			res = _db.u(params[2]);
+			if (returnOnly)
+				outputres += "Executed over #" + res + " lines.";
+			else
+				__outputConsoleComments("Executed over #" + res + " lines.");
 		}
-	} else {
-		res = _db.u(params[2]);
-		if (returnOnly)
-			outputres += "Executed over #" + res + " lines.";
-		else
-			__outputConsoleComments("Executed over #" + res + " lines.");
+	} catch(e) {
+		_db.rollback();
+		throw e;
 	}
 	
 	if (timeCommand) {
@@ -337,9 +357,9 @@ var __timeResult;
  * @param  {number} aResult If not defined toogles the timing of commands, otherwise prints the result in ms
  */
 function __time(aResult, aFlag) {
-	if (isUndefined(aResult)) {
-		if (isDefined(aFlag) && aFlag.match(/off|0/i)) timeCommand = false;
-		if (isDefined(aFlag) && aFlag.match(/on|1/i)) timeCommand = true;
+	if (isUnDef(aResult)) {
+		if (isDef(aFlag) && aFlag.match(/off|0/i)) timeCommand = false;
+		if (isDef(aFlag) && aFlag.match(/on|1/i)) timeCommand = true;
 		if (aFlag == "") {
 			if (timeCommand) {
 				timeCommand = false;
@@ -423,11 +443,17 @@ function __diff(aString) {
 function __color(aFlag) {
 	if (aFlag.match(/off|0/i)) colorCommand = false;
 	if (aFlag.match(/on|1/i)) colorCommand = true;
-	if (aFlag == "")
-		if (colorCommand)
-		colorCommand = false;
-		else
-		colorCommand = true;
+	if (aFlag == "") {
+		if (colorCommand) {
+			colorCommand = false;
+			__previousAnsiFlag = __ansiflag;
+			__ansiflag = false;
+		} else {
+			__ansiflag = true;
+			__previousAnsiFlag = __ansiflag;
+			colorCommand = true;
+		}
+	}
 
 	if (colorCommand)
 		__outputConsoleComments("Color output of commands is enabled.");
@@ -455,20 +481,30 @@ function __watch(aLineOfCommands) {
 
 			plugin("Threads");
 			var t = new Threads();
+			//var oldcolorCommand = colorCommand;
+			//colorCommand = false;
 			t.addThread(function() {
-				var out = "";
-				try {
-					out = __processCmdLine(watchcmd, true);
-				} catch (e) {
-					out = e.message;
+				if (viewCommand) {
+					try {
+					__view(watchcmd, false, true);
+					__outputConsoleCommentsEnd("Press 'q' to quit. (refreshed at " + new Date() + ")");
+					} catch(e) { sprintErr(e); }
+				} else {
+					var out = "";
+					try {
+						out = __processCmdLine(watchcmd, true);
+					} catch (e) {
+						out = e.message;
+					}
+	
+					if (isDef(out))
+						if (beautifyCommand) out = String(stringify(out)).replace(/\\t/g, "\t").replace(/([^\\])\\n/g, "$1\n").replace(/\\r/g, "\r");
+	
+					__clear();
+					__outputConsole(out);
+					__outputConsoleCommentsEnd("Press 'q' to quit. (refreshed at " + new Date() + ")");
 				}
-
-				if (isDefined(out))
-					if (beautifyCommand) out = String(stringify(out)).replace(/\\t/g, "\t").replace(/([^\\])\\n/g, "$1\n").replace(/\\r/g, "\r");
-
-				__clear();
-				__outputConsole(out);
-				__outputConsoleCommentsEnd("Press 'q' to quit. (refreshed at " + new Date() + ")");
+				return 1;
 			});
 
 			try {
@@ -486,6 +522,7 @@ function __watch(aLineOfCommands) {
 				printErr(e.message);
 				t.stop(true);
 			}
+			//colorCommand = oldcolorCommand;
 		} else {
 			watchLine = aLineOfCommands;
 			watchCommand = true;
@@ -517,7 +554,7 @@ function addAlias(aAssignment) {
  * Provides a help screen
  */
 function __help(aTerm) {
-	if(isUndefined(aTerm) || aTerm.length <= 0) {
+	if(isUnDef(aTerm) || aTerm.length <= 0) {
 		__outputConsoleComments("help     Display this help text");
 		__outputConsoleComments("exit     Exit this console");
 		__outputConsoleComments("time     Turns on or off the timing of any script command provided (default off)");
@@ -534,6 +571,8 @@ function __help(aTerm) {
 		__outputConsoleComments("esql     Executes the SQL statement, over a db connection (example 'esql db update...')");
 		__outputConsoleComments("diff     Show differences between object A and B (example 'diff A with B'; accepts with/withNew/withChanges/withFull)");
 		__outputConsoleComments("pin      Pins the next command as a prefix for the next commands until an empty command (example 'pin sql db...')");
+		__outputConsoleComments("table    Tries to show the command result array as an ascii table.");
+		__outputConsoleComments("view     Tries to show the command result object as an ascii table.");
 		__outputConsoleComments("clear    Tries to clear the screen.");
 		__outputConsoleComments("purge    Purge all the command history");
 		__outputConsoleComments("[others] Executed as a OpenAF script command (example 'print(\"ADEUS!!!\");')");
@@ -567,26 +606,34 @@ function __outputConsole(anOutput, colorify) {
 }
 
 function __outputConsoleNoEnd(anOutput, colorify) {
-	if(con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag) {
-		jansi.AnsiConsole.systemInstall();
-		if (colorCommand && colorify) 
+	if(__ansiflag && con.isAnsiSupported()) {
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		if (colorCommand && colorify) {
+			//if (isDef(__codepage) && isString(__codepage)) 
+			//	printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
+			//else
 			printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
-		else
-			printnl(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.CYAN).a(anOutput).a(jansi.Ansi.Attribute.RESET));
-		jansi.AnsiConsole.systemUninstall();
+		} else {
+			//if (isDef(__codepage) && isString(__codepage))
+			//printnl(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.CYAN).a(anOutput).a(jansi.Ansi.Attribute.RESET), void 0, __codepage);
+			//else
+			printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
+		}
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		printnl(anOutput);
 	}
 }
 
 function __outputConsoleEnd(anOutput, colorify) {
-	if(con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag) {
-		jansi.AnsiConsole.systemInstall();
-		if (colorCommand && colorify) 
-		   print(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
-		else
-		   print(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.CYAN).a(anOutput).a(jansi.Ansi.Attribute.RESET));
-		jansi.AnsiConsole.systemUninstall();
+	//if (isDef(__codepage) && isString(__codepage)) anOutput = af.toEncoding(anOutput, void 0, __codepage);
+	if(__ansiflag && con.isAnsiSupported()) {
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		//if (colorCommand && colorify) 
+		//   print(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
+		//else
+		print(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		print(anOutput);
 	}
@@ -597,40 +644,43 @@ function __outputConsoleComments(anOutputComment) {
 }
 
 function __outputConsoleCommentsNoEnd(anOutputComment) {
-	if(con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag) {
-		jansi.AnsiConsole.systemInstall();
+	//if (isDef(__codepage) && isString(__codepage)) anOutputComment = af.toEncoding(anOutputComment, void 0, __codepage);
+	if(__ansiflag && con.isAnsiSupported()) {
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
 		printnl(jansi.Ansi.ansi().bold().a(anOutputComment).a(jansi.Ansi.Attribute.RESET));
-		jansi.AnsiConsole.systemUninstall();
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		printnl(anOutputComment);
 	}
 }
 
 function __outputConsoleCommentsEnd(anOutputComment) {
-	if(con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag) {
-		jansi.AnsiConsole.systemInstall();
+	//if (isDef(__codepage) && isString(__codepage)) anOutputComment = af.toEncoding(anOutputComment, void 0, __codepage);
+	if(__ansiflag && con.isAnsiSupported()) {
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
 		print(jansi.Ansi.ansi().bold().a(anOutputComment).a(jansi.Ansi.Attribute.RESET));
-		jansi.AnsiConsole.systemUninstall();
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		print(anOutputComment);
 	}
 }
 
 function __outputConsoleError(anError) {
-	if(con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag) {
-		jansi.AnsiConsole.systemInstall();
+	//if (isDef(__codepage) && isString(__codepage)) anError = af.toEncoding(anError, void 0, __codepage);
+	if(__ansiflag && con.isAnsiSupported()) {
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
 		printErr(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.RED).a(CONSOLESEPARATOR + anError).a(jansi.Ansi.Attribute.RESET));
-		jansi.AnsiConsole.systemUninstall();
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		printErr(CONSOLESEPARATOR + anError);
 	}
 }
 
 function __clear() {
-	if(con.getConsoleReader().getTerminal().isAnsiSupported() && __ansiflag) {
-		jansi.AnsiConsole.systemInstall();
+	if(__ansiflag && con.isAnsiSupported()) {
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
 		printnl(jansi.Ansi.ansi().eraseScreen().cursor(0,0).reset());
-		jansi.AnsiConsole.systemUninstall();
+		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	}
 }
 
@@ -668,14 +718,75 @@ function __pause(aFlag) {
 		__outputConsoleComments("Pause of output is disabled.");
 }
 
+function __table(aCmd) {
+	var __res = __processCmdLine(aCmd, true);
+	if (isArray(__res) && __res.length > 0 && isObject(__res[0]) && isObject(__res[__res.length -1])) {
+		var __pres = 0;
+		if (pauseCommand) {
+			var __lines = printTable(__res, con.getConsoleReader().getTerminal().getWidth(), true, colorCommand, (isDef(__codepage) ? "utf" : void 0)).split(/\n/);
+			while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
+		} else {
+			__outputConsole(printTable(__res, con.getConsoleReader().getTerminal().getWidth(), true, colorCommand, (isDef(__codepage) ? "utf" : void 0)));
+		}
+		return true;
+	} else {
+		__outputConsoleError("Not an array of maps object or empty array.");
+		return true;
+	}
+	return false;
+}
+
+function __view(aCmd, fromCommand, shouldClear) {
+	if (aCmd.match(/^off$|^0$/i) && fromCommand) { viewCommand = false; return; }
+	if (aCmd.match(/^on$|^1$/i) && fromCommand) { viewCommand = true; return; }
+	if (aCmd == "" && fromCommand) {
+		if (viewCommand) {
+			__outputConsoleComments("View is active.");
+		} else {
+			__outputConsoleComments("View is not active.");
+		}
+		return true;
+	} else {
+		var __res;
+		try {
+			//if (aCmd.trim().indexOf("{") < 0) __res = __processCmdLine(aCmd, true); else __res = eval("(" + aCmd + ")");
+			__res = __processCmdLine(aCmd, true);
+		} catch(e) {
+			if (shouldClear) __clear();
+			//if (isUnDef(__res)) __res = __processCmdLine(aCmd); 
+			__showResultProcessCmdLine(__res, aCmd);
+			throw e;
+		}	
+			
+		if (shouldClear) __clear();
+		if (outputCommand && (isMap(__res) || isArray(__res)) && Object.keys(__res).length > 0) {
+			var __pres = 0, prefix = (colorCommand ? jansi.Ansi.ansi().a(jansi.Ansi.Attribute.RESET) : "");
+			if (pauseCommand) {
+				var __lines = (prefix + printMap(__res, void 0, (isDef(__codepage) ? "utf" : void 0), colorCommand)).split(/\n/);
+				while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
+			} else {
+				__outputConsole(prefix + printMap(__res, void 0, (isDef(__codepage) ? "utf" : void 0), colorCommand));
+			}
+			if (isDef(__timeResult) && timeCommand) __time(__timeResult);
+			return true;
+		} else {
+			//__outputConsoleError("Not a map/array object or empty array/object.");
+			__showResultProcessCmdLine(__res, aCmd);
+			return true;
+		}
+
+		//return false;
+	}
+}
+
 function __processCmdLine(aCommand, returnOnly) {
 	var internalCommand = false;
 	aCommand = aCommand.replace(/^ *([^ ].*)/, "$1");
 	try {
 		if (aCommand != "exit") {
-			if (!isUndefined(__alias[aCommand.replace(/^([^ ]+).*/, "$1")])) {
+			if (!isUnDef(__alias[aCommand.replace(/^([^ ]+).*/, "$1")])) {
 				__aliasparam = aCommand.replace(/^[^ ]+ */, "");
-				if(isUndefined(__aliasparam)) __aliasparam = "";
+				if(isUnDef(__aliasparam)) __aliasparam = "";
 				aCommand = __alias[aCommand.replace(/^([^ ]+).*/, "$1")];
 			}
 			if (aCommand.match(/^alias(?: +|$)/)) {
@@ -717,6 +828,13 @@ function __processCmdLine(aCommand, returnOnly) {
 				internalCommand = true;
 				__output(aCommand.replace(/^output */, ""));
 			}
+			if (aCommand.match(/^table(?: +|$)/)) {
+				internalCommand = __table(aCommand.replace(/^table */, ""));
+			}		
+			if (aCommand.match(/^view(?: +|$)/)) {
+				internalCommand = true;
+				__view(aCommand.replace(/^view */, ""), true);
+			}						
 			if (aCommand.match(/^beautify(?: +|$)/)) {
 				internalCommand = true;
 				__beautify(aCommand.replace(/^beautify */, ""));
@@ -796,21 +914,21 @@ function __processCmdLine(aCommand, returnOnly) {
 }
 
 function __showResultProcessCmdLine(__res, __cmd) {
-	if(isDefined(__res)) {
+	if(outputCommand && isDef(__res)) {
 		if (pauseCommand) {
 			var __pres = 0;
 			var lines = [];
-			if (beautifyCommand) {
+			if (beautifyCommand && !__cmd.trim().startsWith("sql") && !__cmd.trim().startsWith("esql") && !__cmd.trim().startsWith("dsql")) {
 				if (colorCommand && isObject(__res)) 
-				   __lines = String(colorify(__res)).replace(/\\t/g, "\t").replace(/\\r/g, "\r").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
+					__lines = String(colorify(__res)).replace(/\\t/g, "\t").replace(/\\r/g, "\r").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
 				else
-				   __lines = String(stringify(__res)).replace(/\\t/g, "\t").replace(/\\r/g, "\r").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
+					__lines = String(stringify(__res)).replace(/\\t/g, "\t").replace(/\\r/g, "\r").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
 			} else {
 				__lines = String(__res).replace(/\"/g, "").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
 			}
 			while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
 		} else {
-			if (beautifyCommand) {
+			if (beautifyCommand && !__cmd.trim().startsWith("sql") && !__cmd.trim().startsWith("esql") && !__cmd.trim().startsWith("dsql")) {
 				if (colorCommand && isObject(__res))
 					__outputConsole(String(colorify(__res)).replace(/\\t/g, "\t").replace(/([^\\])\\n/g, "$1\n").replace(/\\r/g, "\r"), true);
 				else
@@ -818,20 +936,81 @@ function __showResultProcessCmdLine(__res, __cmd) {
 			} else
 				__outputConsole(__res);
 		}	
-
 	} 
 	
-	if (timeCommand && !__cmd.match(/^time(?: +|$)/)) __time(__timeResult);
+	if (isDef(__timeResult) && timeCommand && !__cmd.match(/^time(?: +|$)/)) __time(__timeResult);
 }
 
 function __checkVersion() {
+	function openAFAutoUpdate() {
+		function getVer(aURLs) {
+			var foundIt = false, res;
+			for (var ii = 0; ii < aURLs.length && !foundIt; ii++) {
+				try {
+					res = $rest({ throwExceptions: true })
+					.get(aURLs[ii]);
+					foundIt = true;
+				} catch(e) { }
+			}
+		
+			return res;
+		}
+
+		function getFile(aURLs, aSource, aTarget) {
+			var foundIt = false, res;
+			for (var ii = 0; ii < aURLs.length && !foundIt; ii++) {
+				try {
+					res = $rest({ throwExceptions: true, downloadResume: __autoupdateResume })
+					.get2File(aTarget, aURLs[ii] + "/" + aSource);
+					foundIt = true;
+				} catch(e) { }
+			}
+		
+			return res;
+		}
+		
+		var curVersion = getVersion();
+		//var remoteBuild = getVer(__openafBuild);
+		var remoteRelease = getVer(__openafRelease);
+
+		if (curVersion < remoteRelease) {
+			io.cp(getOpenAFJar(), getOpenAFPath() + "/openaf.jar.old");
+			io.cp(getOpenAFJar() + ".orig", getOpenAFPath() + "/openaf.jar.old.orig");
+			getFile(__openafDownload, "openaf-" + remoteRelease + ".jar.repacked", getOpenAFPath() + "/openaf.jar.new");
+			getFile(__openafDownload, "openaf-" + remoteRelease + ".jar", getOpenAFPath() + "/openaf.jar.new.orig");
+			__message = "OpenAF will update to version " + remoteRelease + " on exit.";
+			addOnOpenAFShutdown(() => {
+				__outputConsoleComments("Please hold on, updating to OpenAF version: " + remoteRelease + "...");
+				io.writeFileBytes(getOpenAFJar() + ".orig", io.readFileBytes(getOpenAFPath() + "/openaf.jar.new.orig"));
+				io.rm(getOpenAFPath() + "/openaf.jar.new.orig");
+				io.writeFileBytes(getOpenAFJar(), io.readFileBytes(getOpenAFPath() + "/openaf.jar.new"));
+				io.rm(getOpenAFPath() + "/openaf.jar.new");
+				__outputConsoleComments("... Done! The previous OpenAF version " + curVersion + " is now available as openaf.jar.old and openaf.jar.old.orig.");
+				__outputConsoleComments("Move them to openaf.jar and openaf.jar.orig to revert, if needed. Add/Update '__autoupdate = false' in the ~/.openaf-console_profile file to disable auto-update.");
+			});
+		}
+	}
+
+
 	var t = new Threads();
 	t.addThread(function() {
 		var current = checkLatestVersion(); 
 		var myversion = getVersion();
+		var anotherOne = false;
+
 		if (current != -1) {
-			if (current > myversion)
-				__message = "There is a new OpenAF version available: " + current + ". Run 'openaf --update' to update.";
+			if (current > myversion) {
+				ow.loadServer();
+				ow.server.checkIn(getOpenAFPath() + "/openaf_update.pid", aPid => {
+					anotherOne = true;
+				}, () => {
+					anotherOne = true;
+				});
+				if (__autoupdate && !anotherOne)
+					openAFAutoUpdate();
+				else
+					__message = "There is a new OpenAF version available: " + current + ". Run 'openaf --update' to update.";
+			}
 		}
 		t.stop(true);
 	});
@@ -842,19 +1021,19 @@ function __pauseArray(aText, aStart) {
 	var height = con.getConsoleReader().getTerminal().getHeight();
 	var lines = aText.length;
 
-	if (lines <= height) {
-		__outputConsole(aText.join("\n"));
+	if (lines <= (height - 1)) {
+		__outputConsole(aText.join(__separator));
 		return -1;
 	}
 
-	if (isUndefined(aStart) || aStart < 0)
+	if (isUnDef(aStart) || aStart < 0)
 		aStart = 0;
 	else
 		if(aStart > (lines - height +1)) aStart = (lines - height +1);
 
-	__outputConsole(aText.slice(aStart, (aStart + height) -1).join("\n"));
+	__outputConsole(aText.slice(aStart, (aStart + height) -1).join(__separator));
 
-	if ((aStart + height - 1) < (lines -2)) {
+	if ((aStart + height -1) < (lines )) {
 		__outputConsoleCommentsNoEnd(Math.floor(( ((aStart + height -1)*100) /(lines))) + "% (Press any key to continue or 'q' to quit)");
 		var c = con.readChar("") + "";
 		__outputConsoleCommentsNoEnd("\r" + repeat(con.getConsoleReader().getTerminal().getWidth(), ' ') + "\r");
@@ -877,7 +1056,7 @@ function __pauseArray(aText, aStart) {
 					if(c.charCodeAt(0) == 52) {
 						c = con.readChar("") + "";
 						if (c.charCodeAt(0) == 126) {
-							return lines - height +1;
+							return lines - height - 1;
 						}
 					}
 					//pgup
@@ -887,14 +1066,14 @@ function __pauseArray(aText, aStart) {
 							if (aStart - height -1 < 0)
 								return 0;
 							else
-								return aStart - height +1;
+								return aStart - height + 1;
 						}
 					}
 					//pgdw
 					if(c.charCodeAt(0) == 54) {
 						c = con.readChar("") + "";
 						if (c.charCodeAt(0) == 126) {
-							return aStart + height +1;
+							return aStart + height - 1;
 						}
 					}
 					// up
@@ -910,7 +1089,7 @@ function __pauseArray(aText, aStart) {
 					}
 				}
 			}
-			return aStart + height +1;
+			return aStart + height - 1;
 		} else {
 			return -1;
 		}
@@ -928,15 +1107,22 @@ function __pauseString(aString) {
 // MAIN
 // ---------------------
 var con = new Console();
+if (__ansiColorFlag) ansiStart();
+//var __ansiflag = con.isAnsiSupported();
 var jansi = JavaImporter(Packages.org.fusesource.jansi);
+var __ansiflag = (jansi != null && isDef(jansi)) ? con.isAnsiSupported() : false;
 var cmd = "";
 var timeCommand = false; var start; var end;
 var outputCommand = true;
 var beautifyCommand = true;
 var colorCommand = true;
-var pauseCommand = false;
+var pauseCommand = true;
 var watchCommand = false;
+var viewCommand = true;
 var watchLine = "";
+var __previousAnsiFlag = __ansiflag;
+
+if (__ansiflag) CONSOLESEPARATOR = CONSOLESEPARATOR_ANSI;
 
 // Tweak a little
 con.getConsoleReader().setHistoryEnabled(true);
@@ -959,7 +1145,7 @@ initThread.addThread(function(uuid) {
 	con.getConsoleReader().addCompleter(
 		new Packages.openaf.jline.OpenAFConsoleCompleter(function(buf, cursor, candidates) {
 			if (buf == null) return null;
-			var ret = 0;
+			var ret = -1;
 
 			if (buf.substr(0, cursor).match(/(([a-zA-Z0-9_\[\]\(\)\"\']+\.)+)([a-zA-Z0-9_\[\]\(\)\"\']*)$/)) {
 				var tmpbuf = buf.substr(0, cursor).match(/(([a-zA-Z0-9_\[\]\(\)\"\']+\.)+)([a-zA-Z0-9_\[\]\(\)\"\']*)$/);
@@ -993,10 +1179,20 @@ initThread.addThread(function(uuid) {
 				}
 			}
 
-			return Number(ret);
+			return candidates.isEmpty() ? - 1 : Number(ret);
 		})
 	);
 	con.getConsoleReader().getCompletionHandler().setPrintSpaceAfterFullCompletion(false);
+
+	if (String(java.lang.System.getProperty("os.name")).match(/Windows/)) {
+		try {
+			//var res = $sh("chcp").get(0).stdout.replace(/.+ (\d+)\r\n/, "$1");
+			var res = con.getConsoleReader().getTerminal().getOutputEncoding();
+			if (isDef(res)) {
+				__codepage = String(res);
+			}
+		} catch(e) { }
+	}
 
 	// Read profile
 	try {
@@ -1011,9 +1207,14 @@ initThread.addThread(function(uuid) {
 initThread.startNoWait();
 
 if (__expr.length > 0) cmd = __expr;
+cmd = cmd.trim();
 
 while(cmd != "exit") {
-	__showResultProcessCmdLine(__processCmdLine(cmd), cmd);
+	if (viewCommand) {
+		__view(cmd, false);
+	} else {
+		__showResultProcessCmdLine(__processCmdLine(cmd), cmd);
+	}
 
 	if (__message != "") {
 		__outputConsoleComments(__message);
@@ -1023,12 +1224,12 @@ while(cmd != "exit") {
 		var watchresult;
 		try {
 			watchresult = __processCmdLine(watchLine, true);
-			if (isUndefined(watchresult)) watchresult = "";
+			if (isUnDef(watchresult)) watchresult = "";
 			if (beautifyCommand) watchresult = String(stringify(watchresult)).replace(/\\t/g, "\t").replace(/([^\\])\\n/g, "$1\n").replace(/\\r/g, "\r");
 		} catch(e) { watchresult = "ERROR: " + e.message; watchCommand = false; }
-		cmd = con.readLinePrompt("[ " + watchresult + " ]\n" + __pinprefix + "> ");
+		cmd = con.readLinePrompt("[ " + watchresult + " ]\n" + __pinprefix + "> ").trim();
 	} else {
-		cmd = con.readLinePrompt(__pinprefix + "> ");
+		cmd = con.readLinePrompt(__pinprefix + "> ").trim();
 	}
 	
 	if (cmd == "") {
@@ -1040,7 +1241,11 @@ while(cmd != "exit") {
 		}
 	}
 	
-	if(isDefined(jLineFileHistory)) jLineFileHistory.flush();
+	if(isDef(jLineFileHistory)) jLineFileHistory.flush();
 }
+
+__exitActions.map(action => {
+	__processCmdLine(action);
+});
 
 exit(0);

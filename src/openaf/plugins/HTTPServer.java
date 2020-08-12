@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import java.lang.String;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.NativeFunction;
 import org.mozilla.javascript.NativeJavaObject;
@@ -27,7 +28,8 @@ import openaf.SimpleLog.logtype;
 import openaf.plugins.HTTPd.JSResponse;
 
 import com.nwu.httpd.Codes;
-import com.nwu.httpd.HTTPd;
+import com.nwu.httpd.IHTTPd;
+import com.nwu.httpd.IWebSock;
 import com.nwu.httpd.NanoHTTPD.Response.IStatus;
 import com.nwu.httpd.responses.EchoResponse;
 import com.nwu.httpd.responses.FileResponse;
@@ -40,7 +42,7 @@ public class HTTPServer extends ScriptableObject {
 	 * 
 	 */
 	private static final long serialVersionUID = -8638106468713717782L;
-	protected HTTPd httpd;
+	protected IHTTPd httpd;
 	protected static HashMap<String, Object> sessions = new HashMap<String, Object>();
 	protected String id;
 	protected int serverport;
@@ -162,7 +164,7 @@ public class HTTPServer extends ScriptableObject {
 	
 	/**
 	 * <odoc>
-	 * <key>HTTPd.HTTPd(aPort, aLocalInteface, keyStorePath, keyStorePassword, logFunction)</key>
+	 * <key>HTTPd.HTTPd(aPort, aLocalInteface, keyStorePath, keyStorePassword, logFunction, webSockets, aTimeout)</key>
 	 * Creates a HTTP server instance on the provided port and optionally on the identified local interface.
 	 * If the port provided is 0 or negative a random port will be assigned. To determine what this port is 
 	 * you can use the function HTTPServer.getPort().
@@ -172,7 +174,7 @@ public class HTTPServer extends ScriptableObject {
 	 * by the HTTPServer. This function will receive 3 arguments. Example:\
 	 * \
 	 * plugin("HTTPServer");\
-	 * var s = new HTTPd(8091, undefined, undefined, undefined, function(aType, aMsg, anException) {\
+	 * var s = new HTTPd(8091, void 0, void 0, void 0, function(aType, aMsg, anException) {\
 	 *    if(aType.toString() != "DEBUG" &amp;&amp; anException.getMessage() != "Broken pipe")\
 	 *       logErr("Type: " + aType + " | Message: " + aMsg + anException.printStackTrace());\
 	 * });\
@@ -187,27 +189,58 @@ public class HTTPServer extends ScriptableObject {
 	 * \
 	 * keytool -genkey -keyalg RSA -alias selfsigned -keystore keystore.jks -storepass password -validity 360 -keysize 2048 -ext SAN=DNS:localhost,IP:127.0.0.1  -validity 9999\
 	 * \
-	 * And then add keystore.jks to the openaf.jar and have keyStorePath = "/keystore.jks".
+	 * And then add keystore.jks to the openaf.jar and have keyStorePath = "/keystore.jks".\
+	 * \
+	 * To support websockets you need to build IWebSock object and provide a timeout. For example:\
+	 * \
+	 * plugin("HTTPServer");\
+	 * var webSock = new Packages.com.nwu.httpd.IWebSock({\
+	 *    // onOpen callback\
+	 *    oOpen: _ws => { log("Connection open") },\
+	 *    // onClose callback\
+	 *    oClose: (_ws, aCode, aReason, hasInitByRemote) => { log("Connection close: " + String(aReason)) },\
+	 *    // onMessage callback\
+	 *    oMessage: (_ws, aMessage) => { _ws.send(aMessage.getTextPayload()); },\
+	 *    // onPong callback\
+	 *    oPong: (_ws, aPong) => { },\
+	 *    // onException callback\
+	 *    oException: (_ws, anException) => { logErr(String(anException)); }\
+	 * });\
+	 * var s = new HTTPd(8091, "127.0.0.1", void 0, void 0, void 0, webSock, 30000); // 30 seconds timeout\
+	 * s.addWS("/websocket");  // makes it available at ws://127.0.0.1:8091/websocket\
+	 * \
 	 * </odoc>
 	 */
 	@JSConstructor
-	public void newHTTPd(int port, Object host, String keyStorePath, Object password, Object errorFunction) throws IOException {
+	public void newHTTPd(int port, Object host, String keyStorePath, Object password, Object errorFunction, Object ws, int timeout) throws IOException {
 		if (port <= 0) {
 			port = findRandomOpenPortOnAllLocalInterfaces();
 		}
 		
 		serverport = port;
+		if (ws instanceof NativeJavaObject) ws = ((NativeJavaObject) ws).unwrap();
 		
 		if (host == null || host instanceof Undefined) {
-			httpd = new com.nwu.httpd.HTTPd((Log) new HLog(port, errorFunction), port);
+			if (ws == null || ws instanceof Undefined) 
+				httpd = new com.nwu.httpd.HTTPd((Log) new HLog(port, errorFunction), port);
+			else
+				httpd = new com.nwu.httpd.HTTPWSd((Log) new HLog(port, errorFunction), port, (IWebSock) ws, timeout);
 		} else {
-			httpd = new com.nwu.httpd.HTTPd((Log) new HLog(port, errorFunction), (String) host, port);
+			if (ws == null || ws instanceof Undefined)
+				httpd = new com.nwu.httpd.HTTPd((Log) new HLog(port, errorFunction), (String) host, port);
+			else
+				httpd = new com.nwu.httpd.HTTPWSd((Log) new HLog(port, errorFunction), (String) host, port, (IWebSock) ws, timeout);
 		}
 
 		if (keyStorePath != null && !keyStorePath.equals("undefined") &&
 			password != null && !(password instanceof Undefined)) {
 			httpd.stop();
-			httpd.makeSecure(com.nwu.httpd.HTTPd.makeSSLSocketFactory(keyStorePath, AFCmdBase.afc.dIP(((String) password)).toCharArray()), null);
+			if ((new java.io.File(keyStorePath)).exists()) {
+				httpd.makeSecure(com.nwu.httpd.HTTPd.makeLocalSSLSocketFactory(keyStorePath, AFCmdBase.afc.dIP(((String) password)).toCharArray()), null);
+			} else {
+				httpd.makeSecure(com.nwu.httpd.HTTPd.makeSSLSocketFactory(keyStorePath, AFCmdBase.afc.dIP(((String) password)).toCharArray()), null);
+			}
+			
 			httpd.start();
 		}
 		
@@ -248,6 +281,16 @@ public class HTTPServer extends ScriptableObject {
 	@JSFunction
 	public void stop() {
 		httpd.stop();
+	}
+
+	@JSFunction
+	public boolean isAlive() {
+		return httpd.isAlive();
+	}
+
+	@JSFunction
+	public void addWS(String uri) {
+		httpd.addToWsAccept(uri);
 	}
 
 	/**
@@ -377,13 +420,14 @@ public class HTTPServer extends ScriptableObject {
 	
 	/**
 	 * <odoc>
-	 * <key>HTTPd.replyOKText(data) : Object</key>
+	 * <key>HTTPd.replyOKText(data, aMapOfHeaders) : Object</key>
 	 * Builds a response object suitable to provide a reply to a HTTP request for a function used with the HTTPServer.add method.
-	 * It will return a text mimetype with the provided data and a HTTP code of OK.
+	 * It will return a text mimetype with the provided data and a HTTP code of OK. Also you can provide the map
+	 * of extra HTTP headers.
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object replyOKText(String data) {
+	public Object replyOKText(String data, Object headers) {
 		Context cx = (Context) AFCmdBase.jse.enterContext();
 		Scriptable no = cx.newObject((Scriptable) AFCmdBase.jse.getGlobalscope());
 		AFCmdBase.jse.exitContext();
@@ -391,19 +435,21 @@ public class HTTPServer extends ScriptableObject {
 		no.put("status", no, 200);
 		no.put("mimetype", no, Codes.MIME_PLAINTEXT);
 		no.put("data", no, data);
+		no.put("header", no, headers);
 		
 		return no;
 	}
 	
 	/**
 	 * <odoc>
-	 * <key>HTTPd.replyOKXML(data) : Object</key>
+	 * <key>HTTPd.replyOKXML(data, aMapOfHeaders) : Object</key>
 	 * Builds a response object suitable to provide a reply to a HTTP request for a function used with the HTTPServer.add method.
-	 * It will return a XML mimetype with the provided data (in string format) and a HTTP code of OK.
+	 * It will return a XML mimetype with the provided data (in string format) and a HTTP code of OK. Also you can provide the map
+	 * of extra HTTP headers.
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object replyOKXML(String data) {
+	public Object replyOKXML(String data, Object headers) {
 		Context cx = (Context) AFCmdBase.jse.enterContext();
 		Scriptable no = cx.newObject((Scriptable) AFCmdBase.jse.getGlobalscope());
 		AFCmdBase.jse.exitContext();
@@ -411,19 +457,21 @@ public class HTTPServer extends ScriptableObject {
 		no.put("status", no, 200);
 		no.put("mimetype", no, "text/xml");
 		no.put("data", no, data);
+		no.put("header", no, headers);
 		
 		return no;
 	}
 	
 	/**
 	 * <odoc>
-	 * <key>HTTPd.replyOKHTML(data) : Object</key>
+	 * <key>HTTPd.replyOKHTML(data, aMapOfHeaders) : Object</key>
 	 * Builds a response object suitable to provide a reply to a HTTP request for a function used with the HTTPServer.add method.
-	 * It will return a HTML mimetype with the provided data (in string format) and a HTTP code of OK.
+	 * It will return a HTML mimetype with the provided data (in string format) and a HTTP code of OK. Also you can provide the map
+	 * of extra HTTP headers.
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object replyOKHTML(String data) {
+	public Object replyOKHTML(String data, Object headers) {
 		Context cx = (Context) AFCmdBase.jse.enterContext();
 		Scriptable no = cx.newObject((Scriptable) AFCmdBase.jse.getGlobalscope());
 		AFCmdBase.jse.exitContext();
@@ -431,19 +479,21 @@ public class HTTPServer extends ScriptableObject {
 		no.put("status",  no, 200);
 		no.put("mimetype", no, Codes.MIME_HTML);
 		no.put("data", no, data);
+		no.put("header", no, headers);
 		
 		return no;
 	}
 
 	/**
 	 * <odoc>
-	 * <key>HTTPd.replyOKJSON(data) : Object</key>
+	 * <key>HTTPd.replyOKJSON(data, aMapOfHeaders) : Object</key>
 	 * Builds a response object suitable to provide a reply to a HTTP request for a function used with the HTTPServer.add method.
-	 * It will return a JSON mimetype with the provided data (in string format) and a HTTP code of OK.
+	 * It will return a JSON mimetype with the provided data (in string format) and a HTTP code of OK. Also you can provide the map
+	 * of extra HTTP headers.
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object replyOKJSON(String data) {
+	public Object replyOKJSON(String data, Object headers) {
 		Context cx = (Context) AFCmdBase.jse.enterContext();
 		Scriptable no = cx.newObject((Scriptable) AFCmdBase.jse.getGlobalscope());
 		AFCmdBase.jse.exitContext();
@@ -451,19 +501,21 @@ public class HTTPServer extends ScriptableObject {
 		no.put("status", no, 200);
 		no.put("mimetype", no, Codes.MIME_JSON);
 		no.put("data", no, data);
-		
+		no.put("header", no, headers);
+
 		return no;
 	}
 	
 	/**
 	 * <odoc>
-	 * <key>HTTPd.replyOKBin(data) : Object</key>
+	 * <key>HTTPd.replyOKBin(data, aMapOfHeaders) : Object</key>
 	 * Builds a response object suitable to provide a reply to a HTTP request for a function used with the HTTPServer.add method.
-	 * It will return application/octet-stream mimetype with the provided data (as an array of bytes) and a HTTP code of OK. 
+	 * It will return application/octet-stream mimetype with the provided data (as an array of bytes) and a HTTP code of OK.  Also you can provide the map
+	 * of extra HTTP headers.
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object replyOKBin(String data) {
+	public Object replyOKBin(String data, Object headers) {
 		Context cx = (Context) AFCmdBase.jse.enterContext();
 		Scriptable no = cx.newObject((Scriptable) AFCmdBase.jse.getGlobalscope());
 		AFCmdBase.jse.exitContext();
@@ -471,7 +523,8 @@ public class HTTPServer extends ScriptableObject {
 		no.put("status", no, 200);
 		no.put("mimetype", no, Codes.MIME_DEFAULT_BINARY);
 		no.put("data", no, data);
-		
+		no.put("header", no, headers);
+
 		return no;
 	}
 	

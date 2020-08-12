@@ -16,7 +16,8 @@ function isRepackJar(aJarFilePath) {
 		var listJar = aJar.list();
 
 		for(let i in listJar) {
-			if(listJar[i].name.match(/jarinjarloader/) && listJar[i].name.match(/eclipse/)) {
+			//if(listJar[i].name.match(/jarinjarloader/) && listJar[i].name.match(/eclipse/)) {
+			if (listJar[i].name.match(/\/js\.jar/)) {
 				res = false;
 			}
 		}
@@ -42,7 +43,7 @@ function getModulesToExclude() {
 
 	toExclude = _.uniq(toExclude);
 	for(var i in toExclude) {
-		if (toExclude[i].match(/^lib\//)) {
+		if (isDef(toExclude[i]) && toExclude[i].match(/^lib\//)) {
 			toExclude[i] = toExclude[i].replace(/^lib\//, "");
 		}
 	}
@@ -75,7 +76,7 @@ try {
   java.lang.System.exit(0);
 }
 
-log("Repacking OpenAF for faster loading");
+log("Checking if repacking OpenAF for faster loading is needed...");
 
 var zip    = new ZIP();
 var zipNew = new ZIP();
@@ -159,14 +160,21 @@ if (!irj || __expr != "" || Object.keys(includeMore).length > 0) {
 		if (toExclude.indexOf(el.name) >= 0) {
 			log("Excluding " + el.name);
 			continue;
-		} 
+		}  
 		
 		if(el.name.match(/\.jar$/)) {
 			var zipTemp = new ZIP();
-			if (!el.outside) 
-				zipTemp.load(zip.getFile(el.name));
-			else
-				zipTemp.loadFile(el.outsideName);
+
+			if (el.name.match(/tools-attach.jar$/) &&
+			    Packages.jodd.util.ClassLoaderUtil.findToolsJar() != null) {
+				zipTemp.loadFile(String(Packages.jodd.util.ClassLoaderUtil.findToolsJar()));
+			} else {
+				if (!el.outside) 
+					zipTemp.load(zip.getFile(el.name));
+				else
+					zipTemp.loadFile(el.outsideName);
+			}
+			
 			var listTemp = zipTemp.list();
 							
 			for (let ii in listTemp) {
@@ -200,13 +208,21 @@ if (!irj || __expr != "" || Object.keys(includeMore).length > 0) {
 		}
 	}
 
+	ow.loadObj();
+	var ilist = "JarIndex-Version: 1.0\n\n" + 
+				$from(ow.obj.fromObj2Array(zipNew.list()))
+				.notStarts("name", "META-INF/")
+				.ends("name", "/")
+				.select((r)=>{ return r.name.substr(0, r.name.length -1); })
+				.join("\n");
+	zipNew.putFile("META-INF/INDEX.LIST", af.fromString2Bytes(ilist));
 	log("Writing new repacked openaf.jar...");
 	zipNew.generate2File(classPath + ".tmp", {"compressionLevel": 9}, true);
 	createTmp = true;
 	zip.close();
 	zipNew.close();
 } else {
-	log("No repacking needed.");
+	log("OpenAF is repacked.");
 }
 
 if (createTmp) {

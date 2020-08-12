@@ -41,7 +41,11 @@ public class Console extends ScriptableObject {
 	 */
 	@JSConstructor
 	public void newConsole() throws IOException {
-		cr = new ConsoleReader();
+		try {
+			cr = new ConsoleReader();
+		} catch(Exception e) {
+			cr = null;
+		}
 	}
 	
 	/** 
@@ -140,6 +144,24 @@ public class Console extends ScriptableObject {
 	@JSFunction
 	public ConsoleReader getConsoleReader() {
 		return cr;
+	}
+
+	/**
+	 * <odoc>
+	 * <key>Console.isAnsiSupported() : boolean</key>
+	 * Determines if the console is able to support ansi (returns true) or not (returns false).
+	 * </odoc>
+	 */
+	@JSFunction
+	public boolean isAnsiSupported() {
+		try {
+			if (getConsoleReader() != null)
+				return getConsoleReader().getTerminal().isAnsiSupported();
+			else
+				return false;
+		} catch(Exception e) {
+			return false;
+		}
 	}
 
 }

@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.lang.String;
 
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.NativeFunction;
@@ -225,8 +226,8 @@ public class Threads extends ScriptableObject {
 
 	/**
 	 * <odoc>
-	 * <key>Threads.initScheduledThreadPool(numberOfThreads)</key>
-	 * Uses a thread pool situable for scheduled threads where you can specify the numberOfThreads to use (by defauly the number of cores).
+	 * <key>Threads.initCachedThreadPool()</key>
+	 * Uses a thread pool situable for cached threads.
 	 * Note: it ignores any previous thread added using addThread; It won't work if any of the other start* or init* methods has been used.
 	 * </odoc>
 	 */
@@ -252,6 +253,39 @@ public class Threads extends ScriptableObject {
 
 			executor = Executors.newScheduledThreadPool(nThreads);
 		}	
+	}
+
+	/**
+	 * <odoc>
+	 * <key>Threads.initFixedThreadPool(numberOfThreads)</key>
+	 * Uses a thread pool situable for fixed threads where you can specify the numberOfThreads to use (by defauly the number of cores).
+	 * Note: it ignores any previous thread added using addThread; It won't work if any of the other start* or init* methods has been used.
+	 * </odoc>
+	 */
+	@JSFunction
+	public void initFixedThreadPool(int nThreads) {
+		if (executor == null) {
+			// Get number of cores if undefined
+			if (nThreads < 1) {
+				nThreads = this.getNumberOfCores();
+			}
+
+			executor = Executors.newFixedThreadPool(nThreads);
+		}	
+	}
+
+	/**
+	 * <odoc>
+	 * <key>Threads.initSingleThreadPool(numberOfThreads)</key>
+	 * Uses a thread pool situable for single threads where you can specify the numberOfThreads to use (by defauly the number of cores).
+	 * Note: it ignores any previous thread added using addThread; It won't work if any of the other start* or init* methods has been used.
+	 * </odoc>
+	 */
+	@JSFunction
+	public void initSingleThreadPool() {
+		if (executor == null) {
+			executor = Executors.newSingleThreadExecutor();
+		}
 	}
 
 	/**
@@ -282,6 +316,40 @@ public class Threads extends ScriptableObject {
 	@JSFunction
 	public String addCachedThread(NativeFunction aFunction) {
 		if (executor == null) initCachedThreadPool();
+
+		UUID uuid = UUID.randomUUID();
+		executor.execute((Runnable) new ScriptFunction(uuid, aFunction));
+		return uuid.toString();	
+	}
+
+	/**
+	 * <odoc>
+	 * <key>Threads.addFixedThread(aFunction) : String</key>
+	 * Adds to the fixed thread pool aFunction to be executed. Returns an UUID associated with the thread. The aFunction will receive
+	 * the corresponding UUID as the first parameter. Note: it calls initFixedThreadPool if it wasn't previously and it won't work if any of the other
+	 * start* of init* methods has been used previously.
+	 * </odoc>
+	 */
+	@JSFunction
+	public String addFixedThread(NativeFunction aFunction) throws Exception {
+		if (executor == null) throw new Exception("Please use initFixedThreadPool first.");
+
+		UUID uuid = UUID.randomUUID();
+		executor.execute((Runnable) new ScriptFunction(uuid, aFunction));
+		return uuid.toString();	
+	}
+
+	/**
+	 * <odoc>
+	 * <key>Threads.addSingleThread(aFunction) : String</key>
+	 * Adds to the single thread pool aFunction to be executed. Returns an UUID associated with the thread. The aFunction will receive
+	 * the corresponding UUID as the first parameter. Note: it calls initSingleThreadPool if it wasn't previously and it won't work if any of the other
+	 * start* of init* methods has been used previously.
+	 * </odoc>
+	 */
+	@JSFunction
+	public String addSingleThread(NativeFunction aFunction) {
+		if (executor == null) initSingleThreadPool();
 
 		UUID uuid = UUID.randomUUID();
 		executor.execute((Runnable) new ScriptFunction(uuid, aFunction));

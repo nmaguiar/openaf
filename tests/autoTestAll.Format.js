@@ -18,6 +18,11 @@
         ow.test.assert(ow.format.round(123.456, 2), "123.46", "Problem with round");    
     };
 
+    exports.testActualTime = function() {
+        ow.test.assert(isDate(ow.format.getActualTime()), true, "Problem with default actual time.");
+        ow.test.assert(isDate(ow.format.getActualTime(true)), true, "Problem with alternative actual time.");
+    };
+
     exports.testTimeAgo = function() {
         ow.test.assert(ow.format.timeago(new Date()), "Just now", "Problem with time ago");
         ow.test.assert(ow.format.timeago(String(new Date())), "Just now", "Problem with time ago (with string param)");
@@ -61,6 +66,10 @@
         ow.test.assert(ow.format.dateDiff.inWeeks(String(ow.format.toDate("201512310000", "yyyyMMddHHmm")), ow.format.toDate("201701010000", "yyyyMMddHHmm")), 52, "Problem with dateDiff.inWeeks");    
     };
 
+    exports.testHost = function() {
+        ow.test.assert(ow.format.testHost("127.0.0.1").reachable, true, "Problem with testing localhost.");
+    };
+
     exports.testCron = function() {
         ow.test.assert(ow.format.cron.isCronMatch(new Date(), "*/1 */1 * * * *"), true, "Problem with cron using seconds.");
         ow.test.assert(ow.format.cron.isCronMatch(new Date(), "*/1 * * * *"), true, "Problem with cron using minutes.");            
@@ -70,6 +79,13 @@
         ow.test.assert(ow.format.fromBinary(ow.format.toBinary(12345)), 12345, "Problem with conversion to binary");
         ow.test.assert(ow.format.fromOctal(ow.format.toOctal(12345)), 12345, "Problem with conversion to octal");
         ow.test.assert(ow.format.fromHex(ow.format.toHex(12345)), 12345, "Problem with conversion to hex");    
+        ow.test.assert(ow.format.fromBase36(ow.format.toBase36(12345)), 12345, "Problem with conversion to base36");
+    };
+
+    exports.testHTML4 = function() {
+        var testString = "This is áàç test with ã ê";
+
+        ow.test.assert(ow.format.unescapeHTML4(ow.format.escapeHTML4(testString)), testString, "Problem with escape/unescape HTML4");
     };
 
     exports.testLSH = function() {
@@ -83,6 +99,11 @@
         ow.test.assert(ow.format.string.lsHash(s1, s1) <= 200, true, "Problem with identical sentences on LSH hashing.");
     };
     
+    exports.testCronHowManyAgo = function() {
+        ow.test.assert(ow.format.cron.howManyAgo("*/5 * * * *", nowUTC() - 1000*60*60).isDelayed, true, "Problem with delayed date.");
+        ow.test.assert(ow.format.cron.howManyAgo("*/5 * * * *", nowUTC() + 1000*60*60).isDelayed, false, "Problem with non delayed date.");
+    };
+
     exports.testUnixDateConversions = function() {
         var d = new Date();
         ow.test.assert(ow.format.fromUnixDate(ow.format.toUnixDate(d)).getTime(), Math.round(d.getTime()/1000) * 1000, "Problem with from/to unix date conversion.");
@@ -90,6 +111,10 @@
 
     exports.testLDAPDateConversions = function() {
         var d = new Date();
-        ow.test.assert(ow.format.fromLDAPDate(ow.format.toLDAPDate(d)).getTime(), d.getTime(), "Problem with LDAP date conversions.");
+        ow.test.assert(
+            Math.floor(Number(ow.format.fromLDAPDate(ow.format.toLDAPDate(d)).getTime())/1000), 
+            Math.floor(Number(d.getTime())/1000), 
+            "Problem with LDAP date conversions."
+        );
     };
 })();

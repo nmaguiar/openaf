@@ -40,7 +40,7 @@
         }, void 0, true);
         stream.close();
     
-        ow.test.assert(res, "Hello World! €áä", "Problem with read/writeFileStream or ioStreamRead/Write.");
+        ow.test.assert(af.toEncoding(res, "UTF-8"), "Hello World! €áä", "Problem with read/writeFileStream or ioStreamRead/Write.");
         io.rm(file);   
     };
 
@@ -106,5 +106,21 @@
     exports.testBinaryFileDetection = () => {
         ow.test.assert(io.isBinaryFile(getOpenAFJar()), true, "Problem with io.isBinaryFile detecting binary files.");
         ow.test.assert(io.isBinaryFile(getOpenAFPath() + "/js/openaf.js"), false, "Problem with io.isBinaryFile detecting text files.");
+    };
+
+    exports.testCopyMoveDeleteFile = () => {
+        var orig = getOpenAFPath() + "/js/openaf.js";
+
+        var contents = io.readFileString(orig);
+        
+        // Test copy
+        io.cp(orig, "__autoTest.js");
+        ow.test.assert(contents, io.readFileString("__autoTest.js"), "Problem copying file.");
+
+        io.mv("__autoTest.js", "__autoNewTest.js");
+        ow.test.assert(contents, io.readFileString("__autoNewTest.js"), "Problem moving file.");
+
+        io.rm("__autoNewTest.js");
+        ow.test.assert(io.fileExists("__autoNewTest.js"), false, "Problem removing file.");
     };
 })();

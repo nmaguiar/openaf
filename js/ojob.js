@@ -1,6 +1,9 @@
+var _fparam = __expr.match(/^([^ ]+) ?/);
+var fparam = (isArray(_fparam) && _fparam.length > 0) ? _fparam[1] : "";
 var params = processExpr(" ");
 var ojob_shouldRun = true;
 var ojob_args = {};
+var nocolor = false;
 
 if (Object.keys(params).length == 1 && Object.keys(params)[0] == "") ojob_showHelp();
 
@@ -35,6 +38,10 @@ if (isDef(params["-deps"]) && params["-deps"] == "") {
 	ojob_draw();
 }
 
+if (isDef(params["-nocolor"]) && params["-nocolor"] == "") {
+	nocolor = true;
+}
+
 if (isDef(params["-jobhelp"]) && params["-jobhelp"] == "") {
 	delete params["-jobhelp"];
 	ojob_jobhelp();
@@ -65,11 +72,14 @@ function ojob_showHelp() {
 }
 
 function ojob__getFile() {
-	var ks = Object.keys(params);
+	/*var ks = Object.keys(params);
 	if (ks.length >= 1) {
 		var f = ks[0];
 		delete params[f];
-		return f;
+		print(f);
+		return f; */
+	if (isDef(fparam)) {
+		return fparam;
 	} else {
 		printErr("Didn't recognize the aYamlFile.yaml\n");
 		ojob_showHelp();
@@ -170,7 +180,7 @@ function ojob_draw() {
 	
 	ansiStart();
 	print(ansiColor("bold,underline", "\nDependencies:"));
-	$from(oj.todo).select(function(v) {
+	oj.todo.map(function(v) {
 		var nn = (isDef(v.name) ? v.name : v);
 		printnl("[" + ansiColor("bold", nn) + "]");
 		var deps = getDeps(nn);
@@ -178,7 +188,7 @@ function ojob_draw() {
 	});
 	
 	print(ansiColor("bold,underline", "\nPaths:"));
-	$from(oj.todo).select(function(v) {
+	oj.todo.map(function(v) {
 		var nn = (isDef(v.name) ? v.name : v);
 		var paths = getPaths(nn);
 		var msg = "";
@@ -199,15 +209,16 @@ function ojob_draw() {
 function ojob_jobhelp() {
 	var file = ojob__getFile();
 	
-	var ks = Object.keys(params);
-	var job = "";
-	if (ks.length >= 1) {
-		job = ks[0];
-		delete params[job];
+	//var ks = Object.keys(params);
+	var job = String(__expr).replace(/.+-jobhelp */i, ""); 
+        params = [];
+	if (job != "") {
+		params = [];
 	} else {
-		printErr("Didn't recognize the job to try to obtain help from.\n");
+		/*printErr("Didn't recognize the job to try to obtain help from.\n");
 		ojob_showHelp();
-		return undefined;
+		return undefined;*/
+		job = "help";
 	}
 	
 	if (isDef(file)) {
@@ -216,7 +227,19 @@ function ojob_jobhelp() {
 			print(hh.name);
 			print(repeat(hh.name.length, '-'));
 			print("");
-			print(hh.help);
+			if (isString(hh.help))
+				print(hh.help);
+			else {
+				print(hh.help.text + "\n");
+				if (isDef(hh.help.expects)) {
+					print("Expects:");
+          				tprint("{{#each expects}}   {{name}} - {{#if required}}(required) {{/if}}{{{desc}}}\n{{/each}}\n", hh.help);
+				}
+				if (isDef(hh.help.returns)) {
+         				print("Returns:");
+          				tprint("{{#each returns}}   {{name}} - {{#if required}}(required) {{/if}}{{{desc}}}\n{{/each}}\n", hh.help);
+				}
+			}
 		} else {
                    	printErr("Didn't find job help for '" + job + "'.");
                         return undefined;
@@ -246,10 +269,14 @@ function ojob_runFile() {
 	if (ojob_shouldRun) {
 		var file = ojob__getFile();
 
-		__expr = $from(params).select(function(r) { var rr={}; var kk = Object.keys(r)[0]; return kk+"="+r[kk]; }).join(" ");
+		//__expr = $from(params).select(function(r) { var rr={}; var kk = Object.keys(r)[0]; return kk+"="+r[kk]; }).join(" ");
+		//__expr = "";
+		//for(var ii in params) {
+		//	__expr += ii + "=" + params[ii].replace(/ /g, "\\ ") + " ";
+		//}
 		
 		if (isDef(file)) {
-			oJobRunFile(file, ojob_args);
+			oJobRunFile(file, ojob_args, void 0, (nocolor) ? { conAnsi: false } : void 0);
 		}
 	}
 }

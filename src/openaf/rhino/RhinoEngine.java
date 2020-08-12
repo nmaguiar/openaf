@@ -7,6 +7,7 @@ import org.mozilla.javascript.Context;
 import org.mozilla.javascript.NativeJSON;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
+import java.lang.String;
 
 import openaf.AFCmdBase;
 import openaf.JSEngine;
@@ -55,7 +56,7 @@ public class RhinoEngine implements JSEngine {
 		// Initialize Rhino
 		cx = org.mozilla.javascript.Context.enter();
 		cx.setOptimizationLevel(compLevel);
-		cx.setLanguageVersion(Context.VERSION_1_8); 
+		cx.setLanguageVersion(Context.VERSION_ES6); 
 		globalscope = cx.initStandardObjects();
 		ready = true;
 	}
@@ -168,7 +169,15 @@ public class RhinoEngine implements JSEngine {
 		public void put(String key, Object item) {
 			no.put(key, no, item);
 		}
+
+		public Object get(String key) {
+			return no.get(key, parentNo);
+		}
 		
+		public boolean contains(String key) {
+			return no.has(key, parentNo);
+		}
+
 		public Object getMap() {
 			return no;
 		}

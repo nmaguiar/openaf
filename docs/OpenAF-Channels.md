@@ -41,24 +41,29 @@ Using the example: T_he copyFiles.js will add a key/value pair per each file it 
 
 OpenAF channels can have different implementations on how the key/value set is stored and shared while maintaining the same interface methods. This means that, as a general rule, whatever implementation a channel uses the get/set/push/pop/etc… methods should be available.
 
-Currently there are several different implementations built-in (on the included OpenWrap Channel library): 
+Currently there are several different implementations built-in (on the included OpenWrap Channel library):
 
-* Big (default)
+* Big (default until 20181210)
 * DB
 * Ignite
 * Ops
 * Remote
 * Cache
 * ElasticSearch
-* Mvs
-* Simple
+* MVS
+* Simple (default from 20181210)
+* Buffer
+* Proxy
+* Etcd
 * Dummy (for testing)
 
 And some available through oPacks:
 
-* Mongo
+* Mongo (mongo opack)
+* Etcd3 (etcd3 opack, via GRPC)
+* DynamoDB (aws opack)
 
-The default implementation Big uses the OpenWrap Big Objects functionality (from the OpenWrap Object library). You don't need to know how this functionality works internally. For the sake of simplicity let's assume it's like an internal JavaScript Array of a Map with a Key and Value.
+The default implementation, until version 20181210, Big uses the OpenWrap Big Objects functionality (from the OpenWrap Object library). You don't need to know how this functionality works internally. For the sake of simplicity let's assume it's like an internal JavaScript Array of a Map with a Key and Value.
 
 The remote implementation allows for the creation of a channel whose implementation is held on a different OpenAF script that can be accessed for a REST API. We will get into the details of how this is done and setup later but this implementation is important to access channels with local script storage (like the default implementation is). 
 
@@ -353,7 +358,7 @@ There are utilitary functions for mvs files in ow.ch.utils.mvs.* namely:
 
 ### Simple
 
-The simple implementation instead of using the OpenWrap Big Objects uses plain javascript objects (e.g. arrays and maps). It benefits on add/modify performance but uses more memory in the overall for large or varying size values. All functionality is available and similar behaviour to the default implementation should be expected althought the shouldCompress option is ignored.
+The simple implementation, default since version 20181210, instead of using the OpenWrap Big Objects uses plain javascript objects (e.g. arrays and maps). It benefits on add/modify performance but uses more memory in the overall for large or varying size values. All functionality is available and similar behaviour to the default implementation should be expected althought the shouldCompress option is ignored.
 
 To create one just:
 
@@ -361,13 +366,83 @@ To create one just:
 > $ch("test").create(1, "simple")
 ````
 
+### Buffer
+
+The buffer implementation acts as a "proxy" to another channel. It can buffer values for a specific time and/or number of values before sending it to a target channel.
+
+To create one just:
+
+````javascript
+> $ch("buffer").create(1, "buffer", {
+    bufferCh      : "targetCh",
+    bufferIdxs    : [ "key1", "key2" ],
+    bufferByTime  : 2500,
+    bufferByNumber: 100,
+    bufferTmpCh   : "buffer::__buffer"
+});
+````
+
+### Proxy
+
+This implementation allows to intersect channel request to another target channel. It can be useful to collect channel usage statistics using *ow.ch.utils.getStatsProxyFunction*.
+
+To create a proxy just:
+
+````javascript
+> $ch("proxy").create(1, "proxy", {
+    chTarget  : "targetCh".
+    proxyFunc : function(aMap) { 
+        // Function that receives a map (by reference that can be changed)
+        // with: op (operation), name (target channel), function (where 
+        // applicable), full (where applicable), match (the match of getSet),
+        // k (the key(s)), v (the value(s)) and timestamp. If this function 
+        // returns something no operation will be executed on the chTarget 
+        // and the value returned by the function will be the value returned 
+        // by this channel.
+    }
+});
+````
+
+### Etcd
+
+This OpenAF channel implementation interacts with a [Etcd](https://etcd.io) cluster through HTTP/HTTPs. You can use the Etcd3 oPack to interact via GRPC.
+
+To create an etcd channel just:
+
+````javascript
+> $ch("etcd").create(1, "etcd", {
+    url: "http://my.etcd.cluster:2379",
+    folder: "myFolder",
+    throwExceptions: false,
+    default: { result: 0 }
+});
+````
+
+The options used are:
+
+| Option | Mandatory | Type | Description |
+|--------|-----------|------|-------------|
+| url | Yes | String | The URL to connect to the Etcd cluster |
+| folder | No | String | The key prefix to use. |
+| throwExceptions | No | Boolean | If true, whenever there is an error (e.g. communication error, etc...) an exception will be thrown. |
+| default | No | Map | If throwExceptions is false what should be returned on a get function in case of error. | 
+
 ### Dummy
 
 In this implementation all functionality will simple return without executing anything. It's mainly use for testing proposes.
 
-### Mongo (through oPack)
+### Mongo (through the Mongo oPack)
 
 Please check the Mongo oPack documentation (tbc).
+
+### Etcd3 (through the Etcd3 oPack)
+
+This implementation differs from the "etcd" implementation since it will communicate via GRPC instead of HTTP.
+Please check the Etcd3 oPack documentation (tbc).
+
+### Dynamo (through the AWS oPack)
+
+This implementation uses the AWS API directly to interact with AWS's Dynamo DB.
 
 ### Exposing channels externally
 

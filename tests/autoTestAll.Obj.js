@@ -156,6 +156,54 @@
         ow.test.assert(res[1], 2, "Problem with middle map element on array to ordered object with function");
     };    
 
+    exports.testSyncArray = function() {
+        ow.loadObj();
+
+        var ar = new ow.obj.syncArray([3,2,1]);
+        ow.test.assert(Number(ar.get(1)), Number(2), "Problem with syncArray.get.");
+        ow.test.assert(ar.length(), 3, "Problem with syncArray length.");
+
+        ar.add(4);
+        ow.test.assert(ar.indexOf(2), 1, "Problem with syncArray indexOf.");
+        ar.remove(1);
+        ow.test.assert(ar.indexOf(2), -1, "Problem with syncArray indexOf or remove.");
+        ar.set(1, 2);
+        ow.test.assert(ar.indexOf(2), 1, "Problem with syncArray set.");
+        ow.test.assert(Number(ar.toArray()[2]), Number(4), "Problem with syncArray toArray.");
+    };
+
+    exports.testSchema = function() {
+        var schema = {
+            "required": [
+              "id"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 40
+                },
+                "description": {
+                    "type": "string"
+                }
+            }
+        };
+
+        ow.loadObj();
+        ow.test.assert(ow.obj.schemaCheck(schema), true, "Problem with schema check.");
+        var wrongSchema = clone(schema); wrongSchema.properties.id.type = "long";
+        ow.test.assert(ow.obj.schemaCheck(wrongSchema), false, "Problem with wrong schema check.");
+
+        ow.test.assert(ow.obj.schemaValidate(schema, { id: 1234 }), true, "Problem with simple schema validation.");
+        ow.test.assert(ow.obj.schemaCompile(schema)({ id: 1234, name: "Teste" + repeat(40, '-') }), false, "Problem with schema length validation.");
+
+        ow.obj.schemaAdd("test", schema);
+        ow.test.assert(ow.obj.schemaValidate("test", { id: 1234 }), true, "Problem with simple added schema validation.");
+        ow.obj.schemaRemove("test");
+    };
+
     exports.testObjPool = function() {
         ow.loadObj();
 

@@ -66,6 +66,7 @@ for(var i in homeServerURLs) {
 				log("Downloading it from " + updateURL(i, latestVersion) + ". This may take some seconds.");
 			}
 			var down = new HTTP(updateURL(i, latestVersion), "GET", "", {}, true, 5000);
+			var down2 = new HTTP(updateURL(i, latestVersion) + ".repacked", "GET", "", {}, true, 5000);
 			log("Processing download.");
 			//var zip = new ZIP();
 			//zip.load(down.responseBytes());
@@ -74,7 +75,8 @@ for(var i in homeServerURLs) {
 			io.writeFileBytes(oldVersionFile, io.readFileBytes(classPath));
 			log("Upgrading openaf.jar");
 			try {
-				io.writeFileBytes(classPath.replace(/openaf.jar/, "openaf.jar.tmp"), down.responseBytes());
+				io.writeFileBytes(classPath.replace(/openaf.jar/, "openaf.jar.tmp2"), down.responseBytes());
+				io.writeFileBytes(classPath.replace(/openaf.jar/, "openaf.jar.tmp"), down2.responseBytes());
 				updated = true;
 			} catch(e) {
 				if(!e.message.match(/NoClassDefFoundError/)) {
@@ -96,8 +98,10 @@ log("Done updating to the latest version."); //" Don't forget to run the --repac
 log("Trying to --repack...");
 
 if (updated) {
-	io.writeFileBytes(classPath.replace(/\\/g, "/"), io.readFileBytes(classPath.replace(/openaf.jar/, "openaf.jar.tmp")));
-	io.rm(classPath.replace(/openaf.jar/, "openaf.jar.tmp"));
+	io.writeFileBytes(classPath.replace(/\\/g, "/") + ".orig", io.readFileBytes(classPath.replace(/openaf.jar$/, "openaf.jar.tmp2")));
+	io.writeFileBytes(classPath.replace(/\\/g, "/"), io.readFileBytes(classPath.replace(/openaf.jar$/, "openaf.jar.tmp")));
+	io.rm(classPath.replace(/openaf.jar$/, "openaf.jar.tmp2"));
+	io.rm(classPath.replace(/openaf.jar$/, "openaf.jar.tmp"));
 
 	af.restartOpenAF(["--repack"]);
 }

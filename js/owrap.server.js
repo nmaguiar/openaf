@@ -4,7 +4,7 @@
 
 OpenWrap.server = function() {
 	return ow.server;
-}
+};
 
 /**
  * <odoc>
@@ -101,7 +101,7 @@ OpenWrap.server.prototype.daemon = function(aTimePeriod, aPeriodicFunction) {
 	
 	while(!shouldStop) {
 		if (isDefined(aPeriodicFunction)) shouldStop = aPeriodicFunction();
-		if (!shouldStop) sleep(aTimePeriod);
+		if (!shouldStop) sleep(aTimePeriod, true);
 	}
 }
 
@@ -648,7 +648,7 @@ OpenWrap.server.prototype.auth = function(aIniAuth, aKey, aCustomFunction) {
 	this.initialize(aIniAuth, aKey, aCustomFunction);
 	return this;
 };
-
+ 
 //-----------------------------------------------------------------------------------------------------
 // LDAP Check
 //-----------------------------------------------------------------------------------------------------
@@ -797,7 +797,7 @@ OpenWrap.server.prototype.rest = {
 
 	/**
 	 * <odoc>
-	 * <key>ow.server.rest.reply(aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams) : RequestReply</key>
+	 * <key>ow.server.rest.reply(aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams, anAuditFn) : RequestReply</key>
 	 * Provides a REST compliant HTTPServer request replier given a aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc
 	 * and aRemoveFunc. Each function will receive a map with the provided indexes and data from the request plus the request itself. Optionally you can 
 	 * specify with returnWithParams = true that each function will not return just the data map but a composed map with: data (the actual
@@ -813,9 +813,11 @@ OpenWrap.server.prototype.rest = {
 	 *    )}}, function(req) { return hs.replyOKText("nothing here"); });\
 	 * ow.server.daemon();\
 	 * \ 
+	 * Optionally you can also provide anAuditFn that will be called on every request with the arguments request and reply maps.\
+	 * \
 	 * </odoc>
 	 */
-	reply: function(aBaseURI, aReq, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams) {
+	reply: function(aBaseURI, aReq, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams, anAuditFn) {
 		var idxs = ow.server.rest.parseIndexes(aBaseURI, aReq);
 		var res = {};
 		res.headers = {};
@@ -890,6 +892,7 @@ OpenWrap.server.prototype.rest = {
 			break;
 		}
 
+		if (isDef(anAuditFn) && isFunction(anAuditFn)) $do(() => { anAuditFn(aReq, res); });
 		return res;
 	},
 	
@@ -1186,6 +1189,1231 @@ OpenWrap.server.prototype.scheduler = function () {
 };
 
 //-----------------------------------------------------------------------------------------------------
+// Locks
+//-----------------------------------------------------------------------------------------------------
+
+/**
+ * <odoc>
+ * <key>ow.server.locks(justInternal, aCh)</key>
+ * Creates a lock managing object instance. You can optional make it internal (using a __openAFLocks::local simple channel) or global
+ * using a __openAFLocks:global ignite channel. Optional you can also provide an already created channel aCh.
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks = function(justInternal, aCh, aOptions) {
+	this.timeout = 500;
+	this.retries = 5;
+	this.options = aOptions;
+	this.type = "";
+
+	justInternal = _$(justInternal).default(true);
+	this.name = _$(aCh).isString().default("__openAFLocks::" + (justInternal ? "local" : "global"));
+
+	if (isString(justInternal) && justInternal == "cluster") {
+		aOptions = _$(aOptions).isMap().default({});
+		_$(aOptions.cluster).$_("Please provide a cluster impl object.");
+		_$(aOptions.clusterOptions).$_("Please provide a cluster options object.");
+		this.type = "cluster";
+	}
+
+	if (isUnDef(aCh)) {
+		if (justInternal) {
+			$ch(this.name).create(1, "simple");
+		} else {
+			if (isString(justInternal) && justInternal == "cluster") {
+				$ch(this.name).create(1, "simple");
+			} else {
+				$ch(this.name).create(1, "ignite");
+			}
+		}
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.setTryTimeout(aTimeout)</key>
+ * Sets the default wait time (in ms) for each try (see ow.server.locks.setRetries) checking if a lock is free. Defaults to 500 ms.
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.setTryTimeout = function(aTimeout) {
+	this.timeout = aTimeout;
+	return this;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.setRetries(aNumber)</key>
+ * Sets the number of tries for checking if a lock is free waiting a specific time on each (see ow.server.locks.setRetries). Defaults to 5.
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.setRetries = function(aNumber) {
+	this.retries = aNumber;
+	return this;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.isLocked(aLockName) : boolean</key>
+ * Determines if aLockName is locked (true) or not (false).
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.isLocked = function(aLockName) {
+	var r = false;
+	try {
+		r = $ch(this.name).get({
+			lock: aLockName
+		});
+		if (isUnDef(r)) {
+			$ch(this.name).set({
+				lock: aLockName
+			}, {
+				lock: aLockName,
+				value: false
+			});
+			r = $ch(this.name).get({
+				lock: aLockName
+			});
+		}
+		if (r.value == true && isDef(r.timeout) && !isNull(r.timeout) && (nowUTC() >= r.timeout)) {
+			this.unlock(aLockName);
+			r = $ch(this.name).get({
+				lock: aLockName
+			});
+		}
+	} catch (e) {
+		$ch(this.name).set({
+			lock: aLockName
+		}, {
+			lock: aLockName,
+			value: false
+		});
+		r = $ch(this.name).get({
+			lock: aLockName
+		});
+	}
+
+	return r;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.lock(aLockName, aTryTimeout, aNumRetries, aLockTimeout) : boolean</key>
+ * Locks the lock aLockName optionally using a specific aTryTimeout and aNumRetries instead of the defaults ones (see
+ * ow.server.locks.setTryTimeout and ow.server.locks.setRetries). A aLockTimeout can optionally be provided after which the
+ * lock will expire. If successfull in locking returns true, otherwiser returns false.
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.lock = function(aLockName, aTryTimeout, aNumRetries, aTimeout, extra) {
+	var c = _$(aNumRetries).isNumber().default(this.retries);
+	aTryTimeout = _$(aTryTimeout).isNumber().default(this.timeout);
+	var lock = true;
+	var r;
+
+	var fn = () => {
+		var res = $ch(this.name).getSet({
+			value: false
+		}, {
+			lock: aLockName
+		}, {
+			lock: aLockName,
+			timeout: nowUTC() + aTimeout,
+			value: true,
+			extra: extra
+		});
+		if (isUnDef(res)) return false; else return true;
+	};
+
+	do {
+		if (this.type == "cluster") {
+			extra = _$(extra).default(this.options.clusterOptions.HOST + ":" + this.options.clusterOptions.PORT);
+			var rrr = this.options.cluster.clusterCanLock(this.options.clusterOptions, aLockName);
+			if (rrr) {
+				var res = this.isLocked(aLockName);
+				if (res.value == false) {
+					lock = !fn();
+				} else {
+					if (isDef(res.timeout)) {
+						if (!isNull(res.timeout) && nowUTC() >= res.timeout) 
+							c = 0; 
+						else
+							sleep(aTryTimeout, true);
+					}
+				}
+			}
+		} else {
+			var res = this.isLocked(aLockName);
+			if (res.value == false) {
+				lock = !fn();
+			} else {
+				if (isDef(res.timeout)) {
+					if (!isNull(res.timeout) && nowUTC() >= res.timeout) 
+						c = 0; 
+					else
+						sleep(aTryTimeout, true);
+				}
+			}
+		}
+		if (c > 0) c--;
+	} while ((c > 0 || c < 0) && lock);
+
+	/*if (!lock) {
+		lock = !fn();
+	}*/
+
+	return !lock;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.extendTimeout(aLockName, aTryTimeout) : Objet</key>
+ * Tries to extend the lock timeout (or adds a timeout if doesn't exist) with aTryTimeout for aLockName.
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.extendTimeout = function(aLockName, aTimeout) {
+	var current = $ch(this.name).get({
+		lock: aLockName
+	});
+	$ch(this.name).getSet({
+		value: true
+	}, {
+		lock: aLockName
+	}, {
+		lock: aLockName,
+		value: true,
+		timeout: nowUTC() + aTimeout,
+		extra: current.extra
+	});
+
+	return $ch(this.name).get({
+		lock: aLockName
+	});
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.unlock(aLockName)</key>
+ * Tries to unlock aLockName.
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.unlock = function (aLockName) {
+	if (this.type == "cluster" && !this.options.cluster.clusterCanUnLock(this.options.clusterOptions, aLockName)) return void 0;
+
+	$ch(this.name).getSet({
+		value: true
+	}, {
+		lock: aLockName
+	}, {
+		lock: aLockName,
+		value: false
+	});
+	
+	var res = $ch(this.name).get({
+		lock: aLockName
+	});
+
+	if (isDef(res)) return res; else return true;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.clear(aLockName)</key>
+ * Clears an existing aLockName. Note: This might also unlock an inuse lock.
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.clear = function(aLockName) {
+	$ch(this.name).unset({ lock: aLockName });
+	return this;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.locks.whenUnLocked(aLockName, aFunction, aTryTimeout, aNumRetries) : boolean</key>
+ * A wrapper for ow.server.locks.lock that will try to lock aLockName, execute the provide function and then unlock it
+ * even in case an exception is raised. Returns if the lock was successfull (true) or not (false).
+ * </odoc>
+ */
+OpenWrap.server.prototype.locks.prototype.whenUnLocked = function (aLockName, aFunc, aTryTimeout, aNumRetries) {
+	if (this.lock(aLockName, aTryTimeout, aNumRetries)) {
+		try {
+			aFunc();
+		} finally {
+			this.unlock(aLockName);
+		}
+		return true;
+	}
+
+	return false;
+};
+
+//-------------
+// SIMPLE QUEUE
+//-------------
+
+/**
+ * <odoc>
+ * <key>ow.server.queue(aStamp, aName, aChName)</key>
+ * Creates an instance to handle a queue on a channel named "queue::[aName]" or using aChName. The queue entries 
+ * will be identified on the channel with aStamp map (defaults to {}) ignoring all other entries.
+ * aStamp allows the use of generic channels with other non-queue entries. aName will default to "queue" if not
+ * provided.
+ * </odoc>
+ */
+OpenWrap.server.prototype.queue = function(aStamp, aName, aChName) {
+	aName = _$(aName).isString().default("queue");
+	this.name = _$(aChName).isString().default("queue::" + aName);
+    this.stamp = _$(aStamp).isMap().default({});
+
+	$ch(this.name).create();
+};
+
+OpenWrap.server.prototype.queue.prototype.__find = function(aVisibilityTime) {
+    var keys = $path($ch(this.name).getKeys(), "[] | sort_by(@, &id)");
+    for(var ii = 0; ii < keys.length; ii++) {
+        if (!($stream([keys[ii]]).anyMatch(this.stamp))) continue;
+
+        var val = clone($ch(this.name).get(keys[ii]));
+        if (isDef(val)) {
+            if (val.status == "r") {
+                if (isDef(val.timeout) && val.timeout >= nowUTC()) {
+                    continue;
+                } else {
+					if (isDef(val.timeout)) {
+						// Returning a previously timeout entry
+						delete val.timeout;
+						val.status = "s";
+						var res = $ch(this.name).getSet({
+							id: val.id,
+							status: "r"
+						}, keys[ii],
+						val);
+						
+						if (isUnDef(res)) val = clone($ch(this.name).get(keys[ii]));
+						if (isUnDef(val)) continue; else val = clone(val);
+					} else {
+						$ch(this.name).unset(keys[ii]);
+					}
+                }
+            }
+            if (val.status == "s") {
+				if (isDef(val.to) && val.to <= nowUTC()) {
+					$do(() => { $ch(this.name).unset(keys[ii]); });
+				} else {
+					val.status = "r";
+					if (isDef(aVisibilityTime)) val.timeout = nowUTC() + aVisibilityTime;
+					var res = $ch(this.name).getSet({
+						id: val.id,
+						status: "s"
+					}, keys[ii],
+					val);
+
+					this.val = val;
+					if (isDef(res)) return res;
+				}
+            }
+        }
+    }
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.queue.increaseVisibility(aId, aVisibilityTime)</key>
+ * Tries to set the visibility of a queue aId to now + aVisibilityTime ms. Note: the queue aId should have been already
+ * received previously with a specific visibility time. 
+ * </odoc>
+ */
+OpenWrap.server.prototype.queue.prototype.increaseVisibility = function(aId, aVisibilityTime) {
+	_$(aId, "id").$_();
+	_$(aVisibilityTime, "visibilityTime").isNumber().$_();
+
+	var elem = $path($ch(this.name).getKeys(), "[?id==`" + aId + "`]");
+	if (isDef(elem)) {
+		if (isArray(elem) && elem.length > 0) elem = elem[0];
+
+		var val = $ch(this.name).get(elem);
+		if (isDef(val)) {
+			val.timeout = nowUTC() + aVisibilityTime;
+			$ch(this.name).getSet({
+				id: val.id,
+				status: "s"
+			}, elem, val);
+		}
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.queue.send(aObject, aId, aTTL, aPriority) : Object</key>
+ * Sends aObject (map) to the queue. Optionally a specific unique aId can be provided and/or aTTL (time to live) for the object in
+ * the queue in ms. Optionally aPriority can be provided and will be prefixed to aId. The final unique aId will be returned and used
+ * as the sorting based for returning objects from the queue (the lowest first).
+ * </odoc>
+ */
+OpenWrap.server.prototype.queue.prototype.send = function(aObject, aId, aTTL, aPriority) {
+	aPriority = _$(aPriority).isNumber().default(1);
+	var id = Number(String(aPriority) + String(_$(aId).default(nowNano())));
+
+    $ch(this.name).set(merge({
+		id: id
+    }, this.stamp), merge({
+        id: id,
+		status: "s",
+		to: (isDef(aTTL) ? nowUTC() + aTTL : void 0),
+        obj: aObject
+	}, this.stamp));
+	return id;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.queue.receive(aVisibilityTime, aWaitTime, aPoolTime) : Map</key>
+ * Tries to return an object from the queue within a map composed of two entries: idx (the unique index on the queue)
+ * and obj (the object/map queued). If aVisibilityTime is defined, the returned entry identified by idx will be returned
+ * to the queue if ow.server.queue.delete is not used within aVisibilityTime defined in ms. Optionally you can also provide
+ * aWaitTime for how much to wait for an entry to be available on the queue (defaults to 2,5 seconds) and aPoolTime (defaults to 50ms)
+ * of queue pooling interval.
+ * </odoc>
+ */
+OpenWrap.server.prototype.queue.prototype.receive = function(aVisibilityTime, aWaitTime, aPoolTime) {
+	aWaitTime = _$(aWaitTime, "waitTime").isNumber().default(2500);
+	aPoolTime = _$(aPoolTime, "poolTime").isNumber().default(50);
+    var limit = now() + aWaitTime;
+    do {
+        var r = this.__find(aVisibilityTime);
+        if (isDef(r)) {
+            return {
+                idx: r.id,
+                obj: this.val.obj
+            };
+        }
+        sleep(aPoolTime, true);
+    } while(now() < limit);
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.queue.delete(aId)</key>
+ * Tries to delete a queue unique entry identified by aId.
+ * </odoc>
+ */
+OpenWrap.server.prototype.queue.prototype.delete = function(aId) {
+    $ch(this.name).unset(merge({
+        id: aId
+    }, this.stamp));
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.queue.size() : Number</key>
+ * Tries to return an estimative of the current queue size.
+ * </odoc>
+ */
+OpenWrap.server.prototype.queue.prototype.size = function() {
+	return $ch(this.name).size();
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.queue.purge()</key>
+ * Tries to delete all queue entries.
+ * </odoc>
+ */
+OpenWrap.server.prototype.queue.prototype.purge = function() {
+    var keys = $ch(this.name).getKeys();
+    var ar = [];
+    for(var ii = 0; ii < keys.length; ii++) {
+        if (($stream([keys[ii]]).anyMatch(this.stamp))) ar.push(keys[ii]);
+    }
+    if (ar.length > 0) $ch(this.name).unsetAll(Object.keys(ar[0]), ar);
+};
+
+//-----------------------------------------------------------------------------------------------------
+// TELEMETRY
+//-----------------------------------------------------------------------------------------------------
+
+OpenWrap.server.prototype.telemetry = { 
+	/**
+	 * <odoc>
+	 * <key>ow.server.telemetry.passive(aHTTPdOrPort, aURI, useOpenMetrics, openMetricsPrefix, openMetricsHelp)</key>
+	 * Setup a HTTPd server on aHTTPdOrPort (defaults to 7777) on the aURI (defaults to /healthz) to 
+	 * serve ow.metrics.getAll. If the parameter "s" is present the value will be split by commas and used
+	 * for ow.metrics.getSome.
+	 * Optionally if useOpenMetrics = true the default of aURI becomes /metrics and the output becomes open metrics (prometheus) using openMetricsPrefix (defaults to "metrics") and
+	 * uses the openMetricsHelp where each key is a open metric entry associated with map with text (description text), help (help text) and type (metrics type).
+	 * </odoc>
+	 */
+    passive: function(aHs, aURI, useOpenMetrics, openMetricsPrefix, openMetricsHelp) {
+		aHs  = _$(aHs, "server").default("7777");
+		useOpenMetrics = _$(useOpenMetrics, "useOpenMetrics").default(false);
+		aURI = _$(aURI, "uri").isString().default((useOpenMetrics ? "/metrics" : "/healthz"));
+
+		if (isNumber(aHs)) aHs = ow.server.httpd.start(aHs);
+		ow.loadMetrics();
+
+		var r = {};
+		r[aURI] = (r, aH) => {
+			try {
+				if (isDef(r.params) && isDef(r.params.s)) {
+					if (useOpenMetrics) {
+						return aHs.replyOKText(ow.metrics.fromObj2OpenMetrics(ow.metrics.getSome(r.params.s.split(",")), openMetricsPrefix, now(), openMetricsHelp));
+					} else {
+						return ow.server.httpd.reply(ow.metrics.getSome(r.params.s.split(",")));
+					}
+				} else {
+					if (useOpenMetrics) {
+						return aHs.replyOKText(ow.metrics.fromObj2OpenMetrics(ow.metrics.getAll(), openMetricsPrefix, now(), openMetricsHelp));
+					} else {
+						return ow.server.httpd.reply(ow.metrics.getAll());
+					}
+				}
+			} catch(e) {
+				sprintErr(e);
+			}
+		};
+		ow.server.httpd.route(aHs, r);
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.server.telemetry.active(aSendFund, aPeriod)</key>
+	 * Setup recurrent execution of aSendFunc with the propose of sending ow.metrics for a provided aPeriod (defaults to 60000 ms). 
+	 * </odoc>
+	 */
+	active: function(aSendFunc, aPeriod) {
+		aPeriod = _$(aPeriod, "period").isNumber().default(60000);
+		_$(aSendFunc, "sendFunc").isFunction().$_();
+
+		plugin("Threads");
+		ow.loadMetrics();
+
+		var t = new Threads();
+		t.addScheduleThreadWithFixedDelay(aSendFunc, aPeriod);
+		t.startNoWait();
+	}
+};
+
+//-----------------------------------------------------------------------------------------------------
+// SIMPLE CLUSTER LIST
+//-----------------------------------------------------------------------------------------------------
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster(aHost, aPort, nodeTimeout, aNumberOfTries, aTryTimeout, aImplOptions, aListImplementation) : Object</key>
+ * Creates a new instance of a simple cluster nodes management code. Each cluster node should create it's own instante providing aHost address
+ * on which it can be contacted, a corresponding aPort, a nodeTimeout in ms (defaults to 30000), a aNumberOfTries to contact a cluster node (defaults to 3),
+ * a aTryTimeout in ms waiting for a reply from another cluster node (defaults to 500ms), a custom cluster list implementation options and a custom map of functions
+ * implementing a cluster list retrieval. If no aListImplemnetation is provided it defaults to an internal file based implementation that expects
+ * the following options: LOCKTIMEOUT, how much a lock should be honored in ms (e.g. more that 60000ms and it's wierd that the lock it's still there and no other
+ * cluster node has been found); CLUSTERFILE, the filepath to the cluster file; CLUSTERFILELOCK, the filepath to the cluster file lock file.\
+ * \
+ * To provide another custom aListImplementation it should contain the following methods:\
+ * \
+ *   - clusterLock()                  - locking the access to the cluster nodes list\
+ *   - clusterUnLock()                - unlocking the access to the cluster nodes list\
+ *   - clusterGetList()               - returns the current cluster nodes list\
+ *   - clusterPutList(aList)          - sets a new cluster nodes list (an array with maps containing host, port and date (last contact date))\
+ *   - clusterSendMsg(aHost, aMsg)    - sends aMsg to a specific aHost or all (is aHost = "all")\
+ *   - clusterSetMsgHandler(aT, aHFn) - sets aHFn function (receives (implementationOptionsMap, aMsg) ) to handle any messages that contain { t: aT }\
+ *   - clusterCanLock(aLockName)      - asks all nodes if aLockName can be locked on cluster.locks\
+ *   - clusterCanUnLock(aLockName)    - asks all nodes if aLockName can be unlocked on cluster.locks\
+ *   - clusterLocks()                 - returns the current cluster node locks implementation (ow.server.locks)\
+ * \
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster = function(aHost, aPort, nodeTimeout, aNumberOfTries, aTryTimeout, aImplOptions, aListImplementation) {
+	ow.loadFormat();
+
+	this.HOST              = _$(aHost).isString("aHost not string").default("127.0.0.1");
+	this.PORT              = _$(aPort).isNumber().default(80);   
+	this.TRIES             = _$(aNumberOfTries).isNumber().default(3);
+	this.TRYTIMEOUT        = _$(aTryTimeout).isNumber().default(500);
+	this.NODETIMEOUT       = _$(nodeTimeout).isNumber().default(30000);
+
+	if (isUnDef(aListImplementation)) {
+		this.options = {
+			LOCKTIMEOUT    : 60000,
+			CLUSTERFILE    : "cluster.json",
+			CLUSTERFILELOCK: "cluster.json.lock"
+		};
+	} else {
+		this.options = {
+			HOST: this.HOST,
+			PORT: this.PORT
+		};
+	}
+
+	if (isDef(aImplOptions) && isMap(aImplOptions)) {
+		this.options = merge(this.options, aImplOptions);
+	} 
+
+	if (isUnDef(aListImplementation) || !isObject(aListImplementation)) {
+		this.impl = {
+			clusterLock: (aOptions) => {
+				try {
+					var alock = io.readFile(aOptions.CLUSTERFILELOCK);
+					if (now() - alock.lock > aOptions.LOCKTIMEOUT) {
+						io.writeFile(aOptions.CLUSTERFILELOCK, { lock: now() });
+						return true;
+					} else {
+						return false;
+					}
+				} catch(e) {
+					if (String(e).indexOf("FileNotFoundException") > 0) {
+						io.writeFile(aOptions.CLUSTERFILELOCK, { lock: now() });
+						return true;
+					} else {
+						throw e;
+					}
+				}
+			},
+			clusterUnLock: (aOptions) => {
+				io.rm(aOptions.CLUSTERFILELOCK);
+			},
+			clusterGetList: (aOptions) => {
+				if (!io.fileExists(aOptions.CLUSTERFILE)) io.writeFile(aOptions.CLUSTERFILE, { cluster: [] });
+				return io.readFile(aOptions.CLUSTERFILE);
+			},
+			clusterPutList: (aOptions, aList) => {
+				io.writeFile(aOptions.CLUSTERFILE, aList);
+			}
+		};
+	} else {
+		this.impl = aListImplementation;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.sendToOthers(aData, aSendToOtherFn) : Object</key>
+ * Tries to send to another cluster node aData using aSendToOtherFn that receives, as parameter, a aData and a Map with HOST and PORT of another
+ * cluster node to try. In case of failure the function should throw an exception in case of success the function should return an object
+ * that will be returned. If no result can be obtained an object with result: 0 will be returned.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.sendToOthers = function(aData, aSendFn) {
+	var clusterList = this.impl.clusterGetList(this.options);
+	var tryList = clusterList.cluster;
+	var res = void 0;
+
+	for(var ii in tryList) {
+		if ((tryList[ii].host + tryList[ii].port) != (this.HOST + this.PORT)) {
+			try { 
+				res = aSendFn(aData, tryList[ii]); 
+				return res; 
+			} catch(e) {
+			}
+		}
+	}
+	
+	return res;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.any(aFunction, includeMe) : Object</key>
+ * Tries to execute aFunction providing a map with one of the cluster list host + port. If the aFunction throws an exception another
+ * cluster will be used. If no cluster could be used an exception is thrown. Optionally includeMe = true enables executing on the current
+ * cluster node itself. If succcessfully returns whatever the aFunction returns.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.any = function(aFunction, includeMe) {
+	var clusterList = this.impl.clusterGetList(this.options);
+	var tryList = $from(clusterList.cluster.map((r) => { 
+		r.date = Number(r.date) + (isDef(r.load) ? Math.floor(Math.random() * 30000) : r.load);
+		return r; 
+	})).sort("date").select();
+	var res = void 0;
+
+	for(var ii in tryList) {
+		if (includeMe || (tryList[ii].host + tryList[ii].port) != (this.HOST + this.PORT)) {
+			try { 
+				res = aFunction(tryList[ii]); 
+				return res; 
+			} catch(e) {
+			}
+		}
+	}
+	
+	throw "Couldn't execute.";
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.all(aFunction, includeMe) : Object</key>
+ * Tries to execute aFunction providing a map with all of the cluster list host + port. If the aFunction throws an exception another
+ * cluster will be used. If no cluster could be used an exception is thrown. Optionally includeMe = true enables executing on the current
+ * cluster node itself. If succcessfully returns whatever the aFunction returns.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.all = function(aFunction, includeMe) {
+	var clusterList = this.impl.clusterGetList(this.options);
+	var res = void 0, lO = [];
+
+	for(let ii in clusterList) {
+		if (includeMe || (clusterList[ii].host + clusterList[ii].port) != (this.HOST + this.PORT)) {
+			lO.push($do(() => {
+				return aFunction(clusterList[ii]);
+			}));
+		}
+	}
+
+	return lO;
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.sendMsg(aHostMap, aMessageMap)</key>
+ * Sends aMessageMap to a specific aHostMap (map composed of a host and a port) or to all cluster nodes if aHostMap = "all".
+ * The aMessageMap should contain a "t" key for message topic. The topics "l", "u", "cl", "dl", "cu" and "du" are reserved
+ * for cluster lock management.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.sendMsg = function(aHost, aMessage) {
+	return this.impl.clusterSendMsg(this.options, aHost, aMessage);
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.setMsgHandler(aMessageTopic, aHandlerFunction)</key>
+ * Sets aHandlerFunction to be called whenever the current node receives a message with aMessageTopic. The aHandlerFunction 
+ * receives the implementation options and the message.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.setMsgHandler = function(aTypeOfMessage, aHandlerFunction) {
+	return this.impl.clusterSetMsgHandler(this.options, aTypeOfMessage, aHandlerFunction);
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.canLock(aLockName) : boolean</key>
+ * Sends messages to all other cluster nodes to reach quorum if can lock aLockName or not. Returns true if yes.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.canLock = function(aLockName) {
+	return this.impl.clusterCanLock(this.options, aLockName);
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.canUnLock(aLockName) : boolean</key>
+ * Sends messages to all other cluster nodes to reach quorum if can unlock aLockName or not. Returns true if yes.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.canUnlock = function(aLockName) {
+	return this.impl.clusterCanUnLock(this.options, aLockName);
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.locks() : owServerLocks</key>
+ * Returns the current cluster node ow.server.locks instance.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.locks = function() {
+	return this.impl.clusterLocks(this.options);
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.whenUnLocked(aLockName, aFn, aTryTimeout, aNumRetries) : boolean</key>
+ * A wrapper for ow.server.locks.lock that will try to lock aLockName after check in the cluster if it can be locked, execute the
+ * provide function and then unlock it even in case an exception is raised. Returns if the lock was successfull (true) or not (false).
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.whenUnLocked = function(aLockName, aFn, aTryTimeout, aNumRetries) {
+	return this.impl.clusterLocks(this.options).whenUnLocked(aLockName, aFn, aTryTimeout, aNumRetries);
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.verify(addNewHostMap, delHostMap, customLoad)</key>
+ * Verifies if all cluster nodes ports are reachable and updates the cluster file. If a cluster node is not reachable it will try
+ * to a specific number of times after timing out on a specific timeout (see default values in help ow.server.cluster).
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.verify = function(addNewHost, delHost, customLoad) {
+	var numTries = this.TRIES, triesTimeout = this.TRYTIMEOUT;
+	while(this.impl.clusterLock(this.options) && numTries > 0) {
+		numTries--;
+		sleep(triesTimeout);
+	}
+	if (numTries > 0) {
+		var clusterList = this.impl.clusterGetList(this.options);
+		if (isUnDef(addNewHost)) addNewHost = {
+			host: this.HOST,
+			port: this.PORT,
+			date: now(),
+			dead: false
+		};
+		
+		if ($path(clusterList.cluster, 
+			      "[?host==`" + addNewHost.host + "`] | [?port==`" + addNewHost.port + "`] | length([])") == 0) clusterList.cluster.push(addNewHost);
+
+		for(var ii in clusterList.cluster) {
+			if ((isDef(delHost) && 
+				(delHost.host == clusterList.cluster[ii].host && delHost.port == clusterList.cluster[ii].port)) || 
+				 clusterList.cluster[ii].dead) {
+				clusterList.cluster = deleteFromArray(clusterList.cluster, ii);
+			} else {
+				var res = ow.format.testPort(clusterList.cluster[ii].host, clusterList.cluster[ii].port, 100); 
+				if (res) {
+					clusterList.cluster[ii].date = now();
+					clusterList.cluster[ii].load = (isDef(customLoad) ? customLoad : Math.floor(getCPULoad(true) * 10000));
+					clusterList.cluster[ii].dead = false;
+				} else {
+					if (now() - clusterList.cluster[ii].date > this.NODETIMEOUT) {
+						logWarn("Can't contact " + clusterList.cluster[ii].host + ":" + clusterList.cluster[ii].port + "!");
+						clusterList.cluster[ii].dead = true;
+					}
+				}
+			}
+		}
+		this.impl.clusterPutList(this.options, clusterList);
+		this.impl.clusterUnLock(this.options);
+		return true;
+	} else {
+		return false;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.checkIn()</key>
+ * Checks in the current cluster node.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.checkIn = function() {
+	var me = {
+		host: this.HOST,
+		port: this.PORT,
+		date: now()
+	};
+
+	var res = this.verify(me);
+	if (!res) throw "Can't register on cluster.";
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.cluster.checkOut()</key>
+ * Checks out the current cluster node.
+ * </odoc>
+ */
+OpenWrap.server.prototype.cluster.prototype.checkOut = function() {
+	var me = {
+		host: this.HOST,
+		port: this.PORT,
+		date: now(),
+		dead: false		
+	};
+
+	var res = this.verify(void 0, me);
+	if (!res) throw("Can't unregister from cluster.");
+};
+
+/**
+ * <odoc>
+ * <key>ow.server.clusterChsPeersImpl</key>
+ * This ow.servers.cluster implementation will cluster one or more cluster servers keeping the cluster connection details on
+ * a cluster channel (defaults to __cluster::[name of cluster]). It's meant to be provided to ow.server.cluster like this:\
+ * \
+ * var mts = new ow.server.cluster("1.2.3.4", 1234, void 0, void 0, void 0, { name: "testCluster" }, ow.server.clusterChsPeersImpl)\
+ * \
+ * There are several implementation options:\
+ * \
+ *    name         (String, mandatory)  The clusters name.\
+ *    serverOrPort (Number or HTTPd)    Port or http server object where the cluster node channels will be available.\
+ *    protocol     (String)             The transport protocol use to reach other cluster (defaults to http).\
+ *    path         (String)             The path where other cluster nodes channel is reachable (defaults to '/__m').\
+ *    authFunc     (Function)           Optional authentication function (see mor in ow.ch.server.peer).\
+ *    unAuthFunc   (Function)           Optional failed authentication function (see more in ow.ch.server.peer).\
+ *    maxTime      (Number)             Optional retry max time (see more in ow.ch.server.peer).\
+ *    maxCount     (Number)             Optional max count of retries (see more in ow.ch.server.peer).\
+ *    ch           (String)             The cluster local channel (defaults to "__cluster::[name of cluster]").\
+ *    chs          (Array)              Array of names of channels or maps with each channel name and path. These channels will be automatically peered and unpeered with other cluster nodes. The path, if not provided, defaults to "/[name of channel]".\
+ *    chErrs       (String)             The cluster local errors channel (default is none).\
+ * \
+ * </odoc>
+ */
+OpenWrap.server.prototype.clusterChsPeersImpl = {
+	clusterLocks: (aOps) => {
+		return aOps.locks;
+	},
+	clusterCanLock: (aOps, aLockName) => {
+		_$(aLockName).isString().$_("Please provide a lock name.");
+		var canLock = false, allVotesIn = false;
+
+		ow.server.clusterChsPeersImpl.__check(aOps);
+		var uuid = $ch(aOps.quorum).subscribe((aCh, aOp, aK, aV) => {
+			if (aOp == "set") aV = [ aV ];
+			if (aOp == "set" || aOp == "setall") {
+				for(var ii in aV) {
+					if (!allVotesIn && aV[ii].n == aLockName) {
+						var clusterSize = $ch(aOps.ch).size();
+						var qitem = $ch(aCh).get({ t: "locks", n: aLockName });
+						if (qitem.qNk.length > 0) {
+							canLock = false; allVotesIn = true; // veto
+						} else {
+							if (qitem.qOk.length >= Math.floor(((clusterSize / 2) + 1))) {
+								canLock = true; allVotesIn = true;
+							}
+						}
+					}
+				}
+			} 
+		});
+		$ch(aOps.quorum).set({
+			t: "locks", n: aLockName
+		}, {
+			t: "locks", n: aLockName, qOk: [], qNk: []
+		});
+		ow.server.clusterChsPeersImpl.clusterSendMsg(aOps, "all", {
+			t: "l",
+			n: aLockName,
+			b: aOps.HOST + ":" + aOps.PORT
+		});
+		var timeout = now() + aOps.quorumTimeout;
+		while(timeout > now() && !allVotesIn) {
+			sleep(150);
+		}
+		$ch(aOps.quorum).unsubscribe(uuid);
+		$ch(aOps.quorum).unset({
+			t: "locks", n: aLockName
+		});
+		return canLock;
+	},
+	clusterCanUnLock: (aOps, aLockName) => {
+		_$(aLockName).isString().$_("Please provide a lock name.");
+		var canUnLock = false, allVotesIn = false;
+		
+		ow.server.clusterChsPeersImpl.__check(aOps);
+		var uuid = $ch(aOps.quorum).subscribe((aCh, aOp, aK, aV) => {
+			if (aOp == "set") aV = [ aV ];
+			if (aOp == "set" || aOp == "setall") {
+				for(var ii in aV) {
+					if (!allVotesIn && aV[ii].n == aLockName) {
+						var clusterSize = $ch(aOps.ch).size();
+						var qitem = $ch(aCh).get({ t: "unlocks", n: aLockName });
+						if (qitem.qNk.length > 0) {
+							canUnLock = false; allVotesIn = true; // veto
+						} else {
+							if (qitem.qOk.length >= Math.floor(((clusterSize / 2) + 1))) {
+								canUnLock = true; allVotesIn = true;
+							}
+						}
+					}
+				}
+			} 
+		});
+		$ch(aOps.quorum).set({
+			t: "unlocks", n: aLockName
+		}, {
+			t: "unlocks", n: aLockName, qOk: [], qNk: []
+		});
+		ow.server.clusterChsPeersImpl.clusterSendMsg(aOps, "all", {
+			t: "u",
+			n: aLockName,
+			b: aOps.HOST + ":" + aOps.PORT
+		});
+		var timeout = now() + aOps.quorumTimeout;
+		while(timeout > now() && !allVotesIn) {
+			sleep(150);
+		}
+		$ch(aOps.quorum).unsubscribe(uuid);
+		$ch(aOps.quorum).unset({
+			t: "unlocks", n: aLockName
+		});
+		return canUnLock;
+	},
+	clusterSetMsgHandler: (aOptions, aTypeOfMessage, aHandlerFunction) => {
+		_$(aTypeOfMessage).isString().$_("Please provide a type of message.");
+		_$(aHandlerFunction).isFunction().$_("Please provide a handler function.");
+
+		ow.server.clusterChsPeersImpl.__check(aOptions);
+
+		aOptions.opsMsgs[aTypeOfMessage] = aHandlerFunction;
+	},
+	clusterSendMsg: (aOptions, aTo, aMessage) => {
+		ow.server.clusterChsPeersImpl.__check(aOptions);
+
+		var id = nowNano();
+		var receptors = [];
+
+		if (aTo == "all") {
+			receptors = $path($ch(aOptions.ch).getAll(), "[].{ host: h, port: p }");
+		} else {
+			var [aHost, aPort] = aTo.split(/:/);
+			receptors.push({
+				host: aHost,
+				port: aPort
+			});
+		}
+
+		var rPros = [], errs = {};
+		receptors.forEach((v) => {
+			var vclo = clone(v);
+			rPros = $do(() => {
+				var isLocal = (aOptions.HOST == vclo.host && aOptions.PORT == vclo.port);
+				var url = aOptions.protocol + "://" + vclo.host + ":" + vclo.port + aOptions.path + "_msgs";
+				var ch = (isLocal) ? aOptions.chMsgs : aOptions.chMsgs + "::" + vclo.host + ":" + vclo.port;
+				var existed = false;
+
+				errs[aOptions.chMsgs + "::" + vclo.host + ":" + vclo.port] = {
+					sent: false
+				};
+				if (!isLocal) { $ch(ch).createRemote(url); existed = true; }
+				$ch(ch).set({
+					i: id,
+					f: aOptions.HOST + ":" + aOptions.PORT,
+					t: vclo.host + ":" + vclo.port
+				}, {
+					i: id,
+					f: aOptions.HOST + ":" + aOptions.PORT,
+					t: vclo.host + ":" + vclo.port,
+					m: aMessage	
+				});
+				if (!isLocal && !existed) $ch(ch).destroy();
+				errs[aOptions.chMsgs + "::" + vclo.host + ":" + vclo.port] = {
+					sent: true
+				};
+			}).catch((e) => {
+				errs[aOptions.chMsgs + "::" + vclo.host + ":" + vclo.port] = {
+					sent: false,
+					error: e
+				};
+				if (isDef(aOptions.chErrs)) {
+					$ch(aOptions.chErrs).set({
+						h: vclo.host,
+						p: vclo.port,
+						e: e
+					});
+				}
+				//printErr("ERROR clusterSendMsg: " + aOptions.chMsgs + "::" + vclo.host + ":" + vclo.port + " | " + stringify(e, void 0, ""));
+			});
+		});
+		$doWait($doAll(rPros));
+		return errs;
+	},
+	__check: (aOptions) => {
+		if (isUnDef(aOptions.init) || !aOptions.init) {
+			aOptions.init = true;
+			ow.loadServer();
+			ow.loadObj();
+
+			aOptions.name = _$(aOptions.name).isString().$_("Please provide a name for the ow.server.cluster chsPeerImpl.");
+			aOptions.protocol = _$(aOptions.protocol).isString().default("http");
+			aOptions.path = _$(aOptions.path).isString().default("/__m");
+			if (isUnDef(aOptions.serverOrPort)) aOptions.serverOrPort = ow.server.httpd.start(aOptions.PORT, aOptions.HOST);
+			aOptions.authFunc = _$(aOptions.authFunc).default(void 0);
+			aOptions.unAuthFunc = _$(aOptions.unAuthFunc).default(void 0);
+			aOptions.maxTime = _$(aOptions.maxTime).default(void 0);
+			aOptions.maxCount = _$(aOptions.maxCount).default(void 0);
+			aOptions.chLock = _$(aOptions.chLock).default("__cluster::" + aOptions.name + "::locks");
+			aOptions.chMsgs = _$(aOptions.chMsgs).default("__cluster::" + aOptions.name + "::msgs");
+			aOptions.quorum = _$(aOptions.chQuorum).default("__cluster::" + aOptions.name + "::quorum");
+			aOptions.chs = _$(aOptions.chs).isArray().default([]);
+			aOptions.opsMsgs = _$(aOptions.opsMsgs).default({});
+			aOptions.quorumTimeout = _$(aOptions.quorumTimeout).default(5000);
+	
+			aOptions.chs.push({
+				name: aOptions.chMsgs,
+				peer: false,
+				path: aOptions.path + "_msgs"
+			});
+
+			//aOptions.chs.push(aOptions.chLock);
+			$ch(aOptions.chMsgs).create(1, "dummy");
+			$ch(aOptions.chLock).create(1, "simple");
+			$ch(aOptions.quorum).create(1, "simple");
+
+			aOptions.locks = new ow.server.locks("cluster", aOptions.chLock, { cluster: ow.server.clusterChsPeersImpl, clusterOptions: aOptions });
+			if (isUnDef(aOptions.ch)) aOptions.ch = "__cluster::" + aOptions.name;
+
+			aOptions.opsMsgs.l = (aOps, v) => {
+				// lock 
+				//var tt = (aOps.locks.isLocked(v.m.n).value ? "dl" : "cl");
+				var tt;
+				if (v.m.b == (aOps.HOST + ":" + aOps.PORT)) {
+					tt = "cl";
+				} else {
+					//tt = (!aOps.locks.isLocked(v.m.n).value && aOps.locks.lock(v.m.n) ? "cl" : "dl");
+					tt = (!aOps.locks.isLocked(v.m.n).value ? "cl" : "dl");
+				}
+
+				ow.server.clusterChsPeersImpl.clusterSendMsg(aOps, v.m.b, {
+					t: tt,
+					n: v.m.n
+				});
+			};
+
+			aOptions.opsMsgs.u = (aOps, v) => {
+				// unlock 
+				//var tt = (aOps.locks.isLocked(v.m.n).value ? "cu" : "du");
+				var tt;
+				if (v.m.b == (aOps.HOST + ":" + aOps.PORT)) {
+					tt = "cu";
+				} else {
+					//tt = (aOps.locks.unlock(v.m.n) ? "cu" : "du");
+					tt = (aOps.locks.isLocked(v.m.n) ? "cu" : "du");
+				} 
+
+				ow.server.clusterChsPeersImpl.clusterSendMsg(aOps, v.m.b, {
+					t: tt,
+					n: v.m.n
+				});
+			};
+
+			aOptions.opsMsgs.cl = (aOps, v) => {
+				var current = $ch(aOps.quorum).get({ t: "locks", n: v.m.n });
+				current.qOk.push(v.f);
+				$ch(aOps.quorum).set({ 
+					t: "locks", 
+					n: v.m.n 
+				}, { 
+					t: "locks", 
+					n: v.m.n,
+					qOk: current.qOk,
+					qNk: current.qNk
+				});
+			};
+			aOptions.opsMsgs.dl = (aOps, v) => {
+				var current = $ch(aOps.quorum).get({ t: "locks", n: v.m.n });
+				current.qNk.push(v.f);
+				$ch(aOps.quorum).set({ 
+					t: "locks", 
+					n: v.m.n 
+				}, { 
+					t: "locks", 
+					n: v.m.n,
+					qOk: current.qOk,
+					qNk: current.qNk
+				});
+			};
+
+			aOptions.opsMsgs.cu = (aOps, v) => {
+				// confirm unlock
+				var current = $ch(aOps.quorum).get({ t: "unlocks", n: v.m.n });
+				current.qOk.push(v.f);
+				$ch(aOps.quorum).set({ 
+					t: "unlocks", 
+					n: v.m.n 
+				}, { 
+					t: "unlocks", 
+					n: v.m.n,
+					qOk: current.qOk,
+					qNk: current.qNk
+				});
+			};
+
+			aOptions.opsMsgs.du = (aOps, v) => {
+				var current = $ch(aOps.quorum).get({ t: "unlocks", n: v.m.n });
+				current.qNk.push(v.f);
+				$ch(aOps.quorum).set({ 
+					t: "unlocks", 
+					n: v.m.n 
+				}, { 
+					t: "unlocks", 
+					n: v.m.n,
+					qOk: current.qOk,
+					qNk: current.qNk
+				});
+			};
+
+			$ch(aOptions.chMsgs).subscribe((aCh, aOp, aK, aV) => {
+				if (aOp == "set") aV = [ aV ];
+				if (aOp == "setAll" || aOp == "set") {
+					for(var vi in aV) {
+						var v = aV[vi];
+						if (isDef(v.t) && isDef(v.i) && isDef(v.f) && isDef(v.m)) {
+							if ((v.t == "all" && v.f != aOptions.HOST + ":" + aOptions.PORT) || 
+							     v.t == aOptions.HOST + ":" + aOptions.PORT) {
+								aOptions.opsMsgs[v.m.t](aOptions, v);
+							}
+						}
+					}
+				}
+			});
+		}
+		
+		if ($ch().list().indexOf(aOptions.ch) < 0) {
+			$ch(aOptions.ch).create(1, "simple");
+
+			$ch(aOptions.ch).expose(aOptions.serverOrPort, aOptions.path, aOptions.authFunc, aOptions.unAuthFunc);
+			var parent = this;
+			$ch(aOptions.ch).subscribe((aCh, aOp, aK, aV) => {
+				try{
+				var add = (m) => {
+					if (m.h == aOptions.host && m.p == aOptions.port) return;
+					var url = aOptions.protocol + "://" + m.h + ":" + m.p + aOptions.path;
+					$ch(aOptions.ch).peer(aOptions.serverOrPort, aOptions.path, url, aOptions.authFunc, aOptions.unAuthFunc, aOptions.maxTime, aOptions.maxCount);
+					
+					for(let ii in aOptions.chs) {
+						var achs = aOptions.chs[ii];
+						if (isString(achs)) {
+							achs = {
+								name: achs,
+								peer: true
+							};
+						}
+						if (isMap(achs) && isDef(achs.name)) {
+							achs.path = _$(achs.path).isString().default("/" + achs.name);
+							var turl = aOptions.protocol + "://" + m.h + ":" + m.p + achs.path;
+							if (isDef(achs.peer) && achs.peer) {
+								$ch(achs.name).peer(aOptions.serverOrPort, achs.path, turl, aOptions.authFunc, aOptions.unAuthFunc, aOptions.maxTime, aOptions.maxCount);
+							} else {
+								$ch(achs.name).expose(aOptions.serverOrPort, achs.path, aOptions.authFunc, aOptions.unAuthFunc);
+							}
+						}
+					}
+				};
+
+				var del = (m) => {
+					var url = aOptions.protocol + "://" + m.h + ":" + m.p + parent.path;
+					$ch(aOptions.ch).unpeer(url);
+					for(let ii in aOptions.chs) {
+						var achs = aOptions.chs[ii];
+						if (isString(achs)) {
+							achs = {
+								name: achs
+							};
+						}
+						if (isMap(achs) && isDef(achs.name)) {
+							achs.path = _$(achs.path).isString().default("/" + achs.name);
+							var turl = aOptions.protocol + "://" + m.h + ":" + m.p + achs.path;
+							$ch(achs.name).unpeer(turl);
+						}
+					}
+				};
+
+				switch(aOp) {
+				case "set"     : add(aK); break;
+				case "setall"  : aV.forEach((v) => { add(ow.obj.filterKeys(aK, v)); }); break;
+				case "unset"   : del(aK); break;
+				case "unsetall": aV.forEach((v) => { del(ow.obj.filterKeys(aK, v)); }); break;
+				}
+				} catch(e){sprintErr(e);} 
+			});
+		}
+	},
+	clusterLock: (aOptions) => { },
+	clusterUnLock: (aOptions) => { },
+	clusterGetList: (aOptions) => {
+		ow.server.clusterChsPeersImpl.__check(aOptions);
+
+		var res = $ch(aOptions.ch).getAll();
+		return { cluster: $path(res, "[].{ host: h, port: p, date: d, dead: a, load: l }") };
+	},
+	clusterPutList: (aOptions, aList) => {
+		ow.server.clusterChsPeersImpl.__check(aOptions);
+		var res = $ch(aOptions.ch).getKeys();
+		for(let ii in res) {
+			var it = res[ii];
+			if ($from(aList.cluster).equals("host", it.h).equals("port", it.p).none()) {
+				$ch(aOptions.ch).unset({ h: it.h, p: it.p });
+			}
+		}
+		$ch(aOptions.ch).setAll(["h", "p"], $path(aList.cluster, "[].{ h: host, p: port, d: date, a: dead, l: load }"));
+	}
+};
+
+//-----------------------------------------------------------------------------------------------------
 // HTTP SERVER
 //-----------------------------------------------------------------------------------------------------
 
@@ -1193,28 +2421,56 @@ OpenWrap.server.prototype.httpd = {
 	__routes: {},
 	__defaultRoutes: {},
 	__preRoutes: {},
-	
-	
+
 	/**
 	 * <odoc>
-	 * <key>ow.server.httpd.start(aPort, aHost, keyStorePath, password, errorFunction) : Object</key>
+	 * <key>ow.server.httpd.start(aPort, aHost, keyStorePath, password, errorFunction, aWebSockets, aTimeout) : Object</key>
 	 * Will prepare a HTTP server to be used returning a HTTPServer object. Optionally you can provide 
 	 * aPort where you want the HTTP server to run. Otherwise a free port will be assigned.
-	 * (available after ow.loadServer())
+	 * (available after ow.loadServer()).\
+	 * \
+	 * aWebSockets, if used, should be a map with the following functions:\
+	 * \
+	 *    onOpen(_ws)\
+	 *    onClose(_ws, aCode, aReason, hasInitByRemote)\
+	 *    onMessage(_ws, aMessage)\
+	 *    onPong(_ws, aPong)\
+	 *    onException(_ws, anException)\
+	 * \
 	 * </odoc>
 	 */
-	start: function(aPort, aHost, keyStorePath, password, errorFunction) {
+	start: function(aPort, aHost, keyStorePath, password, errorFunction, aWebSockets, aTimeout) {
 		plugin("HTTPServer");
 		
 		if (isUnDef(aPort)) {
 			aPort = findRandomOpenPort();
 		}
 		
-		var hs = new HTTPd(aPort, aHost, keyStorePath, password, errorFunction);
+		var hs;
+		if (isDef(aWebSockets) && isMap(aWebSockets)) 
+			hs = new HTTPd(aPort, aHost, keyStorePath, password, errorFunction, new Packages.com.nwu.httpd.IWebSock({
+				oOpen     : aWebSockets.onOpen,
+				oClose    : aWebSockets.onClose,
+				oMessage  : aWebSockets.onMessage,
+				oPong     : aWebSockets.onPong,
+				oException: aWebSockets.onException
+			}), aTimeout);
+		else
+			hs = new HTTPd(aPort, aHost, keyStorePath, password, errorFunction);
 		
 		this.resetRoutes(hs);
 
 		return hs;
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.httpd.setWebSocketRoute(aHTTPd, aURI)</key>
+	 * Using aHTTPd sets aURI to act as a websocket server.
+	 * </odoc>
+	 */
+	setWebSocketRoute: function(aHTTPd, aURI) {
+		aHTTPd.addWS(aURI);
 	},
 	
 	/**
@@ -1266,8 +2522,8 @@ OpenWrap.server.prototype.httpd = {
 	 * ow.loadServer();\
 	 * var hs = ow.server.httpd.start(17878);\
 	 * ow.server.httpd.route(hs, ow.server.httpd.mapRoutesWithLibs(hs, {\
-	 * 		"/myapp": function(req) {\
-	 * 			return hs.replyOKText("my stuff!!");\
+	 * 		"/myapp": function(req, aHs) {\
+	 * 			return aHs.replyOKText("my stuff!!");\
 	 * 		}\
 	 * }),\
 	 * function(req) {\
@@ -1294,15 +2550,15 @@ OpenWrap.server.prototype.httpd = {
 		
 		aHTTPd.add(aPath, function(req) {			
 			var uri = req.uri.replace(new RegExp("^" + aP), "");
-			if (isFunction(parent.__preRoutes[aPort])) parent.__preRoutes[aPort](req);
+			if (isFunction(parent.__preRoutes[aPort])) parent.__preRoutes[aPort](req, aHTTPd);
 			if (isFunction(parent.__routes[aPort][uri])) {
-				return parent.__routes[aPort][uri](req);
+				return parent.__routes[aPort][uri](req, aHTTPd);
 			} else {
 				var bp = ow.format.string.bestPrefix(uri, Object.keys(parent.__routes[aPort]));
 				if (isDef(bp))
-					return parent.__routes[aPort][bp](req);
+					return parent.__routes[aPort][bp](req, aHTTPd);
 				else
-					return parent.__defaultRoutes[aPort](req);
+					return parent.__defaultRoutes[aPort](req, aHTTPd);
 			}
 		});
 		
@@ -1346,85 +2602,89 @@ OpenWrap.server.prototype.httpd = {
 	/**
 	 * <odoc>
 	 * <key>ow.server.httpd.mapRoutesWithLibs(aHTTPd, aMapOfRoutes) : Map</key>
-	 * Helper to use with ow.server.httpd.route to automatically add routes for JQuery, Backbone,
+	 * Helper to use with ow.server.httpd.route to automatically add routes for JQuery,
 	 * Handlebars, jLinq and Underscore from the openaf.jar.
 	 * </odoc>
 	 */
 	mapRoutesWithLibs: function(aHTTPd, aMapOfRoutes) {
-		if (isUndefined(aMapOfRoutes)) aMapOfRoutes = {};
+		if (isUnDef(aMapOfRoutes)) aMapOfRoutes = {};
 		aMapOfRoutes["/js/jquery.js"] = function() { return ow.server.httpd.replyJQuery(aHTTPd); };
-		aMapOfRoutes["/js/backbone.js"] = function() { return ow.server.httpd.replyBackbone(aHTTPd); };
 		aMapOfRoutes["/js/handlebars.js"] = function() { return ow.server.httpd.replyHandlebars(aHTTPd); };
 		aMapOfRoutes["/js/stream.js"] = function() { return ow.server.httpd.replyStream(aHTTPd); };
 		aMapOfRoutes["/js/jlinq.js"] = function() { return ow.server.httpd.replyJLinq(aHTTPd); };
+		aMapOfRoutes["/js/jmespath.js"] = function() { return ow.server.httpd.replyJMesPath(aHTTPd); };
 		aMapOfRoutes["/js/underscore.js"] = function() { return ow.server.httpd.replyUnderscore(aHTTPd); };
 		aMapOfRoutes["/js/lodash.js"] = function() { return ow.server.httpd.replyLoadash(aHTTPd); };
-		aMapOfRoutes["/js/openafsigil.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/openafsigil.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/js/highlight.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/highlight.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/js/materialize.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/materialize.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/css/materialize.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/materialize.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/css/materialize-icon.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/materialize-icon.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/css/github-gist.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/github-gist.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/css/github-markdown.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/github-markdown.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.svg"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.svg", true), ow.server.httpd.mimes.SVG, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Bold.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Bold.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Bold.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Bold.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Light.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Light.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Light.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Light.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Medium.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Medium.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Medium.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-	    aMapOfRoutes["/fonts/roboto/Roboto-Medium.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Regular.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Regular.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Regular.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Regular.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Thin.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Thin.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Thin.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
-		aMapOfRoutes["/fonts/roboto/Roboto-Thin.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK) };
+		aMapOfRoutes["/js/openafsigil.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/openafsigil.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/js/highlight.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/highlight.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/js/materialize.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/materialize.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/css/materialize.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/materialize.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/css/materialize-icon.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/materialize-icon.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/css/github-gist.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/github-gist.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/css/github-markdown.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/github-markdown.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.svg"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.svg", true), ow.server.httpd.mimes.SVG, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Bold.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Bold.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Bold.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Bold.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Bold.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Light.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Light.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Light.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Light.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Light.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Medium.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Medium.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Medium.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+        aMapOfRoutes["/fonts/roboto/Roboto-Medium.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Medium.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Regular.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Regular.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Regular.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Regular.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Regular.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Thin.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Thin.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Thin.woff"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.woff", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/roboto/Roboto-Thin.woff2"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/roboto/Roboto-Thin.woff2", true), ow.server.httpd.mimes.WOFF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/openaf.ico"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/openaf.ico", true), ow.server.httpd.mimes.ICO, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/openaf_large.png"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/openaf_large.png", true), ow.server.httpd.mimes.PNG, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/openaf_medium.png"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/openaf_medium.png", true), ow.server.httpd.mimes.PNG, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/fonts/openaf_small.png"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/openaf_small.png", true), ow.server.httpd.mimes.PNG, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		return aMapOfRoutes;
 	},
 	
 	replyJQuery: function(aHTTPd) {
-		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/jquery.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK);
-	},
-	
-	replyBackbone: function(aHTTPd) {
-		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/backbone.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK);
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/jquery.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);
 	},
 	
 	replyHandlebars: function(aHTTPd) {
-		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/handlebars.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK);
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/handlebars.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);
 	},
 	
 	replyStream: function(aHTTPd) {
-		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/stream.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK);
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/stream.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);
 	},
 	
 	replyJLinq: function(aHTTPd) {
-		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/jlinq.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK);		
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/jlinq.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);		
 	},
+
+	replyJMesPath: function(aHTTPd) {
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/jmespath.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);		
+	},	
 	
 	replyUnderscore: function(aHTTPd) {
-		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/lodash.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK);		
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/lodash.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);		
 	},
 	
 	replyLoadash: function(aHTTPd) {
-		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/lodash.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK);		
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/lodash.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);		
 	},
 
 	/**
 	 * <odoc>
-	 * <key>ow.server.httpd.replyFile(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray) : Map</key>
+	 * <key>ow.server.httpd.replyFile(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray, mapOfHeaders) : Map</key>
 	 * Provides a helper aHTTPd reply that will enable the download of a file, from aBaseFilePath, given aURI part of 
 	 * aBaseURI. Optionally you can also provide a notFoundFunction and an array of file strings (documentRootArraY) to replace as
 	 * documentRoot. Example:\
@@ -1441,28 +2701,29 @@ OpenWrap.server.prototype.httpd = {
 	 * \
 	 * </odoc>
 	 */
-	replyFile: function(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray) {
-		if (isUndefined(notFoundFunction)) {
+	replyFile: function(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray, mapOfHeaders) {
+		if (isUnDef(notFoundFunction)) {
 			notFoundFunction = function() {
 				return aHTTPd.reply("Not found!", ow.server.httpd.mimes.TXT, ow.server.httpd.codes.NOTFOUND);
 			}
 		}
 		try {
-			var baseFilePath = aBaseFilePath;
+			var baseFilePath = String((new java.io.File(aBaseFilePath)).getCanonicalPath()).replace(/\\/g, "/");
 			var furi = String((new java.io.File(new java.io.File(baseFilePath),
 				(new java.net.URI(aURI.replace(new RegExp("^" + aBaseURI), "") )).getPath())).getCanonicalPath()).replace(/\\/g, "/");
 			
-			if (!(furi.match(new RegExp("^" + baseFilePath))))
+			if (furi.match(new RegExp("^" + baseFilePath + "$"))) {
 				for(var i in documentRootArray) {
 					furi = String((new java.io.File(new java.io.File(baseFilePath),
 						(new java.net.URI((aURI + documentRootArray[i]).replace(new RegExp("^" + aBaseURI), "") )).getPath())).getCanonicalPath());
 					if (furi.match(new RegExp("^" + baseFilePath))) break;
 				}
-			
+			}
+		
 			if (furi.match(new RegExp("^" + baseFilePath)))
-				return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi));
+				return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi), void 0, mapOfHeaders);
 			else
-			    return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI);
+			  return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI);
 		} catch(e) { 
 			return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI, e);
 		}
@@ -1470,7 +2731,7 @@ OpenWrap.server.prototype.httpd = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.server.httpd.replyFileMD(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray) : Map</key>
+	 * <key>ow.server.httpd.replyFileMD(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray, mapOfHeaders) : Map</key>
 	 * Provides a helper aHTTPd reply that will enable the parsing markdown file-based sites, from aBaseFilePath, given aURI part of 
 	 * aBaseURI. Optionally you can also provide a notFoundFunction and an array of file strings (documentRootArraY) to replace as
 	 * documentRoot. Example:\
@@ -1487,7 +2748,7 @@ OpenWrap.server.prototype.httpd = {
 	 * \
 	 * </odoc>
 	 */
-	replyFileMD: function(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray) {
+	replyFileMD: function(aHTTPd, aBaseFilePath, aBaseURI, aURI, notFoundFunction, documentRootArray, mapOfHeaders) {
 		ow.loadTemplate();
 
 		if (isUnDef(notFoundFunction)) {
@@ -1496,12 +2757,13 @@ OpenWrap.server.prototype.httpd = {
 			}
 		}
 		try {
-			var baseFilePath = aBaseFilePath;
+			var baseFilePath = String((new java.io.File(aBaseFilePath)).getCanonicalPath()).replace(/\\/g, "/");
 			var furi = String((new java.io.File(new java.io.File(baseFilePath),
 				(new java.net.URI(aURI.replace(new RegExp("^" + aBaseURI), "") )).getPath())).getCanonicalPath()).replace(/\\/g, "/");
 			
 			if (isUnDef(documentRootArray)) documentRootArray = [ "index.md" ];
 
+			// TODO:if io.fileExists is false to directories
 			if (io.fileExists(furi) && io.fileInfo(furi).isDirectory) {
 				for(var i in documentRootArray) {
 					furi = String((new java.io.File(new java.io.File(baseFilePath),
@@ -1516,7 +2778,7 @@ OpenWrap.server.prototype.httpd = {
 				if (furi.match(/\.md$/)) {
 					return aHTTPd.replyOKHTML(ow.template.parseMD2HTML(io.readFileString(furi), 1));
 				} else {
-					return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi));
+					return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi), void 0, mapOfHeaders);
 				}
 			} else {
 			    return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI);
@@ -1528,14 +2790,44 @@ OpenWrap.server.prototype.httpd = {
 
 	/**
 	 * <odoc>
-	 * <key>ow.server.httpd.replyRedirect(aHTTPd, newLocation) : Map</key>
+	 * <key>ow.server.httpd.replyRedirect(aHTTPd, newLocation, mapOfHeaders) : Map</key>
 	 * Provides a helper aHTTPd reply that will redirect the request to the newLocation provided (HTTP code 303).
 	 * </odoc>
 	 */
-	replyRedirect: function(aHTTPd, newLocation) {
-		return aHTTPd.reply("", "text/plain", 303, {"Location": newLocation});
+	replyRedirect: function(aHTTPd, newLocation, mapOfHeaders) {
+		return aHTTPd.reply("", "text/plain", 303, {"Location": newLocation}, mapOfHeaders);
 	},
 	
+	/**
+	 * <odoc>
+	 * <key>ow.server.httpd.replyFn(aFunctionName, aInstance, aRequest, aParams, dontRetError) : Map</key>
+	 * Provides a helper function to call aFunctionName over aInstance (default this) given a POST aRequest.
+	 * If aFunctionName doesn't have odoc help information available you will need to provide aParams map for the
+	 * expected aFunctionName arguments. If dontRetError = true any exception will be kept in the server and an empty
+	 * map will be returned.
+	 * </odoc>
+	 */
+	replyFn: function(aFunctionName, aInstance, aReq, aParams, dontRetError) {
+		_$(aReq, "request").isMap().$_();
+		dontRetError = _$(dontRetError, "dontRetError").isBoolean().default(false);
+		aInstance = _$(aInstance, "instance").default(this);
+
+		if (aReq.method == "POST") {
+			try {
+				aParams = _$(aParams, "params").isMap().default($fnDef4Help(aFunctionName));
+				return ow.server.httpd.reply($fnM2A(af.eval(aFunctionName), aInstance, aParams, jsonParse(aReq.files.postData)));
+			} catch(e) {
+				if (dontRetError) {
+					throw e;
+				} else {
+					return ow.server.httpd.reply({ __error: e });
+				}
+			}
+		}
+
+		return ow.server.httpd.reply({});
+	},
+
 	/**
 	 * <odoc>
 	 * <key>ow.server.httpd.getMimeType(aFilename) : String</key>
@@ -1632,6 +2924,15 @@ OpenWrap.server.prototype.httpd = {
 		"NOTFOUND": 404,
 		"INTERNAL": 500
 	},
+
+	cache: {
+		public: {
+			"cache-control": "public, max-age=1209600"
+		},
+		private: {
+			"cache-control": "private, max-age=3000"
+		}
+	},
 	
 	mimes: {
 		"HTML": "text/html; charset=utf-8",
@@ -1651,7 +2952,175 @@ OpenWrap.server.prototype.httpd = {
 		"WOFF": "application/x-font-woff",
 		"SVG": "image/svg+xml",
 		"EOT": "application/vnd.ms-fontobject",
-		"BIN": "application/octet-stream"
+		"BIN": "application/octet-stream",
+		"ICO": "image/x-icon"
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.httpd.reply(aObject, aStatus, aMimeType, aHeadersMap) : Map</key>
+	 * Builds the map response for a HTTP server request using aObject (map, array, string or bytearray), aStatus (default to 200),
+	 * aMimeType (defaults to application/octet-stream if not recognized) and aHeadersMap.
+	 * </odoc>
+	 */
+	reply: function(aObj, status, mimetype, headers) {
+		headers = _$(headers).isMap().default(void 0);
+		status  = _$(status).isNumber().default(200);
+
+		if (isUnDef(mimetype)) {
+			if (isString(aObj)) mimetype = ow.server.httpd.mimes.TXT;
+			if (isMap(aObj)) mimetype = ow.server.httpd.mimes.JSON;
+			if (isArray(aObj)) mimetype = ow.server.httpd.mimes.JSON;
+			if (isByteArray(aObj)) mimetype = ow.server.httpd.mimes.BIN;
+
+			if (isUnDef(mimetype)) mimetype = ow.server.httpd.mimes.BIN;
+		}
+
+		var data;
+		if (isMap(aObj) || isArray(aObj)) {
+			data = stringify(aObj, void 0, "");
+		} else {
+			data = aObj;
+		}
+
+		return {
+			status: status,
+			mimetype: mimetype,
+			data: data,
+			header: headers
+		};
+	},
+}
+
+OpenWrap.server.prototype.socket = {
+	__servers: {},
+	__threads: {},
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.socket.start(aPort, aFunction, aBackLog, aBindAddr)</key>
+	 * Starts a thread listening on aPort with aBackLog (defaults to a queue of 50 connections in waiting) on aBindAddr (defaults to "0.0.0.0").
+	 * Whenever a connection is established aFunction will be called with the corresponding java.net.Socket and a java.net.ServerSocket. Examples:\
+	 * \
+	 * ow.loadServer();\
+	 * ow.server.socket.start(12345, (clt, srv) => {\
+	 *    log("Connection from " + clt.getInetAddress().getHostAddress());
+	 *    ioStreamReadLines(clt.getInputStream(), stream => {\
+	 *       print(stream);\
+	 *       ioStreamWrite(clt.getOutputStream(), stream);\
+	 *       clt.getOutputStream().flush();\
+	 * 	     clt.shutdownInput();\
+	 *       clt.shutdownOutput();\
+	 *       return true;\
+	 *    });\
+	 *    log("closing...");\
+	 *    clt.close();\
+	 * });\
+	 * \
+	 * </odoc>
+	 */
+	start: (aPort, aFn, aBackLog, aBindAddr) => {
+		_$(aPort, "port").isNumber().$_();
+		_$(aFn, "function").isFunction().$_();
+
+		aBackLog = _$(aBackLog, "backlog").isNumber().default(50);
+		aBindAddr = _$(aBindAddr, "bindaddr").isString().default(null);
+		if (isDef(aBindAddr) && isString(aBindAddr) && !isNull(aBindAddr)) aBindAddr = java.net.InetAddress.getByName(aBindAddr);
+		var server = java.net.ServerSocket(aPort, aBackLog, aBindAddr);
+		
+		ow.server.socket.__servers[aPort] = server;
+
+		plugin("Threads");
+		var t = new Threads();
+		t.addSingleThread(function() {
+			while(isDef(ow.server.socket.__servers[aPort]) && !(ow.server.socket.__servers[aPort].isClosed())) {
+				var clt = server.accept();
+				aFn(clt, server);
+				clt.close();
+			}
+		});
+		t.startNoWait();
+		ow.server.socket.__threads[aPort] = t;
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.socket.stop(aPort)</key>
+	 * Stops a thread socket server on aPort previously started by ow.server.socket.start.
+	 * </odoc>
+	 */
+	stop: (aPort) => {
+		_$(aPort, "port").isNumber().$_();
+
+		ow.server.socket.__servers[aPort].close();
+		var res = ow.server.socket.__threads[aPort].stop(true);
+		delete ow.server.socket.__servers[aPort];
+		return res;
 	}
 }
 
+OpenWrap.server.prototype.jwt = {
+    /**
+     * <odoc>
+	 * <key>ow.server.jwt.getAlgorithm(aAlgorithm, aArg1, aArg2) : JavaAlgorithm></key>
+	 * To be used with verify and/or sign. Selects the JWT algorithm (defaults to HS256/HMAC256) using aArg1 and, optionally,
+	 * also aArg2 if the algorithm requires two arguments (see more in https://github.com/auth0/java-jwt).
+	 * </odoc>
+     */
+	getAlgorithm: (aAlgorithm, aArg1, aArg2) => {
+		aAlgorithm = _$(aAlgorithm, "algorithm").isString().default("HMAC256");
+		_$(aArg1, "first argument").$_();
+
+		if (aAlgorithm = "HS256") aAlgorithm = "HMAC256";
+
+		if (isDef(aArg2)) {
+			return com.auth0.jwt.algorithms.Algorithm[aAlgorithm](aArg1, aArg2);
+		} else {
+			return com.auth0.jwt.algorithms.Algorithm[aAlgorithm](aArg1);
+		}
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.jwt.verify(aAlgorithm, aArg1, aToken, aArg2) : Map</key>
+	 * Verifies the JWT provided with aToken using aAlgorithm with aArg1 and aArg2 (if needed). Returns the
+	 * converted json claims. If any verification fails it will throw a JavaException.
+	 * </odoc>
+	 */
+	verify: (aAlgorithm, aSecret1, aToken, aSecret2) => {
+		_$(aToken, "token").isString().$_();
+		
+		var al = ow.server.jwt.getAlgorithm(aAlgorithm, aSecret1, aSecret2);
+		var verifier = com.auth0.jwt.JWT.require(al).build();
+		var dt = verifier.verify(aToken);
+
+		var keys = dt.getClaims().keySet().toArray(), mkeys = {};
+		for(var ii in keys) {
+			var notFound = true;
+			if (notFound && dt.getClaims().get(keys[ii]).asBoolean() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asBoolean(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asInt() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asInt(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asDouble() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asDouble(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asLong() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asLong(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asString() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asString(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asDate() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asDate(); }
+		}
+		return mkeys;
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.jwt.sign(aAlgorithm, aArg1, aFnAddClaims, aArg2) : String</key>
+	 * Signs a JWT using aAlgorithm with aArg1 and, optionally, aArg2 and returns the corresponing signature. To
+	 * add specific claims use the aFnAddClaims function that receives (and returns if modified) a com.auth0.jwt.JWT object
+	 * as argument and returns the signned JWT.
+	 * </odoc>
+	 */
+	sign: (aAlgorithm, aSecret1, aFnAddClaims, aSecret2) => {
+		var al = ow.server.jwt.getAlgorithm(aAlgorithm, aSecret1, aSecret2);
+		aFnAddClaims = _$(aFnAddClaims, "function").isFunction().default((r) => { return r; });
+
+		var jwt = com.auth0.jwt.JWT.create();
+		jwt = aFnAddClaims(jwt);
+		return jwt.sign(al);
+	}
+}

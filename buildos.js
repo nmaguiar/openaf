@@ -112,9 +112,9 @@ var os = java.lang.System.getProperty("os.name") + "";
 var PATHSEPARATOR = (os.match(/Windows/)) ? ";" : ":";
 
 var dateFormat = new java.text.SimpleDateFormat("yyyyMMdd");
-var release = dateFormat.format(new java.util.Date());
+var release = (isDef(params.withVersion)) ? params.withVersion : dateFormat.format(new java.util.Date());
 
-log("Building relase " + release);
+log("Building release " + release);
 var classpath = buildClasspath();
 
 log("Changing AFCmdOS for release = " + release);
@@ -220,7 +220,8 @@ io.mkdir(OPENAF_BUILD_HOME + "/jsmin");
 io.mkdir(OPENAF_BUILD_HOME + "/jslib");
 
 var zipJSlib = new ZIP();
-var validationForCompile = (filename) => { return (filename != "materialize.js" && filename != "jquery.js" && filename != "highlight.js" && filename != "backbone.js"); };
+var validationForCompile = (filename) => { return (filename != "synaptic.js" && filename != "materialize.js" && filename != "handlebars.js" && filename != "jquery.js" && filename != "highlight.js"); };
+var validationForRequireCompile = (filename) => { return (filename == "handlebars.js" || filename == "showdown.js" || filename == "synaptic.js"); };
 
 //for(i in jsList) {
 parallel4Array(jsList, function (i) {
@@ -236,8 +237,9 @@ try {
 			file.filename !== 'stream.js' &&
 			file.filename !== 'js-yaml.js' &&
 			file.filename !== 'highlight.js' &&
-			file.filename !== 'avsc.js' &&
+			file.filename !== 'ajv.js' &&
 			file.filename !== 'fusejs.js' &&
+			file.filename !== 'handlebars.js' &&
 			file.filename !== 'jquery.js') {
 
 			var doIt = true;
@@ -251,8 +253,9 @@ try {
 			}
 
 			if (doIt) {
-				log("Compiling " + file.filename);
+				log("-> Compiling " + file.filename);
 				var output = af.sh("java -jar " + OPENAF_BUILD_HOME + "/compiler.jar --language_out ECMASCRIPT5 --env CUSTOM --strict_mode_input false --rewrite_polyfills false --js " + OPENAF_BUILD_HOME + "/js/" + file.filename + " --js_output_file " + OPENAF_BUILD_HOME + "/jsmin/" + file.filename, "", null, false);
+				log("<- Compiled  " + file.filename);
 				destjssha.files.push({
 					file: file.filename,
 					orig: sha1(io.readFileStream(OPENAF_BUILD_HOME + "/js/" + file.filename)),
@@ -268,22 +271,27 @@ try {
 			}
 
 			if (validationForCompile(file.filename))
-              af.compileToClasses(file.filename.replace(/\./g, "_"), io.readFileString(OPENAF_BUILD_HOME + "/jsmin/" + file.filename), OPENAF_BUILD_HOME + "/jslib");
+			  af.compileToClasses(file.filename.replace(/\./g, "_"), io.readFileString(OPENAF_BUILD_HOME + "/jsmin/" + file.filename), OPENAF_BUILD_HOME + "/jslib");
+			if (validationForRequireCompile(file.filename))
+			  af.compileToClasses(file.filename.replace(/\./g, "_"), "var __" + file.filename.replace(/\./g, "_") + " = function(require, exports, module) {" + io.readFileString(OPENAF_BUILD_HOME + "/jsmin/" + file.filename) + "}", OPENAF_BUILD_HOME + "/jslib");
 			sync(function () {
 				tempJar.putFile("js/" + file.filename, io.readFileBytes(OPENAF_BUILD_HOME + "/jsmin/" + file.filename));
-				if (validationForCompile(file.filename)) zipJSlib.putFile(file.filename.replace(/\./g, "_") + ".class", io.readFileBytes(OPENAF_BUILD_HOME + "/jslib/" + file.filename.replace(/\./g, "_") + ".class" ));
+				if (validationForCompile(file.filename) || validationForRequireCompile(file.filename)) zipJSlib.putFile(file.filename.replace(/\./g, "_") + ".class", io.readFileBytes(OPENAF_BUILD_HOME + "/jslib/" + file.filename.replace(/\./g, "_") + ".class" ));
 			}, tempJar);
 		} else {
 			if (validationForCompile(file.filename))
 			  af.compileToClasses(file.filename.replace(/\./g, "_"), io.readFileString(OPENAF_BUILD_HOME + "/js/" + file.filename), OPENAF_BUILD_HOME + "/jslib");
+			if (validationForRequireCompile(file.filename))
+			  af.compileToClasses(file.filename.replace(/\./g, "_"), "var __" + file.filename.replace(/\./g, "_") + " = function(require, exports, module) {" + io.readFileString(OPENAF_BUILD_HOME + "/js/" + file.filename) + "}", OPENAF_BUILD_HOME + "/jslib");			  
 			sync(function () {
 				tempJar.putFile("js/" + file.filename, io.readFileBytes(OPENAF_BUILD_HOME + "/js/" + file.filename));
-				if (validationForCompile(file.filename)) zipJSlib.putFile(file.filename.replace(/\./g, "_") + ".class", io.readFileBytes(OPENAF_BUILD_HOME + "/jslib/" + file.filename.replace(/\./g, "_") + ".class" ));				
+				if (validationForCompile(file.filename) || validationForRequireCompile(file.filename)) zipJSlib.putFile(file.filename.replace(/\./g, "_") + ".class", io.readFileBytes(OPENAF_BUILD_HOME + "/jslib/" + file.filename.replace(/\./g, "_") + ".class" ));				
 			}, tempJar);
 		}
 	}
 	return i;
 } catch(e) { }
+return true;
 });
 
 tempJar.putFile("compiledJS.jar", zipJSlib.generate({"compressionLevel": 9}));
@@ -300,7 +308,7 @@ log("Adding manifest");
 var manifest = "Manifest-Version: 1.0\n";
 manifest += "Rsrc-Class-Path: ./" + smallClassPath + "\n";
 manifest += "Class-Path: .\n";
-manifest += "Rsrc-Main-Class: openaf.AFCmdOS\n";
+manifest += "Rsrc-Main-Class: openaf._AFCmdOS\n";
 manifest += "Main-Class: org.eclipse.jdt.internal.jarinjarloader.JarRsrcLoader\n";
 tempJar.putFile("META-INF/MANIFEST.MF", af.fromString2Bytes(manifest));
 tempJar.putFile("META-INF/services/javax.script.ScriptEngineFactory", af.fromString2Bytes("openaf.OAFEngineFactory"));
@@ -313,11 +321,14 @@ try {
 		"ow.test": OPENAF_BUILD_HOME + "/js/owrap.test.js",
 		"ow.format": OPENAF_BUILD_HOME + "/js/owrap.format.js",
 		"ow.template": OPENAF_BUILD_HOME + "/js/owrap.template.js",
+		"ow.java": OPENAF_BUILD_HOME + "/js/owrap.java.js",
 		"ow.server": OPENAF_BUILD_HOME + "/js/owrap.server.js",
 		"ow.obj": OPENAF_BUILD_HOME + "/js/owrap.obj.js",
 		"ow.ai": OPENAF_BUILD_HOME + "/js/owrap.ai.js",
 		"ow.ch": OPENAF_BUILD_HOME + "/js/owrap.ch.js",
 		"ow.oJob": OPENAF_BUILD_HOME + "/js/owrap.oJob.js",
+		"ow.metrics": OPENAF_BUILD_HOME + "/js/owrap.metrics.js",
+		"ow.python": OPENAF_BUILD_HOME + "/js/owrap.python.js",
 		"afbase": OPENAF_BUILD_HOME + "/src/openaf/AFBase.java",
 		"io": OPENAF_BUILD_HOME + "/src/openaf/IOBase.java",
 		"iocore": OPENAF_BUILD_HOME + "/src/openaf/core/IO.java",
@@ -335,11 +346,11 @@ try {
 		"snmpd": OPENAF_BUILD_HOME + "/src/openaf/plugins/SNMPServer.java",
 		"xml": OPENAF_BUILD_HOME + "/src/openaf/plugins/XML.java",
 		"xls": OPENAF_BUILD_HOME + "/src/openaf/plugins/XLS.java",
-		"svn": OPENAF_BUILD_HOME + "/src/openaf/plugins/SVN.java",
+		//"svn": OPENAF_BUILD_HOME + "/src/openaf/plugins/SVN.java",
 		"git": OPENAF_BUILD_HOME + "/src/openaf/plugins/GIT.java",
-		"smb": OPENAF_BUILD_HOME + "/src/openaf/plugins/SMB.java",
+		//"smb": OPENAF_BUILD_HOME + "/src/openaf/plugins/SMB.java",
 		"zip": OPENAF_BUILD_HOME + "/src/openaf/plugins/ZIP.java",
-		"ignite": OPENAF_BUILD_HOME + "/src/openaf/plugins/Ignite.java",
+		//"ignite": OPENAF_BUILD_HOME + "/src/openaf/plugins/Ignite.java",
 		"bsdiff": OPENAF_BUILD_HOME + "/src/openaf/plugins/BSDiff.java",
 		"scope": OPENAF_BUILD_HOME + "/js/openaf.js",
 		"scopesigil": OPENAF_BUILD_HOME + "/js/openafsigil.js",
@@ -367,6 +378,7 @@ log("Building dependencies");
 io.writeFileString(OPENAF_BUILD_HOME + "/dependencies.json", stringify(buildDeps()));
 
 log("Creating the openaf.jar in " + OPENAF_BUILD_HOME);
+io.rm(OPENAF_BUILD_HOME + "/openaf.jar");
 tempJar.generate2File(OPENAF_BUILD_HOME + "/openaf.jar", { compressionLevel: 9 }, true);
 tempJar.close();
 

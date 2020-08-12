@@ -182,12 +182,33 @@
             //log("C = " + c);
         });
 
-        sleep(12000);
+        sleep(15000);
         sch.stop();
 
         ow.test.assert(c >= 10, true, "Problem scheduling an every second function.");
         ow.test.assert(a, 2, "Problem scheduling an every 2 seconds function.");
         ow.test.assert(b, 5, "Problem scheduling an every 5 seconds function.");
+    };
+
+    exports.testLocks = function() {
+        ow.loadServer();
+        var l = new ow.server.locks(true);
+
+        l.lock("test");
+
+        var it = now();
+        var of = now();
+        var p = $do(() => {
+            l.whenUnLocked("test", function() {
+                of = now();
+            }, 1000, 5);
+        });
+        l.lock("test", 1000, 1);
+        l.unlock("test");
+        $doWait(p);
+
+        ow.test.assert(of - it >= 1000, true, "Problem with local locks.");
+        l.clear("test");
     };
 
     exports.testHTTPServer = function() {
@@ -250,5 +271,86 @@
 
         ow.server.httpd.stop(hs1);
         ow.server.httpd.stop(hs2);
+    };
+
+    exports.testQueue = function() {
+        ow.loadServer();
+        var q = new ow.server.queue({ t: "q" }, "test");
+
+        // Consumer function
+        var o = () => { 
+            try { 
+                var ar = [], res; 
+                do { 
+                    res = q.receive(void 0, 50); 
+                    if(isDef(res)) ar.push(res);
+                } while(isDef(res)); 
+                return ar;
+            } catch(e) { 
+                sprintErr(e);
+            } 
+        };
+
+        // Producing dummy entries
+        for(var oo = 1; oo <= 500; oo++) {  q.send({ x: oo, y: -oo }); }
+
+        ow.test.assert(q.size(), 500, "Problem adding entries to queue.");
+
+        // Executing 4 queue consumers in parallel
+        var a1 = [], a2 = [], a3= [], a4=[]; 
+        $doWait($doAll([ 
+            $do(() => { a1 = o(); }), 
+            $do(() => { a2 = o(); }), 
+            $do(() => { a3 = o(); }), 
+            $do(() => { a4 = o(); }) 
+        ])); 
+        
+        ow.test.assert(a1.length + a2.length + a3.length + a4.length, 500, "Problem with parallel queue consumers");
+
+        // Producing dummy entries
+        for(var oo = 1; oo <= 500; oo++) {  q.send({ x: oo, y: -oo }); }
+        $ch("queue::test").set({ x: 1 }, { x: 1 });
+        
+        ow.test.assert(q.size(), 501, "Problem adding non-queue element to internal queue channel");
+        q.purge();
+        ow.test.assert(q.size(), 1, "Problem with queue purge.");
+        $ch("queue::test").unset({ x: 1 });
+
+        // Producing dummy entries
+        for(var oo = 1; oo <= 500; oo++) {  q.send({ x: oo, y: -oo }); }
+
+        var res1 = q.receive(500);
+        ow.test.assert(q.size(), 500, "Problem with queue receiver with visibility timeout.");
+        sleep(501, true);
+        var res2 = q.receive();
+        q.delete(res2.idx);
+        ow.test.assert(q.size(), 499, "Problem with queue visibility timeout returning objects to the queue.");
+
+        q.purge();
+        q.send({ a: 1 });
+        q.send({ a: 2 }, void 0, 100);
+        q.send({ a: 3 });
+
+        sleep(205, true);
+        var res3;
+        for(var ii = 0; ii < 3; ii++) { res3 = q.receive(void 0, 500); }
+        ow.test.assert(res3, void 0, "Problem with queue TTL.");
+
+        q.purge();
+        q.send({ a: 1 });
+        q.send({ a: 2 });
+        q.send({ a: 3 });
+
+        ow.test.assert(q.receive(500).obj, { a: 1 }, "Problem with simple visibility timeout (1).");
+        var theObj = q.receive(500);
+        ow.test.assert(theObj.obj, { a: 2 }, "Problem with simple visibility timeout (2).");
+        q.increaseVisibility(theObj.idx, 1000);
+
+        sleep(500, true);
+
+        ow.test.assert(q.receive().obj, { a: 1 }, "Problem with simple visibility timeout (3).");
+        ow.test.assert(q.receive().obj, { a: 3 }, "Problem with increase visibility timeout.");
+
+        $ch("queue::test").destroy();
     };
 })();

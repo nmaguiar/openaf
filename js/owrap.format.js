@@ -2,12 +2,50 @@
 // Author: Nuno Aguiar
 // Format
 // (parts from assemble.io)
-
+ 
 OpenWrap.format = function() {
 	return ow.format;
 }
 
 OpenWrap.format.prototype.string = {
+	// from: https://dmitripavlutin.com/what-every-javascript-developer-should-know-about-unicode/
+	/** 
+	 * <odoc>
+	 * <key>ow.format.string.unicode(aCodeNumber) : String</key>
+	 * Given a unicode aCodeNumber (8 or 16 bits) will convert to the necessary sequence of 8 bit.
+	 * For example: ow.format.string.unicode(0x1F37A)
+	 * </odoc>
+	 **/
+    unicode: code => {
+	    var str = "";
+	    if (code > 0xFFFF) {
+	       var pair = ow.format.string.getSurrogatePair(code);
+	       str += String.fromCharCode(pair[0]) + String.fromCharCode(pair[1]); 
+	    } else {
+	       str += String.fromCharCode(code);
+	    }
+	    return str;
+        },
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.getSurrogatePair(astralCodePoint) : Array</key>
+	 * Returns an array of two 8 bit codes given an unicode astralCodePoint of 16 bits
+	 * </odoc>
+	 **/
+	getSurrogatePair: astralCodePoint => {
+	    let highSurrogate = Math.floor((astralCodePoint - 0x10000) / 0x400) + 0xD800;
+	    let lowSurrogate = (astralCodePoint - 0x10000) % 0x400 + 0xDC00;
+	    return [highSurrogate, lowSurrogate];
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.getAstralCodePoint(aHighSurrogate, aLowSurrogate) : Number</key>
+	 * Given a 8-bit aHighSurrogate code and a 8-bit aLowSurogate code returns a 16-bit unicode code
+	 * </odoc>
+	 **/
+	getAstralCodePoint: (highSurrogate, lowSurrogate) => {
+	    return (highSurrogate - 0xD800) * 0x400 + lowSurrogate - 0xDC00 + 0x10000;
+	},
 	/**
 	 * <odoc>
 	 * <key>ow.format.string.wordWrap(aString, maxWidth, newLineSeparator) : String</key>
@@ -228,8 +266,9 @@ OpenWrap.format.prototype.string = {
 	 * </odoc>
 	 */
 	lsHash: function(aStringA, aStringB, dontCareDiffSize) {
-		loadLib(getOpenAFJar() + "::js/tlsh.js");
-		if (isUndefined(aStringB)) {
+		//loadLib(getOpenAFJar() + "::js/tlsh.js");
+		loadCompiledLib("tlsh_js");
+		if (isUnDef(aStringB)) {
 			var t = new Tlsh();
 			t.update(aStringA);
 			t.finale();
@@ -252,7 +291,8 @@ OpenWrap.format.prototype.string = {
 	 * </odoc>
 	 */
 	lsHashDiff: function(aHashA, aHashB, dontCareDiffSize) {
-		loadLib(getOpenAFJar() + "::js/tlsh.js");
+		//loadLib(getOpenAFJar() + "::js/tlsh.js");
+		loadCompiledLib("tlsh_js");
 		var tA = new Tlsh();
 		tA.fromTlshStr(aHashA);
 		var tB = new Tlsh();
@@ -275,7 +315,7 @@ OpenWrap.format.prototype.string = {
 	 * \
 	 * </odoc>
 	 */
-	progress: function(aOrigPos, aMax, aMin, aSize, aIndicator, aSpace) {
+	progress: function(aOrigPos, aMax, aMin, aSize, aIndicator, aSpace, aHead) {
 		if (isUnDef(aIndicator)) aIndicator = "#";
 		if (isUnDef(aSpace))     aSpace = " ";
 		if (isUnDef(aSize))      aSize = 5;
@@ -286,21 +326,313 @@ OpenWrap.format.prototype.string = {
 		var aPos = (aOrigPos > aMax) ? aMax : aOrigPos;
 		aPos = (aOrigPos < aMin) ? aMin : aPos;
 
-		var res = 
-		  ( (aMin < 0) ?
-			  repeat(aSize + ((Math.round(aPos * aSize / aScale)) < 0 ? (Math.round(aPos * aSize / aScale)) : 0), aSpace) + 
-			  repeat(-((Math.round(aPos * aSize / aScale)) < 0 ? (Math.round(aPos * aSize / aScale)) : 0), aIndicator) 
-			: "" ) +  
-		  ( (aMax > 0) ?
-			repeat(((Math.round(aPos * aSize / aScale)) > 0 ? (Math.round(aPos * aSize / aScale)) : 0), aIndicator) + 
-			repeat(aSize - ((Math.round(aPos * aSize / aScale)) > 0 ? (Math.round(aPos * aSize / aScale)) : 0), aSpace)
-			: ""
-		  );
+		var res, rpos = Math.round(aPos * aSize / aScale);
+		if (isDef(aHead) && isString(aHead)) {
+		  res = 
+				( (aMin < 0) ?
+					repeat(aSize + (rpos < 0 ? rpos : 0), aSpace) + 
+					repeat(-(rpos - aHead.length) < 0 ? (rpos - aHead.length) : 0, aIndicator) + 
+					(-(rpos - aHead.length) < 0 ? aHead : "") 
+				: "" ) +  
+				( (aMax > 0) ?
+				repeat((rpos - aHead.length) > 0 ? (rpos - aHead.length) : 0, aIndicator) + 
+				((rpos - aHead.length) > 0 ? aHead : "") +
+				repeat(aSize - (rpos > 0 ? rpos : 0), aSpace) 
+				: "");
+		} else {
+		  res = 
+				( (aMin < 0) ?
+					repeat(aSize + ((Math.round(aPos * aSize / aScale)) < 0 ? (Math.round(aPos * aSize / aScale)) : 0), aSpace) + 
+					repeat(-((Math.round(aPos * aSize / aScale)) < 0 ? (Math.round(aPos * aSize / aScale)) : 0), aIndicator) 
+				: "" ) +  
+				( (aMax > 0) ?
+				repeat(((Math.round(aPos * aSize / aScale)) > 0 ? (Math.round(aPos * aSize / aScale)) : 0), aIndicator) + 
+				repeat(aSize - ((Math.round(aPos * aSize / aScale)) > 0 ? (Math.round(aPos * aSize / aScale)) : 0), aSpace)
+				: ""
+				);
+		}
 	
 		return res;
-	}
-}
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.printable(aByteArray, aDefaultChar) : String</key>
+	 * Tries to convert aByteArray into a printable string. If aDefaultChar to replace the non-printable characters
+	 * is not provided it will default to ".".
+	 * </odoc>
+	 */
+	printable: function(aByteArray, aDefaultChar) {
+		aDefaultChar = _$(aDefaultChar).isString().default(".");
+
+		var res = "";
+		for(var ii = 0; ii < aByteArray.length; ii++) {
+			res += (aByteArray[ii] & 255) >= 32 ? String.fromCharCode(aByteArray[ii] & 255) : aDefaultChar;
+		}
+
+		return res;
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.toHex(aByteArray, aSeparator) : String</key>
+	 * Tries to convert aByteArray into a string of hex values separated by aSeparator (defaults to " ").
+	 * </odoc>
+	 */
+	toHex: function(aByteArray, aSeparator) {
+		aSeparator = _$(aSeparator).isString().default(" ");
+
+		var res =  "", hex = String(javax.xml.bind.DatatypeConverter.printHexBinary(aByteArray));
+		for(var ii = 0; ii < hex.length; ii = ii + 2) {
+			//res += ow.format.string.leftPad(ow.format.toHex(Number(aByteArray[ii] & 255)).toUpperCase(), 2, "0");
+			res += hex[ii] + hex[ii+1] + ((ii + 2) >= hex.length ? "" : aSeparator);
+		}
+		return res;
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.toHexArray(aByteArray, perLine) : String</key>
+	 * Returns an array with the ow.format.string.toHex of aByteArray and ow.format.string.printable with a maximum 
+	 * of perLine (defaults to 30) characters per array element.
+	 * </odoc>
+	 */
+	toHexArray: function(aByteArray, perLine) {
+		perLine = _$(perLine).isNumber().default(30);
+
+		var res = [], ii = 0;
+		do {
+			var e = [];
+			for(var jj = 0; jj < perLine && ii < aByteArray.length; jj++) {
+				e.push(aByteArray[ii]);
+				ii++;
+			}
+			var ba = af.fromArray2Bytes(e);
+			res.push({
+				pos: ii - perLine,
+				hex: this.toHex(ba),
+				characters: this.printable(ba)
+			});
+		} while(ii < aByteArray.length);
+
+		return res;
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.nLinesTemplate(aSourceTemplate, initMap, alternativeTemplate, alternativePrintFunction) : Function</key>
+	 * Returns a function to print multiple lines at the same time (using ansi cursor up). The function accepts a map parameter since
+	 * it's based on the aSourceTemplate (handlebars). The initial render is performed using initMap. If ansi support is not 
+	 * available and if alternativeTemplate is defined (and different of "" otherwise it defaults to aSourceTemplate) it will use
+	 * it as alternative. Optionally it's also possible to define a different print function (alternativePrintFunction) to print (like log, for example).
+	 * </odoc>
+	 */
+	nLinesTemplate: function(src, initMap, alternativeTemplate, alternativePrint) {
+		alternativeTemplate = _$(alternativeTemplate).isString().default(src);
+		src                 = _$(src).isString().$_("Please provide a template.");
+		initMap             = _$(initMap).isMap().default({});
+		alternativePrint    = _$(alternativePrint).isFunction().default(print);
+
+		ow.loadTemplate(); ow.template.addFormatHelpers();
+		var isAnsi = __initializeCon();
+
+		if (isAnsi) {
+			var jansi = JavaImporter(Packages.org.fusesource.jansi);
+		
+			var tmpl = ow.template.execCompiled(ow.template.compile(src, initMap));
+			alternativePrint(tmpl(initMap));
+		
+			return function(aMap) {
+				ansiStart();
+				var out = tmpl(aMap);
+				alternativePrint(jansi.Ansi.ansi().cursorUp(out.split(/\n/).length).a(out).a(jansi.Ansi.Attribute.RESET));
+				ansiStop();
+			};
+		} else {
+			if (alternativeTemplate != "") {
+				var tmpl = ow.template.execCompiled(ow.template.compile(alternativeTemplate, initMap));
+				alternativePrint(tmpl(initMap));
 	
+				return function(aMap) {
+					alternativePrint(tmpl(aMap));
+				};
+			}
+		}
+	},
+        /**
+         * <odoc>
+         * <key>ow.format.string.renderLines(aMatrix, numberOfLines, aWidth, aBgPattern, shouldReturn) : String</key>
+         * Tries to render a string grid (if shouldReturn = true won't print it but jsut return it) for a specific aWidth for a numberOfLines
+         * with aBgPattern background pattern (defaults to " ") with aMatrix contents (divided by "\n"). 
+         * </odoc>
+         */
+	renderLines: function(anArrayElements, numberOfLines, currentWidth, aPattern, shouldReturn) {
+		var jansi = JavaImporter(Packages.org.fusesource.jansi);
+		aPattern = _$(aPattern, "pattern").isString().default(" ");
+	
+		var o = [], extra = []
+		for(var ii = 0; ii < numberOfLines; ii++) { o[ii] = repeat(currentWidth, aPattern); extra[ii] = 0 }
+		
+		var fn = (orig, x, y, str) => { 
+			var c = -1; 
+			str.split(/\r?\n/).map(r => { 
+				c++; 
+				if ( (x + c) < numberOfLines) {
+					var rm = r.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
+		
+					orig[x + c] = orig[x + c].substring(0, y + extra[x + c]) + 
+						   r + 
+						   orig[x + c].substring(y + rm.length + extra[x + c]); 
+			
+					extra[x + c] = extra[x + c]+ r.length - rm.length;
+				}
+			}); 
+	
+		};
+		
+		anArrayElements.map(elem => {
+			fn(o, elem.x, elem.y, elem.t);
+		});
+		
+		if (shouldReturn) {
+			return o.join("");
+		} else {
+			ansiStart(); print(o.join("")); printnl( jansi.Ansi.ansi().cursorUpLine(numberOfLines + 2) ); ansiStop();
+		}
+	},
+        /**
+         * <odoc>
+         * <key>ow.format.string.grid(aMatrix, aX, aY, aBgPattern, shouldReturn) : String</key>
+         * Will generate a aX per aY grid to be displayed with aBgPattern (defaults to " "). Each grid cell with use the contents on aMatrix
+         * array of an array. Each cell content can be a map with obj (a Map), a xspan/yspan for in cell spacing, a type (either map, table or string) 
+         * and a title. If shouldReturn = true it will just return the string content instead of trying to print it.
+         + </odoc>
+         */
+	grid: function(aElems, aX, aY, aPattern, shouldReturn) {
+		plugin("Console");
+		var _con_ = new Console();
+		aY = _$(aY, "width").isNumber().default(Number(_con_.getConsoleReader().getTerminal().getWidth()));
+		aX = _$(aX, "height").isNumber().default(Number(Math.floor(_con_.getConsoleReader().getTerminal().getHeight() / aElems.length - 1)));
+	
+		var elems = [], l = 0, ignore = [];
+		aElems.map(line => {
+			var c = 0;
+
+			line.map(col => {
+				if (ignore.indexOf("Y:" + c + "X:" + l) < 0) {
+					if (isUnDef(col)) col = "";
+					if (!isMap(col)) col = { obj: col };
+	
+					if (isUnDef(col.type)) {
+						if (isMap(col.obj) || isArray(col.obj)) 
+							col.type = "map";
+						else
+							col.type = "human";
+					}
+
+					var xspan = _$(col.xspan, "xspan").isNumber().default(1);
+					var yspan = _$(col.yspan, "yspan").isNumber().default(1);
+					if (xspan > 1) for(var ii = c + 1; ii < c + xspan; ii++) { ignore.push("Y:" + ii + "X:" + l); }
+					if (yspan > 1) for(var ii = l + (aX + 1); ii < l + ((aX + 1) * yspan); ii += aX + 1) { ignore.push("Y:" + c + "X:" + ii); }
+					var p = "", cs = Math.floor((aY / line.length) * xspan);
+			
+					switch(col.type) {
+					case "map": p = printMap(col.obj, cs, "utf", true); break; 
+					case "table": p = printTable(col.obj, cs, void 0, true, "utf"); break;
+					default: p = String(col.obj).split(/\r?\n/).map(r => r.substring(0, cs)).join("\n");
+					}
+	
+					if (isDef(col.title)) {
+						p = ansiColor("BOLD", "> " + col.title + " " + repeat(cs - 4 - col.title.length, "─")) + "\n" + p;
+					}
+					
+					var pp = p.split(/\r?\n/), po = [];
+					if (pp.length > (aX * yspan)) {
+						for(var ii = 0; ii <= (aX * yspan); ii++) {
+							po.push(pp[ii]);
+						}
+						po = po.join("\n");
+					} else {
+						po = p;
+					}
+					
+					elems.push({ x: l, y: cs * c, t: po });
+				}
+				c++;
+			});
+
+			l += aX + 1;
+		});
+	
+		return ow.format.string.renderLines(elems, aX * aElems.length, aY, aPattern, shouldReturn);
+	}
+};
+	
+/**
+ * <odoc>
+ * <key>ow.format.streamSHLog(aFunction) : Function</key>
+ * To be used with sh, af.sh or ssh.exec as the callbackFunc. Returns a function that will call aFunction for each line
+ * and used the returned string with log and logErr.
+ * </odoc>
+ */
+OpenWrap.format.prototype.streamSHLog = function(aFunc) {
+	if (isUnDef(aFunc)) aFunc = (f) => { return f; };
+	return function(o, e) {
+		$doWait(
+			$doAll([
+				$do(() => { ioStreamReadLines(o, (f) => { log(aFunc(String(f)), {async: true}) }, void 0, false); }), 
+				$do(() => { ioStreamReadLines(e, (f) => { logErr(aFunc(String(f)), {async:true}) }, void 0, false); })
+			])
+		);
+	};
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.streamSH(aFunction, anEncoding) : Function</key>
+ * To be used with sh, af.sh or ssh.exec as the callbackFunc. Returns a function that will call aFunction for each line
+ * and used the returned string with print and printErr.
+ * </odoc>
+ */
+OpenWrap.format.prototype.streamSH = function(aFunc, anEncoding) {
+	if (isUnDef(aFunc)) aFunc = (f) => { return f; };
+	if (isUnDef(anEncoding)) {
+		return function(o, e) {
+			$doWait(
+				$doAll([
+					$do(() => { ioStreamReadLines(o, (f) => { print(aFunc(String(f))) }, void 0, false); }), 
+					$do(() => { ioStreamReadLines(e, (f) => { printErr(aFunc(String(f))) }, void 0, false); })
+				])
+			);
+		};
+	} else {
+		return function(o, e) {
+			$doWait(
+				$doAll([
+					$do(() => { ioStreamReadLines(o, (f) => { print(aFunc(af.toEncoding(String(f), anEncoding))) }, void 0, false); }), 
+					$do(() => { ioStreamReadLines(e, (f) => { printErr(aFunc(af.toEncoding(String(f), anEncoding))) }, void 0, false); })
+				])
+			);
+		};
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.streamSHPrefix(aPrefix, anEncoding) : Function</key>
+ * To be used with sh, af.sh or ssh.exec as the callbackFunc. Returns a function that will prefix each line with aPrefix
+ * and used the returned string with print and printErr.
+ * </odoc>
+ */
+OpenWrap.format.prototype.streamSHPrefix = function(aPrefix, anEncoding) {
+	if (isUnDef(aPrefix)) aPrefix = "";
+	return function(o, e) {
+		$doWait(
+			$doAll([
+				$do(() => { ioStreamReadLines(o, (f) => { ansiStart(); print(ansiColor("BOLD,BLACK", "[" + aPrefix + "] ") + af.toEncoding(String(f.replace(/[\n\r]+/g, "")), anEncoding)); ansiStop(); }, void 0, false, void 0); }), 
+				$do(() => { ioStreamReadLines(e, (f) => { ansiStart(); printErr(ansiColor("RED", "[" + aPrefix + "] ") + af.toEncoding(String(f.replace(/[\n\r]+/g, "")), anEncoding)); ansiStop(); }, void 0, false, anEncoding); })
+			])
+		);
+	};
+};
+
 /**
  * <odoc>
  * <key>ow.format.addNumberSeparator(aNumber, aSeparator) : String</key>
@@ -357,6 +689,27 @@ OpenWrap.format.prototype.toBinary = function(aNumber, aLength) {
 
 /**
  * <odoc>
+ * <key>ow.format.toBase36(aNumber, aLength) : String</key>
+ * Converts a provided aNumber to the base36 representation. Optionally you can provide a length for 0 left pad.
+ * </odoc>
+ */
+OpenWrap.format.prototype.toBase36 = function(aNumber, aLength) {
+	var t = Number(aNumber).toString(36);
+	return (isDef(aLength)) ? ow.format.string.leftPad(t , aLength, "0") : t;
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.fromBase36(aString) : Number</key>
+ * Converts a provided base36 aString into the corresponding number.
+ * </odoc>
+ */
+OpenWrap.format.prototype.fromBase36 = function(aString) {
+	return parseInt(aString, 36);
+};
+
+/**
+ * <odoc>
  * <key>ow.format.fromHex(aString) : Number</key>
  * Converts a provided hexadecimal aString into the decimal number.
  * </odoc>
@@ -384,6 +737,26 @@ OpenWrap.format.prototype.fromBinary = function(aString) {
 OpenWrap.format.prototype.fromOctal = function(aString) {
 	return java.lang.Long.parseLong(aString, 8);
 }
+
+/**
+ * <odoc>
+ * <key>ow.format.int2IP(aIPInt) : String</key>
+ * Converts the decimal IP address representation aIPInt into an IP address.
+ * </odoc>
+ */
+OpenWrap.format.prototype.int2IP = function(ipInt) {
+	return ( (ipInt>>>24) +'.' + (ipInt>>16 & 255) +'.' + (ipInt>>8 & 255) +'.' + (ipInt & 255) );
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.IP2Int(aIP) : String</key>
+ * Converts an IP address into it's decimal IP address representation.
+ * </odoc>
+ */
+OpenWrap.format.prototype.IP2int = function(ip) {
+ 	return ip.split('.').reduce(function(ipInt, octet) { return (ipInt<<8) + parseInt(octet, 10)}, 0) >>> 0;
+};
 
 /**
  * <odoc>
@@ -544,19 +917,21 @@ OpenWrap.format.prototype.toWedoDate = function(aStringDate, aFormat) {
 /**
  * <odoc>
  * <key>ow.format.getActualTime(useAlternative) : Date</key>
- * Retrieves the current actual time from NIST (through https). The current actual time will be returned in a Date.
- * If useAlternative = true it will use now.httpbin.org (through http)
+ * Retrieves the current actual time from worldtimeapi.org (through https). The current actual time will be returned in a Date.
+ * If useAlternative = true it will use worldclockapi.com (through http)
  * </odoc>
  */
 OpenWrap.format.prototype.getActualTime = function(useAlternative) {
 	plugin("HTTP");
 
 	if (useAlternative) {
-		var h = ow.loadObj();
-		return new Date(ow.obj.rest.jsonGet("http://now.httpbin.org").now.epoch * 1000);
+		//var h = ow.loadObj();
+		//return new Date(ow.obj.rest.jsonGet("http://now.httpbin.org").now.epoch * 1000);
+		return new Date((1000 * ($rest().get("http://worldclockapi.com/api/json/utc/now").currentFileTime / 10000000 - 11644473600)));
 	} else {
-		plugin("XML");
-		return new Date((new XML((new HTTP("https://nist.time.gov/actualtime.cgi")).response())).get("@time")/1000);
+		//plugin("XML");
+		//return new Date((new XML((new HTTP("https://nist.time.gov/actualtime.cgi")).response())).get("@time")/1000);
+		return new Date($rest().get("https://worldtimeapi.org/api/ip").unixtime * 1000);
 	}
 }
 
@@ -677,12 +1052,91 @@ OpenWrap.format.prototype.fromWeDoDateToDate = function(aWedoDate) {
  * </odoc>
  */
 OpenWrap.format.prototype.isWedoDate = function(aWedoDate) {
-	if (isDefined(aWedoDate["__wedo__type__"]) &&
+	if (isDef(aWedoDate["__wedo__type__"]) &&
 		aWedoDate["__wedo__type__"] == "date")
 		return true;
 	else
 		return false;
-}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.isIPv4(aIP) : boolean</key>
+ * Tries to determine if aIP is a syntactic valid IPv4.
+ * </odoc>
+ */
+OpenWrap.format.prototype.isIPv4 = function(aIP) {
+	if (isString(aIP) && 
+	    aIP.match(/^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/)) {
+		return true;
+	} else {
+		return false;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.isIPv6(aIP) : boolean</key>
+ * Tries to determine if aIP is a syntactic valid IPv6.
+ * </odoc>
+ */
+OpenWrap.format.prototype.isIPv6 = function(aIP) {
+	if (isString(aIP) && 
+	    aIP.match(/^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/)) {
+		return true;
+	} else {
+		return false;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.isEmail(aEmail) : boolean</key>
+ * Tries to determine if aEmail seems a syntactic valid email.
+ * </odoc>
+ */
+OpenWrap.format.prototype.isEmail = function(aEmail) {
+	if (isString(aEmail) &&
+	   aEmail.match(/^[\w-_\.+]*[\w-_\.]\@([\w]+\.)+[\w]+[\w]$/)) {
+		return true;
+	} else {
+		return false;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.isURL(aURL) : boolean</key>
+ * Tries to determine if aURL seems a syntactic valid URL.
+ * </odoc>
+ */
+OpenWrap.format.prototype.isURL = function(aURL) {
+	try {
+		if (isString(aURL) &&
+		(new java.net.URI(aURL)).isAbsolute()) {
+			return true;
+		} else {
+			return false;
+		}
+	} catch(e) {
+		return false;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.isHost(aHost) : boolean</key>
+ * Tries to determine if aHost seems a syntactic valid host.
+ * </odoc>
+ */
+OpenWrap.format.prototype.isHost = function(aHost) {
+	if (isString(aHost) &&
+	    aHost.match(/^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/)) {
+		return true;
+	} else {
+		return false;
+	}
+};
 
 /**
  * <odoc>
@@ -710,9 +1164,8 @@ OpenWrap.format.prototype.escapeString = function(str, except) {
  * </odoc>
  */
 OpenWrap.format.prototype.getPublicIP = function() {
-	plugin("HTTP");
-	return JSON.parse((new HTTP("http://ifconfig.co/json")).response());
-}
+	return $rest().get("https://ifconfig.co/json");
+};
 
 /**
  * <odoc>
@@ -789,6 +1242,47 @@ OpenWrap.format.prototype.getClasspath = function() {
 
 /**
  * <odoc>
+ * <key>ow.format.getHostName() : String</key>
+ * Returns the current hostname.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getHostName = function() {
+	return String(java.net.InetAddress.getLocalHost().getHostName());
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.getHostAddress() : String</key>
+ * Returns the current host ip address.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getHostAddress = function() {
+	return String(java.net.InetAddress.getLocalHost().getHostAddress());
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.testHost(aAddress, aTimeout) : Map</key>
+ * Uses the java implementation (e.g. usually ICMP ping) for testing reachability to an aAddress. It timeouts after aTimeout (defaults to
+ * 4000ms). Returns a map with the "time" spent trying to get an answer from aAddress and a boolean "reachable" with the result.
+ * </odoc>
+ */
+OpenWrap.format.prototype.testHost = function(aAddress, aTimeout) {
+	_$(aAddress, "address").isString().$_();
+	aTimeout = _$(aTimeout, "timeout").isNumber().default(4000);
+	
+	var init = now();
+	var res = (java.net.InetAddress.getByName(aAddress)).isReachable(aTimeout);
+	var lat = now() - init;
+	
+	return { 
+	  time: lat,
+	  reachable: res
+	};
+};
+
+/**
+ * <odoc>
  * <key>ow.format.testPort(aAddress, aPort, aCustomTimeout) : boolean</key>
  * Tries to connect to aPort (e.g. 1234) on aAddress (e.g. 1.2.3.4). If the connection is successfull it will disconnect
  * and return true, otherwise it will return false. If aCustomTimeout (in ms) is defined, it will use that value as the timeout
@@ -806,7 +1300,56 @@ OpenWrap.format.prototype.testPort = function(aAddress, aPort, aCustomTimeout) {
     } catch(e) {
         return false;
     }
-}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.testPortLatency(aHost, aPort, aCustomTimeout) : Number</key>
+ * Test establishing a TCP socket connection with aHost on aPort. Optionally aCustomTimeout can be provided (defaults to
+ * 60000 ms). The test will be timed and the time in ms will be returned. If returned a time &lt; 0 then an error occurred or the 
+ * host:port couldn't be reached.
+ * </odoc>
+ */
+OpenWrap.format.prototype.testPortLatency = function(aHost, aPort, aCustomTimeout) {
+	aCustomTimeout = _$(aCustomTimeout).isNumber().default(60000);
+	var sock  = new java.net.Socket();
+	var iaddr = new java.net.InetSocketAddress(aHost, aPort);
+
+	var ini = now(), latency = -1;
+	try {
+		sock.connect(iaddr, aCustomTimeout);
+		latency = now() - ini;
+	} catch(e) {
+		latency = -1;
+	} finally {
+		sock.close();
+	}
+
+	return latency;
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.testURLLatency(aURL, aCustomTimeout) : Number</key>
+ * Test sending a HTTP(s) GET to aURL. Optionally aCustomTimeout can be provided. The test will be timed and the time in ms
+ * will be returned. If returned a time &lt; 0 then an error occurred or the host:port couldn't be reached.
+ * </odoc>
+ */
+OpenWrap.format.prototype.testURLLatency = function(aURL, aCustomTimeout) {
+	ow.loadObj();
+
+	var hc = new ow.obj.http();
+	hc.setThrowExceptions(true);
+	var ini = now(), latency = -1;
+	try {
+		hc.get(aURL, void 0, void 0, false, aCustomTimeout);
+		latency = now() - ini;
+	} catch(e) {
+		latency = -1;
+	}
+
+	return latency;
+};
 
 /**
  * <odoc>
@@ -847,6 +1390,26 @@ OpenWrap.format.prototype.escapeHTML = function(string) {
 
 	  if (!possible.test(string)) { return string; }
 	  return string.replace(badChars, escapeChar);
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.escapeHTML4(aString) : String</key>
+ * Uses Apache Commons Lang escape HTML4 functionality to convert aString into HTML4 entities where needed.
+ * </odoc>
+ */
+OpenWrap.format.prototype.escapeHTML4 = function(string) {
+	return String(Packages.org.apache.commons.lang3.StringEscapeUtils.escapeHtml4(string));
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.unescapeHTML4(aString) : String</key>
+ * Uses Apache Commons Lang unescape HTML4 functionality to unconvert aString with HTML4 entities to the original string
+ * </odoc>
+ */
+OpenWrap.format.prototype.unescapeHTML4 = function(string) {
+	return String(Packages.org.apache.commons.lang3.StringEscapeUtils.unescapeHtml4(string));
 };
 
 /**
@@ -1048,7 +1611,331 @@ OpenWrap.format.prototype.elapsedTime4ms = function(aMs, aFormat) {
     }
 
     return chunks.join(aFormat.sep);
-}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.progressReport(aMainFunc, aProgressFunc, aTimeout)</key>
+ * Executes aMainFunc to execute some synchronous function while aProgressFunc is called asynchronously to 
+ * keep track of progress. You can also provide an alternative aTimeout between aProgressFunc calls (defaults to 150ms).
+ * </odoc>
+ */
+OpenWrap.format.prototype.progressReport = function(aMainFunc, aProgressFunc, timeout) {
+	var stop = false;
+	timeout = _$(timeout).isNumber().default(150);
+
+	try {
+		var p = $do(() => {
+			while(!stop) {
+				try {
+					aProgressFunc();
+					sleep(timeout);
+				} catch(e) {}
+			}
+		});
+		aMainFunc();
+	} catch(e) {
+		throw e;
+	} finally {
+		stop = true; $doWait(p);
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.printWithWaiting(aMainFunc, aPrefixMsg, aCompleteMsg, aErrorMsg, aWaitSpeed, aTheme)</key>
+ * Executes aMainFunc while priting aPrefixMsg with a waiting aTheme (defaults to a sequence of chars with a rotating bar).
+ * When aMainFunc ends it will replace the priting with aCompleteMsg or aErrorMsg in case an exception is thrown.
+ * Optionally you can provide a different aWaitSpeed while cycling between the aTheme sequence of chars increasing/decreasing
+ * the "animation" effect.
+ * </odoc>
+ */
+OpenWrap.format.prototype.printWithWaiting = function(aMainFunc, aPrefixMsg, aCompleteMsg, aErrorMsg, aWaitSpeed, aTheme, pnlfn) {
+	_$(aMainFunc, "Main function").isFunction().$_();
+
+	aWaitSpeed   = _$(aWaitSpeed, "aWaitSpeed").isNumber().default(150);
+	aPrefixMsg   = _$(aPrefixMsg, "aPrefixMsg").isString().default("");
+	aCompleteMsg = _$(aCompleteMsg, "aCompleteMsg").isString().default(" ");
+	aErrorMsg    = _$(aErrorMsg, "aErrorMsg").isString().default("!");
+	aTheme       = _$(aTheme, "aTheme").isString().default("-\\|/");
+	pnlfn        = _$(pnlfn).default(printnl);
+
+	var e, p = $do(() => {
+		aMainFunc();
+	}).catch((ee) => {
+		e = ee;
+	});
+
+	$tb(() => {
+		var ii = 0;
+		while(isUnDef(e) && p.state <= 0) {
+			if (ii >= aTheme.length) ii = 0;
+			pnlfn(aPrefixMsg + aTheme[ii] + "\r");
+			ii++;
+			sleep(aWaitSpeed, true);
+		}
+	})
+	.stopWhen(() => {
+		$doWait(p);
+		return true;
+	})
+	.exec();
+
+	if (isDef(e)) {
+		var c = (aPrefixMsg.length + 1) - aErrorMsg.length;
+		pnlfn(aErrorMsg + repeat((c >= 0 ? c : 0), " ") + "\n");
+		throw e;
+	} else {
+		var c = (aPrefixMsg.length + 1) - aCompleteMsg.length;
+		pnlfn(aCompleteMsg + repeat((c >= 0 ? c : 0), " ") + "\n");
+		return true;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.logWithWaiting(aMainFunc, aPrefixMsg, aCompleteMsg, aErrorMsg, aWaitSpeed, aTheme)</key>
+ * Executes aMainFunc while log aPrefixMsg with a waiting aTheme (defaults to a sequence of chars with a rotating bar).
+ * When aMainFunc ends it will replace the log with aCompleteMsg or aErrorMsg in case an exception is thrown.
+ * Optionally you can provide a different aWaitSpeed while cycling between the aTheme sequence of chars increasing/decreasing
+ * the "animation" effect.
+ * </odoc>
+ */
+OpenWrap.format.prototype.logWithWaiting = function(aMainFunc, aPrefixMsg, aCompleteMsg, aErrorMsg, aWaitSpeed, aTheme) {
+	return ow.format.printWithWaiting(aMainFunc, aPrefixMsg, aCompleteMsg, aErrorMsg, aWaitSpeed, aTheme, lognl);
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.percProgressReport(aMainFunc, aProgressFunc, aTimeout)</key>
+ * Percentage progress report help function over a function on aMainFunc calling aProgressFunc in parallel
+ * with a percentage function parameter (receiving target and source numbers). You can also provide an alternative
+ * aTimeout between aProgressFunc calls (defaults to 150ms).\
+ * \
+ * Example:\
+ * \
+ * ow.format.percProgressReport(() => {\
+ *    ioStreamCopy(io.writeFileStream("target.file"), io.readFileStream("source.file"));\
+ * }, (percFunc) => {\
+ * 	  var perc = percFunc(io.fileInfo("target.file").size, io.fileInfo("source.file").size);\
+ *    ...\
+ * });\
+ * \
+ * </odoc>
+ */
+OpenWrap.format.prototype.percProgressReport = function(aMainFunc, aProgressFunc, timeout) {
+	this.progressReport(aMainFunc, () => {
+		aProgressFunc((t, o) => {
+			if (isArray(t) && isArray(o)) {
+				var res = [];
+				for(var ii in t) {
+					res.push(Math.floor((t[ii] * 100) / o[ii]));
+				}
+				return res;
+			} else {
+				return Math.floor((t * 100) / o);
+			}
+		});
+	}, timeout);
+};
+
+OpenWrap.format.prototype.percProgressBarReport = function(aMainFunc, aProgressFunc, aFinalMessage, timeout) {
+	var wo = (isDef(__con)) ? Number(__con.getTerminal().getWidth()) : 80;
+	var ws = __logFormat.indent.length + __logFormat.dateFormat.length + __logFormat.separator.length + " INFO ".length + __logFormat.separator.length;
+	var w = wo - ws;
+
+	if (isUnDef(__conAnsi)) __initializeCon();
+	var ansis = __conAnsi && (java.lang.System.console() != null);
+	var jansi = JavaImporter(Packages.org.fusesource.jansi);
+	var multiline = 0;
+
+	ow.format.percProgressReport(aMainFunc, (percFunc) => {
+		aProgressFunc((t, o, m) => {
+			var perc = percFunc(t, o);
+			if (isArray(perc)) {
+				if (ansis) {
+					ansiStart();
+					var mmm = "\n";
+					for(var ii in perc) {
+						if (isDef(perc[ii]) && isNumber(perc[ii])) 
+						  mmm += m[ii] + " " + ansiColor(__colorFormat.string, "[" + ow.format.string.progress(perc[ii], 100, 0, wo - 12 - m[ii].length, "=", "-", ">") + "] (" + ow.format.string.leftPad(String(perc[ii]), 3, ' ') + "%)") + "\n";
+					}
+					mmm += jansi.Ansi.ansi().cursorUp(perc.length + 1);
+					if ((perc.length) > multiline) multiline = perc.length;
+					lognl(mmm);
+					ansiStop();
+				} else {
+					for(var ii in perc) {
+						if (isDef(perc[ii]))
+						  log(m[ii] + " (" + ow.format.string.leftPad(String(perc[ii]), 3, ' ') + "%)", { async: false });
+					}
+				}
+			} else {
+				if (ansis) {
+					ansiStart();
+					lognl(m + " " + ansiColor(__colorFormat.string, "[" + ow.format.string.progress(perc, 100, 0, w - 12 - m[ii].length, "=", "-", ">") + "] (" + ow.format.string.leftPad(String(perc), 3, ' ') + "%)") + "\r", { async: false });
+					ansiStop();
+				} else {
+					log(m + " (" + ow.format.string.leftPad(String(perc), 3, ' ') + "%)", { async: false });
+				}
+			}
+		});
+	});
+	
+  if (multiline <= 0) {
+		log(aFinalMessage + repeat(w - aFinalMessage.length, ' '), { async: false });
+	} else {
+		ansiStart();
+		print(jansi.Ansi.ansi().cursorUp(1));
+		log(aFinalMessage + repeat(w - aFinalMessage.length, ' '), { async: false });
+
+		var mmm = "";
+		for(var ii = 0; ii < multiline; ii++) {
+			mmm += repeat(wo, ' ') + "";
+		}
+		print(mmm);
+		print(jansi.Ansi.ansi().cursorUp(multiline + 2));
+		
+		ansiStop();
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.printWithFooter(aMessage, aFooter)</key>
+ * Prints aMessage (if defined) with a aTemplate (template compiled function or string).
+ * </odoc>
+ */
+OpenWrap.format.prototype.printWithFooter = function(aMessage, aFooter, withFunc) {
+	ansiStart();
+
+	var jansi = JavaImporter(Packages.org.fusesource.jansi);
+	aFooter = _$(aFooter).isString().default("");
+
+	ow.loadFormat();
+ 
+	var isWin = ow.format.isWindows();
+
+	var o = (isWin) ? 1 : 0;
+	if (isDef(aMessage)) {
+		if (isUnDef(withFunc)) 
+			if (__conAnsi && (java.lang.System.console() != null)) print(jansi.Ansi.ansi().eraseLine() + aMessage); else print(aMessage);
+		else
+			if (__conAnsi && (java.lang.System.console() != null)) withFunc(jansi.Ansi.ansi().eraseLine() + aMessage); else withFunc(aMessage);
+		if (!isWin) o++;
+	}
+	if (__conAnsi && (java.lang.System.console() != null)) print(aFooter + jansi.Ansi.ansi().cursorUp(o));
+
+	ansiStop();
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.logWithFooter(aMessage, aFooter)</key>
+ * Equivalent to ow.format.printWithFooter (see help ow.format.printWithFooter) using the log function.
+ * </odoc>
+ */
+OpenWrap.format.prototype.logWithFooter = function(aMessage, aFooter) {
+	var slog = (l) => { log(l, { async: false }) };
+	this.printWithFooter(aMessage, aFooter, slog);
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.logErrWithFooter(aMessage, aFooter)</key>
+ * Equivalent to ow.format.printWithFooter (see help ow.format.printWithFooter) using the logErr function.
+ * </odoc>
+ */
+OpenWrap.format.prototype.logErrWithFooter = function(aMessage, aFooter) {
+	var slog = (l) => { logErr(l, { async: false })};
+	this.printWithFooter(aMessage, aFooter, slog);
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.logWarnWithFooter(aMessage, aFooter)</key>
+ * Equivalent to ow.format.printWithFooter (see help ow.format.printWithFooter) using the logWarn function.
+ * </odoc>
+ */
+OpenWrap.format.prototype.logWarnWithFooter = function(aMessage, aFooter) {
+	var slog = (l) => { logWarn(l, { async: false })};
+	this.printWithFooter(aMessage, aFooter, slog);
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.printWithProgressFooter(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace)</key>
+ * Prints aMessage (if defined) with a aTemplate (template compiled function or string) as a footer for percentage 
+ * progress information with the percentage value aPerc, for a given optional aSize (defaults to 50), an optional 
+ * aUnixBlock or aWindowsBlock (depending on the current operating system) and aSpace. Example:\
+ * \
+ *    ow.loadTemplate();\
+ *    var fn = ow.template.execCompiled(ow.template.compile("({{percFormat}}%) progress: |{{progress}}|"));
+ *    ow.format.printWithProgressFooter("processing xyz...", fn, aPerc);
+ *    ow.format.printWithFooter("Done.", "");
+ * </odoc>
+ */
+OpenWrap.format.prototype.printWithProgressFooter = function(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace, withFunc) {
+	ow.loadFormat(); ow.loadTemplate();
+
+	aSize         = _$(aSize).isNumber().default(50);
+	//aUnixBlock    = _$(aUnixBlock).isString().default(String.fromCharCode(9608));
+	//aWindowsBlock = _$(aWindowsBlock).isString().default(String.fromCharCode(219));
+	aUnixBlock    = _$(aUnixBlock).isString().default("/");
+	aWindowsBlock = _$(aWindowsBlock).isString().default("/");
+	aSpace        = _$(aSpace).isString().default("-");
+	aPerc         = _$(aPerc).isNumber().default(0);
+	
+	if (isUnDef(aTemplate)) aTemplate = "{{percFormat}}% " + ansiColor("BOLD,BLACK", "{{{progress}}}");
+
+	var isWin = ow.format.isWindows(), aBlock;
+	if (isWin) aBlock = aWindowsBlock; else aBlock = aUnixBlock;
+
+	if (isString(aTemplate)) aTemplate = ow.template.execCompiled(ow.template.compile(aTemplate));
+	var data = {
+		percentage: aPerc,
+		percFormat: ow.format.string.leftPad(String(aPerc), 3, ' '),
+		progress  : ow.format.string.progress(aPerc, 100, 0, aSize, aBlock, aSpace)
+	};
+
+	if (isDef(withFunc))
+		withFunc(aMessage, aTemplate(data));
+	else
+		ow.format.printWithFooter(aMessage, aTemplate(data));
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.logWithProgressFooter(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace)</key>
+ * Equivalent to ow.format.printWithProgressFooter (see help ow.format.printWithProgressFooter) using the log function.
+ * </odoc>
+ */
+OpenWrap.format.prototype.logWithProgressFooter = function(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace) {
+	var slog = (m, f) => { this.logWithFooter(m, f); };
+	this.printWithProgressFooter(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace, slog);
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.logErrWithProgressFooter(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace)</key>
+ * Equivalent to ow.format.printWithProgressFooter (see help ow.format.printWithProgressFooter) using the logErr function.
+ * </odoc>
+ */
+OpenWrap.format.prototype.logErrWithProgressFooter = function(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace) {
+	var slog = (m, f) => { this.logErrWithFooter(m, f); };
+	this.printWithProgressFooter(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace, slog);
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.logWarnWithProgressFooter(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace)</key>
+ * Equivalent to ow.format.printWithProgressFooter (see help ow.format.printWithProgressFooter) using the logWarn function.
+ * </odoc>
+ */
+OpenWrap.format.prototype.logWarnWithProgressFooter = function(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace) {
+	var slog = (m, f) => { this.logWarnWithFooter(m, f); };
+	this.printWithProgressFooter(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace, slog);
+};
 
 /**
  * <odoc>
@@ -1060,7 +1947,7 @@ OpenWrap.format.prototype.elapsedTime4ms = function(aMs, aFormat) {
 OpenWrap.format.prototype.elapsedTime = function(aStartTime, aEndTime, aFormat) {
     var mi = aEndTime - aStartTime;
     return ow.format.elapsedTime4ms(mi, aFormat);
-}
+};
 
 
 OpenWrap.format.prototype.xls = {
@@ -1110,51 +1997,71 @@ OpenWrap.format.prototype.xls = {
 	 * </odoc>
 	 */
 	getStyle: function(aXLS, aStyleMap) {
-		var rcs = aXLS.getCellStyler();
-		var rcf = aXLS.getNewFont();
-		if (isDefined(aStyleMap.bold)) rcf.setBold(aStyleMap.bold);
-		if (isDefined(aStyleMap.italic)) rcf.setItalic(aStyleMap.italic);
-		if (isDefined(aStyleMap.underline)) rcf.setUnderline(aStyleMap.underline);
-		if (isDefined(aStyleMap.strikeout)) rcf.setStrikeout(aStyleMap.strikeout);
-		if (isDefined(aStyleMap.fontPoints)) rcf.setFontHeightInPoints(aStyleMap.fontPoints);
-		if (isDefined(aStyleMap.fontName)) rcf.setFontName(aStyleMap.fontName);
-		if (isDefined(aStyleMap.fontColor)) rcf.setColor(this.getColor(aStyleMap.fontColor));
-		if (isDefined(aStyleMap.wrapText)) rcs.setWrapText(aStyleMap.wrapText);
-		if (isDefined(aStyleMap.shrinkToFit)) rcs.setShrinkToFit(aStyleMap.shrinkToFit);
-		if (isDefined(aStyleMap.backgroundColor)) rcs.setFillBackgroundColor(this.getColor(aStyleMap.backgroundColor));
-		if (isDefined(aStyleMap.foregroundColor)) rcs.setFillForegroundColor(this.getColor(aStyleMap.foregroundColor));
-		if (isDefined(aStyleMap.borderBottom)) rcs.setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom));
-		if (isDefined(aStyleMap.borderLeft)) rcs.setBorderLeft(this.getBorderStyle(aStyleMap.borderLeft));
-		if (isDefined(aStyleMap.borderRight)) rcs.setBorderRight(this.getBorderStyle(aStyleMap.borderRight));
-		if (isDefined(aStyleMap.borderTop)) rcs.setBorderTop(this.getBorderStyle(aStyleMap.borderTop));
-		if (isDefined(aStyleMap.borderBottom)) rcs.setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom));
-		if (isDefined(aStyleMap.borderLeftColor)) rcs.setLeftBorderColor(this.getColor(aStyleMap.borderLeftColor));
-		if (isDefined(aStyleMap.borderRightColor)) rcs.setRightBorderColor(this.getColor(aStyleMap.borderRightColor));
-		if (isDefined(aStyleMap.borderTopColor)) rcs.setTopBorderColor(this.getColor(aStyleMap.borderTopColor));
-		if (isDefined(aStyleMap.borderBottomColor)) rcs.setBottomBorderColor(this.getColor(aStyleMap.borderBottomColor));
-		if (isDefined(aStyleMap.rotation)) rcs.setRotation(aStyleMap.rotation);
-		if (isDefined(aStyleMap.indention)) rcs.setIndention(aStyleMap.indention);
-		if (isDefined(aStyleMap.valign)) {
+		var rcs, rcf;
+
+		_$(aStyleMap, "style map").isMap().$_();
+
+		if (isUnDef(aXLS.__styleCache)) { aXLS.__styleCache = {}; }
+		var styleId = stringify(sortMapKeys(aStyleMap), void 0, "");
+		if (isJavaObject(aXLS.__styleCache[styleId])) return aXLS.__styleCache[styleId];
+
+		var fnRCS = () => {
+			if (!isJavaObject(rcs)) rcs = aXLS.getCellStyler();
+			return rcs;
+		};
+
+		var fnRCF = () => {
+			if (!isJavaObject(rcf)) rcf = aXLS.getNewFont();
+			return rcf;
+		};
+
+		if (isDef(aStyleMap.bold)) fnRCF().setBold(aStyleMap.bold);
+		if (isDef(aStyleMap.italic)) fnRCF().setItalic(aStyleMap.italic);
+		if (isDef(aStyleMap.underline)) fnRCF().setUnderline(aStyleMap.underline);
+		if (isDef(aStyleMap.strikeout)) fnRCF().setStrikeout(aStyleMap.strikeout);
+		if (isDef(aStyleMap.fontPoints)) fnRCF().setFontHeightInPoints(aStyleMap.fontPoints);
+		if (isDef(aStyleMap.fontName)) fnRCF().setFontName(aStyleMap.fontName);
+		if (isDef(aStyleMap.fontColor)) fnRCF().setColor(this.getColor(aStyleMap.fontColor));
+
+		if (isDef(aStyleMap.wrapText)) fnRCS().setWrapText(aStyleMap.wrapText);
+		if (isDef(aStyleMap.shrinkToFit)) fnRCS().setShrinkToFit(aStyleMap.shrinkToFit);
+		if (isDef(aStyleMap.backgroundColor)) fnRCS().setFillBackgroundColor(this.getColor(aStyleMap.backgroundColor));
+		if (isDef(aStyleMap.foregroundColor)) fnRCS().setFillForegroundColor(this.getColor(aStyleMap.foregroundColor));
+		if (isDef(aStyleMap.borderBottom)) fnRCS().setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom));
+		if (isDef(aStyleMap.borderLeft)) fnRCS().setBorderLeft(this.getBorderStyle(aStyleMap.borderLeft));
+		if (isDef(aStyleMap.borderRight)) fnRCS().setBorderRight(this.getBorderStyle(aStyleMap.borderRight));
+		if (isDef(aStyleMap.borderTop)) fnRCS().setBorderTop(this.getBorderStyle(aStyleMap.borderTop));
+		if (isDef(aStyleMap.borderBottom)) fnRCS().setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom));
+		if (isDef(aStyleMap.borderLeftColor)) fnRCS().setLeftBorderColor(this.getColor(aStyleMap.borderLeftColor));
+		if (isDef(aStyleMap.borderRightColor)) fnRCS().setRightBorderColor(this.getColor(aStyleMap.borderRightColor));
+		if (isDef(aStyleMap.borderTopColor)) fnRCS().setTopBorderColor(this.getColor(aStyleMap.borderTopColor));
+		if (isDef(aStyleMap.borderBottomColor)) fnRCS().setBottomBorderColor(this.getColor(aStyleMap.borderBottomColor));
+		if (isDef(aStyleMap.rotation)) fnRCS().setRotation(aStyleMap.rotation);
+		if (isDef(aStyleMap.indention)) fnRCS().setIndention(aStyleMap.indention);
+
+		if (isDef(aStyleMap.valign)) {
 			switch(aStyleMap.valign) {
-			case "top": rcs.setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.TOP); break;
-			case "bottom": rcs.setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.BOTTOM); break;
-			case "center": rcs.setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.CENTER); break;
-			case "justify": rcs.setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.JUSTIFY); break;
+			case "top": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.TOP); break;
+			case "bottom": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.BOTTOM); break;
+			case "center": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.CENTER); break;
+			case "justify": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.JUSTIFY); break;
 			}
 		};
-		if (isDefined(aStyleMap.align)) {
+		if (isDef(aStyleMap.align)) {
 			switch(aStyleMap.align) {
-			case "center": rcs.setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_CENTER); break;
-			case "centerSelection": rcs.setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_CENTER_SELECTION); break;
-			case "fill": rcs.setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_FILL); break;
-			case "general": rcs.setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_GENERAL); break;
-			case "justify": rcs.setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_JUSTIFY); break;
-			case "left": rcs.setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_LEFT); break;
-			case "right": rcs.setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_RIGHT); break;
+			case "center": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_CENTER); break;
+			case "centerSelection": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_CENTER_SELECTION); break;
+			case "fill": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_FILL); break;
+			case "general": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_GENERAL); break;
+			case "justify": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_JUSTIFY); break;
+			case "left": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_LEFT); break;
+			case "right": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_RIGHT); break;
 			}
 		};
-		rcs.setFont(rcf);
-		return rcs;
+		if (isJavaObject(rcf)) fnRCS().setFont(rcf);
+
+		aXLS.__styleCache[styleId] = fnRCS();
+		return fnRCS();
 	},
 	
 	/**
@@ -1226,7 +2133,7 @@ OpenWrap.format.prototype.xls = {
 		case "yellow": c = HSSFColor.YELLOW; break;
 		}
 		
-		if (isDefined(c)) return c.getIndex();
+		if (isDef(c)) return c.getIndex();
 	}, 
 	
 	getBorderStyle: function(aBorderStyle) {
@@ -1247,10 +2154,97 @@ OpenWrap.format.prototype.xls = {
 		case "thick": return bs.THICK; break;
 		case "thin": return bs.THIN; break;
 		}
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.format.xls.setTable(aXLS, aSheet, aColumn, aRow, anArray, shouldAutoFilter, headerStyle, linesStyle)</key>
+	 * Shortcut for xls.setTable that given aXLS object, a corresponding aSheet object will try to set the contents of 
+	 * anArray of maps starting in aColumn and aRow performing auto size for all columns. If shouldAutoFilter = true is will
+	 * also add an autofilter to all columns. It's possible also to customize the headerStyle and linesStyle.
+	 * </odoc>
+	 */
+	setTable: function(aXLS, aSheet, aColumn, aRow, anArray, autoFilter, headerStyle, linesStyle) {
+		if (isArray(anArray) && anArray.length <= 0) return;
+
+		if (isUnDef(headerStyle)) {
+			headerStyle = ow.format.xls.getStyle(aXLS, { bold: true });
+		} else {
+			if (isMap(headerStyle)) headerStyle = ow.format.xls.getStyle(aXLS, headerStyle);
+		}
+		if (isDef(linesStyle) && isMap(linesStyle)) linesStyle = ow.format.xls.getStyle(aXLS, linesStyle);
+
+		aXLS.setTable(aSheet, aColumn, aRow, anArray, headerStyle, linesStyle);
+		for(var y = aXLS.toNumber(aColumn); y <= aXLS.toNumber(aColumn) + Object.keys(anArray[0]).length; y++) {
+			aXLS.autoSizeColumn(aSheet, aXLS.toName(y));
+		} 
+
+		if (autoFilter) {
+			ow.format.xls.autoFilter(aSheet, aColumn + String(aRow) + ":" + aXLS.toName(aXLS.toNumber(aColumn) + Object.keys(anArray[0]).length -1) + String(aRow + anArray.length -2));
+		}
 	}
 }
 
-loadLib(getOpenAFJar() + "::js/later.js");
+/**
+ * <odoc>
+ * <key>ow.format.getDoH(aAddr, aType, aProvider) : Array</key>
+ * Performs a DNS over HTTPs query with aAddr. Optionally you can provide the aType of record (defaults to 'a') and
+ * the DNS over HTTPs aProvider between 'google' and 'cloudflare'.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getDoH = function(aName, aType, aProvider) {
+	aProvider = _$(aProvider).default("cloudflare");
+ 
+	switch (aProvider) {
+	   case "google":
+		  var res = $rest({ uriQuery: true }).get("https://8.8.8.8/resolve", {
+			 name: aName,
+			 type: aType
+		  });
+		  if (isDef(res.Answer)) return res.Answer;
+		  else return void 0;
+	   case "cloudflare":
+		  var res = $rest({
+						requestHeaders: {
+							accept: "application/dns-json"
+						}, 
+						uriQuery: true
+					})
+					.get("https://1.1.1.1/dns-query", {
+						name: aName,
+						type: aType
+					});
+		  if (isDef(res.Answer)) return res.Answer;
+		  else return void 0;
+	   default:
+		  break;
+	}
+}
+
+/**
+ * <odoc>
+ * <key>ow.format.getReverseDoH(aIP, aProvider) : Array</key>
+ * Tries to retrieve the reverse DNS of aIP using DNS over HTTPs. Optionally you can choose the aProvider between 'google' and 'cloudflare'.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getReverseDoH = function(tIP, aProvider) {
+	var aIP = tIP, isV6 = false;
+	if (tIP.match(/:/)) {
+		ow.loadFormat();
+		isV6 = true;
+		var iip = java.net.InetAddress.getByName(tIP);
+		var ar = String(iip.getHostAddress()).split(/:/);
+		ar.map(r => { return ow.format.string.leftPad(r, 4); } ).join("").split("").reverse().join(".")
+	}
+	if (tIP.match(/\./)) {
+		aIP = String(tIP).split(/\./).reverse().join(".");
+	}
+
+	return this.getDoH(aIP + (isV6 ? ".ip6" : ".in-addr") + ".arpa", "ptr");
+}
+
+//loadLib(getOpenAFJar() + "::js/later.js");
+loadCompiledLib("later_js");
 OpenWrap.format.prototype.cron = {
 	/**
 	 * From http://github.com/bunkat/later
@@ -1334,13 +2328,33 @@ OpenWrap.format.prototype.cron = {
 
 	/**
 	 * <odoc>
+	 * <key>ow.format.cron.set2UTC()</key>
+	 * Sets the default system-wide cron expression evaluation to UTC (the default).
+	 * </odoc>
+	 */
+	set2UTC: function() {
+		later.date.UTC();
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.format.cron.set2LocalTime()</key>
+	 * Sets the default system-wide cron expression evaluation to the local time (default is UTC).
+	 * </odoc>
+	 */
+	set2LocalTime: function() {
+		later.date.localTime();
+	},
+
+	/**
+	 * <odoc>
 	 * <key>ow.format.cron.isCronMatch(aDate, aCronExpression) : boolean</key>
 	 * Returns trues if the provided aDate is a match for the provided aCronExpression. Otherwise returns false.
 	 * </odoc>
 	 */
 	isCronMatch: function(aDate, aCronExpr) {
 		var d = aDate;
-		var ct = ow.format.fromDate(d, "s m H d M u").split(/ /);
+		var ct = ow.format.fromDate(d, "s m H d M u", (later.date.isUTC ? "UTC" : void 0)).split(/ /);
 		var cr = ow.format.cron.parse(aCronExpr);
 		if (cr.exceptions.length > 0) throw "Exceptions " + stringify(cr.exceptions);
 		var isMatch = true;
@@ -1363,6 +2377,38 @@ OpenWrap.format.prototype.cron = {
 		if (isDef(cr.schedules[0].d)) isMatch = isMatch && (cr.schedules[0].d.indexOf(Number(ct[i])+1) > -1);
 
 		return isMatch;
-	}
+	},
 
+	/**
+	 * <odoc>
+	 * <key>ow.format.cron.howManyAgo(aCron, lastUpdate, aLimit) : Map</key>
+	 * Given aCron expression and a date/unix time of a lastUpdate will return a map with a boolean isDelayed, number of 
+	 * ms delayedAtLeast, if delayed howManyAgo executions missed and the corresponding missed executions dates in missedTimes.
+	 * When calculating the missed times there is aLimit (defaults to 100).
+	 * </odoc>
+	 */
+	howManyAgo: function(aCron, lastUpdate, aLimit) {
+		aLimit = _$(aLimit).isNumber().default(100);
+		if (isDate(lastUpdate)) lastUpdate.getTime();
+	
+		var isDelayed = true;
+	
+		var c = 0, ar = [];
+		do {
+			c++;
+			ar = ow.format.cron.prevScheduled(aCron, c);
+			if (!isArray(ar)) ar = [ar];
+		} while(ar.length > 0 && ar[ar.length - 1].getTime() > lastUpdate && c < aLimit);
+	
+		if (ar[0].getTime() <= lastUpdate) isDelayed = false;
+		if (ar[ar.length - 1].getTime() < lastUpdate) { ar.pop(); c--; }
+	
+		return {
+			isDelayed: isDelayed,
+			howManyAgo: (isDelayed) ? c : 0,
+			missedTimes: (isDelayed) ? ar : [],
+			limit: aLimit,
+			delayedAtLeast: (isDelayed) ? ar[ar.length - 1].getTime() - lastUpdate : 0
+		};
+	}
 }

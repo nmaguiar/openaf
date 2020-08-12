@@ -4,17 +4,18 @@
 
 OpenWrap.template = function() {
 	//loadHandlebars();
-	if (isUnDef(this.hb)) {
-		this.hb = getOpenAFJar() + "::js/handlebars.js";
-		require(this.hb);
-		this.__helpers = {};
-		this.__partials = {};
-	}
+	//if (isUnDef(ow.template.hb)) {
+		//this.hb = getOpenAFJar() + "::js/handlebars.js";
+		//require(this.hb);
+		//loadCompiledRequire("handlebars_js");
+		//ow.template.__helpers = {};
+		//ow.template.__partials = {};
+	//}
 	return ow.template;
 };
 
 OpenWrap.template.prototype.__requireHB = function() {
-	var hb = require(this.hb);
+	var hb = loadCompiledRequire("handlebars_js");
 	this.__addHelpers(hb);
 	this.__addPartials(hb);
 	return hb;
@@ -29,6 +30,8 @@ OpenWrap.template.prototype.__requireHB = function() {
  * </odoc>
  */
 OpenWrap.template.prototype.addHelpers = function(aPrefix, aObject) {
+	this.__helpers = _$(this.__helpers).default({});
+
 	var m = Object.keys(aObject.constructor.prototype);
 	if (m.length < 1) m = (isDef(aObject.prototype)) ? Object.keys(aObject.prototype) : Object.keys(aObject);
 	m.forEach((aMethod) => {
@@ -42,6 +45,7 @@ OpenWrap.template.prototype.addHelpers = function(aPrefix, aObject) {
 };
 
 OpenWrap.template.prototype.__addHelpers = function(aHB) {
+	this.__helpers = _$(this.__helpers).default({});
 	for(var i in this.__helpers) {
 		aHB.registerHelper(i, this.__helpers[i]);
 	}
@@ -205,6 +209,9 @@ OpenWrap.template.prototype.addConditionalHelpers = function() {
  * </odoc>
  */
 OpenWrap.template.prototype.addHelper = function(aHelperName, aFunction) {
+	this.__helpers = _$(this.__helpers).default({});
+	if (isUnDef(this.hb)) this.__requireHB();
+
 	this.__helpers[aHelperName] = aFunction;
 	//require(this.hb).registerHelper(aHelperName, aFunction);
 }
@@ -216,6 +223,9 @@ OpenWrap.template.prototype.addHelper = function(aHelperName, aFunction) {
  * </odoc>
  */
 OpenWrap.template.prototype.delHelper = function(aHelperName) {
+	this.__helpers = _$(this.__helpers).default({});
+	if (isUnDef(this.hb)) this.__requireHB();
+	
 	delete this.__helpers[aHelperName];
 	//require(this.hb).unregisterHelper(aHelperName);
 };
@@ -227,11 +237,13 @@ OpenWrap.template.prototype.delHelper = function(aHelperName) {
  * </odoc>
  */
 OpenWrap.template.prototype.addPartial = function(aPartial, aSource) {
+	this.__partials = _$(this.__partials).default({});
 	this.__partials[aPartial] = aSource;
 	//require(this.hb).registerPartial(aPartial, aSource);
 };
 
 OpenWrap.template.prototype.__addPartials = function(aHB) {
+	this.__partials = _$(this.__partials).default({});
 	for(var i in this.__partials) {
 		aHB.registerPartial(i, this.__partials[i]);
 	}
@@ -275,7 +287,7 @@ OpenWrap.template.prototype.getTemplate = function(aSource) {
  * </odoc>
  */
 OpenWrap.template.prototype.parse = function(aSource, someData) {
-	someData = (isUndefined(someData)) ? this : someData;
+	someData = (isUnDef(someData)) ? this : someData;
 	var res;
 	var e;
 	var parent = this;
@@ -295,7 +307,7 @@ OpenWrap.template.prototype.parse = function(aSource, someData) {
  * </odoc>
  */
 OpenWrap.template.prototype.parseHBS = function(aFilename, someData) {
-	someData = (isUndefined(someData)) ? this : someData;
+	someData = (isUnDef(someData)) ? this : someData;
 	var res;
 	var e;
 	var parent = this;
@@ -306,7 +318,7 @@ OpenWrap.template.prototype.parseHBS = function(aFilename, someData) {
 	//}, ow.loadTemplate());
 	if (isDef(e)) throw e;
 	return res;
-}
+};
 
 /**
  * <odoc>
@@ -464,8 +476,21 @@ OpenWrap.template.prototype.loadCompiledHBS = function(aFilename) {
  * </odoc>
  */
 OpenWrap.template.prototype.parseMD2HTML = function(aMarkdownString, isFull) {
-	var showdown = require(getOpenAFJar() + "::js/showdown.js");
+	//var showdown = require(getOpenAFJar() + "::js/showdown.js");
+	var showdown = loadCompiledRequire("showdown_js");
 	showdown.setFlavor("github");
+        showdown.setOption("customizedHeaderId", "true");
+        showdown.setOption("parseImgDimensions", "true");
+        showdown.setOption("simplifiedAutoLink", "true");
+        showdown.setOption("strikethrough", "true");
+        showdown.setOption("tables", "true");
+        showdown.setOption("tablesHeaderId", "true");
+        showdown.setOption("tasklists", "true");
+        showdown.setOption("backslashEscapesHTMLTags", "true");
+        showdown.setOption("emoji", "true");
+        showdown.setOption("underline", "true");
+	showdown.setOption("splitAdjacentBlockquotes", "true");
+        
 	var converter = new showdown.Converter();
 
 	if (isFull) {
@@ -506,6 +531,164 @@ OpenWrap.template.prototype.addInLineCSS2HTML = function(aHTML, aCustomCSSMap) {
 	});
 
 	return aHTML;
+};
+
+OpenWrap.template.prototype.html = {
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.thinFontCSS(aSize) : String</key>
+	 * Returns a CSS string for a thin font with the provided aSize (in points).
+	 * </odoc>
+	 */
+	thinFontCSS: function(aSize) {
+		aSize = _$(aSize).isNumber().default(8);
+		return 'font-family: -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Oxygen-Sans,Ubuntu,Cantarell,\'Helvetica Neue\',sans-serif; font-size: ' + aSize + 'pt; font-weight: 200; line-height: 110%;';
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.thinFontSpan(aTxt, aSize, aExtra) : String</key>
+	 * Returns a HTML span part to write aTxt with the provided aSize (in points).
+	 * Optionally aExtra css can be added.
+	 * </odoc>
+	 */
+	thinFontSpan: function(aTxt, aSize, aExtra) {
+		aExtra = _$(aExtra).isString().default("");
+		return '<span style="' + this.thinFontCSS(aSize) + aExtra + '">' + aTxt + '</span>';
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.thinFontDiv(aTxt, aSize, aExtra) : String</key>
+	 * Returns a HTML div part to write aTxt with the provided aSize (in points).
+	 * Optionally aExtra css can be added.
+	 * </odoc>
+	 */
+	thinFontDiv: function(aTxt, aSize, aExtra) {
+		aExtra = _$(aExtra).isString().default("");
+		return '<div style="' + this.thinFontCSS(aSize) + aExtra + '">' + aTxt + '</div>';
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.inlineSrc(aFile, aPrefix, aSuffix) : String</key>
+	 * Returns a base64 representation of aFile to include in markdown/html content. If aPrefix and/or aSuffix is provided it will
+	 * be prefixed and suffixed to the output.
+	 * </odoc>
+	 */
+	inlineSrc: function(aFile, aPrefix, aSuffix) {
+		_$(aFile, "aFile").isString().$_();
+		aPrefix = _$(aPrefix, "aPrefix").isString().default("");
+		aSuffix = _$(aSuffix, "aSuffix").isString().default("");
+
+		ow.loadServer();
+		var src = "data:" + ow.server.httpd.getMimeType(aFile) +";base64," + af.fromBytes2String(af.toBase64Bytes(io.readFileBytes(aFile)));
+		return aPrefix + src + aSuffix;
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.inlineSrcURL(aURL, aPrefix, aSuffix) : String</key>
+	 * Returns a base64 representation of aURL to include in markdown/html content. If aPrefix and/or aSuffix is provided it will
+	 * be prefixed and suffixed to the output.
+	 * </odoc>
+	 */
+	inlineSrcURL: function(aURL, aPrefix, aSuffix) {
+		ow.loadObj();
+
+		var h = new ow.obj.http();
+		try {
+			var u = new java.net.URL(aURL);
+			var b = h.get(aURL, void 0, void 0, true);
+			return aPrefix + "data:" + b.contentType.replace(/\; charset=utf-8\;/, "\;") +";base64," + af.fromBytes2String(af.toBase64Bytes(b.responseBytes)) + aSuffix;
+		} catch(e1) {
+			return ow.template.html.inlineSrc(aURL, aPrefix, aSuffix);
+		}
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.inlineImageTag(aImageFile, justPartial) : String</key>
+	 * Returns a base64 representation of aImageFile to include in markdown/html content. If justPartial = true then only the src 
+	 * part of the html img tag is returned.
+	 * </odoc>
+	 */	
+	inlineImageTag: function(aImageFile, justPartial) {
+		return ow.template.html.inlineSrc(aImageFile, (justPartial ? "" : "<img src=\"", "\">"));
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.genStaticVersion4MDFile(anOriginalMDFile) : String</key>
+	 * Tries to convert a markdown file into a single HTML embeeding css and image contents.
+	 * </odoc>
+	 */
+	genStaticVersion4MDFile: function(anOriginalMDFile) {
+		return ow.template.html.genStaticVersion4MD(io.readFileString(anOriginalMDFile));
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.genStaticVersion4MD(anOriginalMD) : String</key>
+	 * Tries to convert a markdown into a single HTML embeeding css and image contents.
+	 * </odoc>
+	 */
+	genStaticVersion4MD: function(anOriginalMD) {
+		return ow.template.html.genStaticVersion(ow.template.parseMD2HTML(anOriginalMD, true));
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.genStaticVersion(anOriginalHTML) : String</key>
+	 * Tries to convert anOriginalHTML with "src" based tags like img, script &amp; stylesheet link tags into a single HTML embeeding 
+	 * all content.
+	 * </odoc>
+	 */
+	genStaticVersion: function(anOriginalHTML) {
+		var srcs = anOriginalHTML.match(/ src=\".+?\"/g);
+
+		ow.loadObj();
+		var testURL = (aURL, withContents) => {
+			var h = new ow.obj.http();
+			try {
+				var u = new java.net.URL(aURL);
+				var b = h.get(aURL, void 0, void 0, true);
+				if (withContents)
+					return af.fromBytes2String(b.responseBytes);
+				else
+					return "data:" + b.contentType.replace(/\; charset=utf-8\;/, "\;") +";base64," + af.fromBytes2String(af.toBase64Bytes(b.responseBytes));
+			} catch(e1) {
+				try {
+					if (withContents)
+						return io.readFileString(aURL);
+					else
+						return ow.template.html.inlineSrc(aURL).replace(/\; charset=utf-8\;/, "\;");
+				} catch(e2) {
+					try {
+						if (withContents)
+							return io.readFileString(getOpenAFJar() + "::" + aURL.replace(/^\//, ""));
+						else
+							return ow.template.html.inlineSrc(getOpenAFJar() + "::" + aURL.replace(/^\//, "")).replace(/\; charset=utf-8\;/, "\;");
+					} catch(e3) {
+						return aURL;
+					}
+				} 
+			}
+		};
+
+		// src=
+		var srcs_replaces = [];
+		for(var ii in srcs) {
+			srcs_replaces[srcs[ii]] = testURL(srcs[ii].match(/ src=\"(.+?)\"/)[1], false);
+		}
+		for(var ii in srcs_replaces) {
+			anOriginalHTML = anOriginalHTML.replace(ii, " src=\"" + srcs_replaces[ii] + "\"");
+		}
+
+		// link stylesheet
+		srcs = anOriginalHTML.match(/<link rel=\"stylesheet\" href=\".+?\">/g);
+		srcs_replaces = [];
+		for(var ii in srcs) {
+			srcs_replaces[srcs[ii]] = testURL(srcs[ii].match(/<link rel=\"stylesheet\" href=\"(.+?)\">/)[1], true);
+		}
+		for(var ii in srcs_replaces) {
+			anOriginalHTML = anOriginalHTML.replace(ii, "<style>" + srcs_replaces[ii] + "</style>");
+		}
+
+		return anOriginalHTML;
+	}
 };
 
 OpenWrap.template.prototype.Handlebars = function() {
