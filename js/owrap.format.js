@@ -25,7 +25,7 @@ OpenWrap.format.prototype.string = {
 	       str += String.fromCharCode(code);
 	    }
 	    return str;
-        },
+    },
 	/**
 	 * <odoc>
 	 * <key>ow.format.string.getSurrogatePair(astralCodePoint) : Array</key>
@@ -48,41 +48,47 @@ OpenWrap.format.prototype.string = {
 	},
 	/**
 	 * <odoc>
-	 * <key>ow.format.string.wordWrap(aString, maxWidth, newLineSeparator) : String</key>
+	 * <key>ow.format.string.wordWrap(aString, maxWidth, newLineSeparator, tabDefault) : String</key>
 	 * Given aString word wraps the text on it given the maxWidth length per line. Optionally you can provide
-	 * a newLineSeparator otherwise '\n' will be used.
+	 * a newLineSeparator otherwise '\n' will be used. Optionally tabDefault determines how many spaces a tab represents (default 4)
 	 * (available after ow.loadFormat())
 	 * </odoc>
 	 */
-	wordWrap: function(str, maxWidth, newLine) {
-	    function testWhite(x) {
-	        var white = new RegExp(/^\s$/);
-	        return white.test(x.charAt(0));
-	    };
-	    
-	    var newLineStr = (isUndefined(newLine)) ? "\n" : newLine; done = false; res = '';
-	    do {                    
-	        found = false;
-	        // Inserts new line at first whitespace of the line
-	        for (var i = maxWidth - 1; i >= 0; i--) {
-	            if (testWhite(str.charAt(i))) {
-	                res = res + [str.slice(0, i), newLineStr].join('');
-	                str = str.slice(i + 1);
-	                found = true;
-	                break;
-	            }
-	        }
-	        // Inserts new line at maxWidth position, the word is too long to wrap
-	        if (!found) {
-	            res += [str.slice(0, maxWidth), newLineStr].join('');
-	            str = str.slice(maxWidth);
-	        }
-	
-	        if (str.length < maxWidth)
-	            done = true;
-	    } while (!done);
-	
-	    return res + str;
+	wordWrap: function(str, maxWidth, newLine, tabDefault) {
+		str = _$(str, "str").isString().default("");
+		tabDefault = _$(tabDefault, "tabDefault").isNumber().default(4);
+		_$(maxWidth, "maxWidth").isNumber().$_();
+	 
+		if (ansiLength(str) <= maxWidth) return str;
+	 
+		str = str.replace(/\t/g, repeat(tabDefault, " "));
+		 
+		 var newLineStr = (isUnDef(newLine)) ? "\n" : newLine; done = false, res = "";
+		 do {
+		   var lines = str.split(newLineStr), lid;
+		   found = false;
+		   for(lid = 0; lid < lines.length && !found; lid++) {
+			  if (ansiLength(lines[lid]) > maxWidth) {
+				 // Inserts new line at first whitespace of the line
+				 for (var i = maxWidth - 1; i >= 0; i--) {
+					if (lines[lid].charAt(i) == " ") {
+					   lines[lid] = lines[lid].slice(0, i) + newLineStr + lines[lid].slice(i+1).trim();
+					   found = true;
+					   break;
+					}
+				 }
+	 
+				 // Inserts new line at maxWidth position, the word is too long to wrap
+				 if (!found) {
+					lines[lid] = lines[lid].slice(0, maxWidth) + newLineStr + lines[lid].slice(maxWidth).trim();
+					found = true;
+				 }
+			  }
+		   }
+		   str = lines.join(newLineStr);
+		 } while (found);
+	 
+		 return str;
 	},
 
 	/**
@@ -535,7 +541,7 @@ OpenWrap.format.prototype.string = {
 			
 					switch(col.type) {
 					case "map": p = printMap(col.obj, cs, "utf", true); break; 
-					case "table": p = printTable(col.obj, cs, void 0, true, "utf"); break;
+					case "table": p = printTable(col.obj, cs, __, true, "utf"); break;
 					default: p = String(col.obj).split(/\r?\n/).map(r => r.substring(0, cs)).join("\n");
 					}
 	
@@ -565,6 +571,47 @@ OpenWrap.format.prototype.string = {
 	}
 };
 	
+OpenWrap.format.prototype.syms = function() {
+	return {
+		cross        : '┼',
+		crossHLeft   : '┤',
+		crossHRight  : '├',
+		crossVBottom : '┬',
+		crossVTop    : '┴',
+		lineHRight   : '╶',
+		lineHLeft    : '╴',
+		lineVTop     : '╵',
+		lineVBottom  : '╷',
+		lineH        : '─',
+		lineTRight   : '└',
+		lineBRight   : '┌',
+		lineBLeft    : '┐',
+		lineTLeft    : '┘',
+		curveTRight  : '╰',
+		curveBRight  : '╭',
+		curveBLeft   : '╮',
+		curveTLeft   : '╯',
+		lineV        : '│',
+		dlineV       : '║',
+		dlineH       : '═',
+		turnBRight   : '╔',
+		turnTRight   : '╚',
+		turnTLeft    : '╝',
+		turnBLeft    : '╗',
+		dcrossHRight : '╠',
+		dcrossHLeft  : '╣',
+		dcrossVBottom: '╦',
+		dcrossVTop   : '╩',
+		dcross       : '╬',
+		lBToT        : '╱',
+		lTToB        : '╲',
+		lCross       : '╳',
+		patternLight : '░',
+		patternMedium: '▒',
+		patternDark  : '▓'
+	}
+}
+
 /**
  * <odoc>
  * <key>ow.format.streamSHLog(aFunction) : Function</key>
@@ -577,8 +624,8 @@ OpenWrap.format.prototype.streamSHLog = function(aFunc) {
 	return function(o, e) {
 		$doWait(
 			$doAll([
-				$do(() => { ioStreamReadLines(o, (f) => { log(aFunc(String(f)), {async: true}) }, void 0, false); }), 
-				$do(() => { ioStreamReadLines(e, (f) => { logErr(aFunc(String(f)), {async:true}) }, void 0, false); })
+				$do(() => { ioStreamReadLines(o, (f) => { log(aFunc(String(f)), {async: true}) }, __, false); }), 
+				$do(() => { ioStreamReadLines(e, (f) => { logErr(aFunc(String(f)), {async:true}) }, __, false); })
 			])
 		);
 	};
@@ -597,8 +644,8 @@ OpenWrap.format.prototype.streamSH = function(aFunc, anEncoding) {
 		return function(o, e) {
 			$doWait(
 				$doAll([
-					$do(() => { ioStreamReadLines(o, (f) => { print(aFunc(String(f))) }, void 0, false); }), 
-					$do(() => { ioStreamReadLines(e, (f) => { printErr(aFunc(String(f))) }, void 0, false); })
+					$do(() => { ioStreamReadLines(o, (f) => { print(aFunc(String(f))) }, __, false); }), 
+					$do(() => { ioStreamReadLines(e, (f) => { printErr(aFunc(String(f))) }, __, false); })
 				])
 			);
 		};
@@ -606,8 +653,8 @@ OpenWrap.format.prototype.streamSH = function(aFunc, anEncoding) {
 		return function(o, e) {
 			$doWait(
 				$doAll([
-					$do(() => { ioStreamReadLines(o, (f) => { print(aFunc(af.toEncoding(String(f), anEncoding))) }, void 0, false); }), 
-					$do(() => { ioStreamReadLines(e, (f) => { printErr(aFunc(af.toEncoding(String(f), anEncoding))) }, void 0, false); })
+					$do(() => { ioStreamReadLines(o, (f) => { print(aFunc(af.toEncoding(String(f), anEncoding))) }, __, false); }), 
+					$do(() => { ioStreamReadLines(e, (f) => { printErr(aFunc(af.toEncoding(String(f), anEncoding))) }, __, false); })
 				])
 			);
 		};
@@ -616,18 +663,20 @@ OpenWrap.format.prototype.streamSH = function(aFunc, anEncoding) {
 
 /**
  * <odoc>
- * <key>ow.format.streamSHPrefix(aPrefix, anEncoding) : Function</key>
+ * <key>ow.format.streamSHPrefix(aPrefix, anEncoding, aSeparator, aTemplate) : Function</key>
  * To be used with sh, af.sh or ssh.exec as the callbackFunc. Returns a function that will prefix each line with aPrefix
- * and used the returned string with print and printErr.
+ * and used the returned string with print and printErr. Optionally you can provide aTemplate to add "prefix" (defaults to "[{{prefix}}]")
  * </odoc>
  */
-OpenWrap.format.prototype.streamSHPrefix = function(aPrefix, anEncoding) {
-	if (isUnDef(aPrefix)) aPrefix = "";
+OpenWrap.format.prototype.streamSHPrefix = function(aPrefix, anEncoding, aSeparator, aTemplate) {
+	aPrefix   = _$(aPrefix, "aPrefix").isString().default("");
+	aTemplate = _$(aTemplate, "aTemplate").isString().default("[{{prefix}}] ");
+
 	return function(o, e) {
 		$doWait(
 			$doAll([
-				$do(() => { ioStreamReadLines(o, (f) => { ansiStart(); print(ansiColor("BOLD,BLACK", "[" + aPrefix + "] ") + af.toEncoding(String(f.replace(/[\n\r]+/g, "")), anEncoding)); ansiStop(); }, void 0, false, void 0); }), 
-				$do(() => { ioStreamReadLines(e, (f) => { ansiStart(); printErr(ansiColor("RED", "[" + aPrefix + "] ") + af.toEncoding(String(f.replace(/[\n\r]+/g, "")), anEncoding)); ansiStop(); }, void 0, false, anEncoding); })
+				$do(() => { ioStreamReadLines(o, (f) => { ansiStart(); print(ansiColor("BOLD,BLACK", templify(aTemplate, { prefix: aPrefix })) + af.toEncoding(String(f.replace(/[\n\r]+/g, "")), anEncoding)); ansiStop(); }, aSeparator, false, __); }), 
+				$do(() => { ioStreamReadLines(e, (f) => { ansiStart(); printErr(ansiColor("RED", templify(aTemplate, { prefix: aPrefix })) + af.toEncoding(String(f.replace(/[\n\r]+/g, "")), anEncoding)); ansiStop(); }, aSeparator, false, anEncoding); })
 			])
 		);
 	};
@@ -821,6 +870,90 @@ OpenWrap.format.prototype.toBytesAbbreviation = function (bytes, precision) {
 
 /**
  * <odoc>
+ * <key>ow.format.fromBytesAbbreviation(aStr) : Number</key>
+ * Tries to reverse the ow.format.toBytesAbbreviation from aStr (string) back to the original value in bytes.\
+ * (available after ow.loadFormat())
+ * </odoc>
+ */
+OpenWrap.format.prototype.fromBytesAbbreviation = function(aStr) {
+	ow.loadFormat();
+
+	_$(aStr, "aStr").isString().$_();
+
+	var sizes = ['BYTES', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
+	aStr = aStr.trim();
+	var arr = aStr.split(/\s+/), unit, value;
+	if (arr.length >= 2) {
+		unit  = String(arr[arr.length - 1]);
+		value = Number(arr[arr.length - 2]);  
+	} else {
+		unit  = "";
+		value = parseFloat(aStr);
+	}
+	
+	var vfactor = 1;
+	for(var ii = 1; ii <= sizes.indexOf(unit.toUpperCase()); ii++) {
+		vfactor *= 1024;
+	}
+	
+	return Math.round(value * vfactor);
+}
+
+/**
+ * <odoc>
+ * <key>ow.format.toSLON(aObj, cTheme) : String</key>
+ * Stringifies aObj into a Single Line Object Notation using a default scheme for human readability or a 
+ * custom cTheme map composed of:\
+ * \
+ *    startMap "("\
+ *    sepMap   ", "\
+ *    endMap   ")"\
+ *    sepKV    ": "\
+ *    startArr "["\
+ *    sepArr   " | "\
+ *    endArr   "]"\
+ *    strQuote "'"\
+ * \
+ * </odoc>
+ */
+OpenWrap.format.prototype.toSLON = function(aObj, cTheme) {
+	var dTheme = {
+	   startMap: "(",
+	   sepMap  : ", ",
+	   endMap  : ")",
+	   sepKV   : ": ",
+	   startArr: "[",
+	   sepArr  : " | ",
+	   endArr  : "]",
+	   strQuote: "'"
+	}
+  
+	if (isMap(cTheme)) dTheme = merge(dTheme, cTheme);
+  
+	if (isNull(aObj)) {
+        return null;
+    }
+	if (isMap(aObj)) {
+	   var pairs = [];
+	   Object.keys(aObj).forEach(r => {
+		  pairs.push(r + dTheme.sepKV + ow.format.toSLON(aObj[r])); 
+	   });
+	   return dTheme.startMap + pairs.join(dTheme.sepMap) + dTheme.endMap; 
+	}
+	if (isArray(aObj)) {
+	   return dTheme.startArr + aObj.map(r => {
+		  return ow.format.toSLON(r);
+	   }).join(dTheme.sepArr) + dTheme.endArr;
+	}
+	if (isDate(aObj)) {
+		return ow.format.fromDate(aObj, 'yyyy-MM-dd/HH:mm:ss.SSS');
+	}
+	if (!isMap(aObj) && !isArray(aObj)) return (isString(aObj) ? dTheme.strQuote + aObj + dTheme.strQuote : String(aObj));
+  }
+
+/**
+ * <odoc>
  * <key>ow.format.round(aNumber, aDigits) : String</key>
  * Will return aNumber rounded to 0 decimal digits or aDigits decimal digits.\
  * (available after ow.loadFormat())
@@ -832,6 +965,22 @@ OpenWrap.format.prototype.round = function(number, digits) {
     }
     return number.toFixed(digits);
 }
+
+OpenWrap.format.prototype.toBase64 = function(aString) { return af.fromBytes2String(af.toBase64Bytes(aString)); }
+OpenWrap.format.prototype.fromBase64 = function(aString) { return af.fromBytes2String(af.fromBase64(aString)); }
+OpenWrap.format.prototype.md2  = md2;
+OpenWrap.format.prototype.md5  = md5;
+OpenWrap.format.prototype.sha1 = sha1;
+OpenWrap.format.prototype.sha256 = sha256;
+OpenWrap.format.prototype.sha384 = sha384;
+OpenWrap.format.prototype.sha512 = sha512;
+OpenWrap.format.prototype.toBoolean = toBoolean;
+OpenWrap.format.prototype.now = now;
+OpenWrap.format.prototype.nowUTC = nowUTC;
+OpenWrap.format.prototype.nowNano = nowNano;
+OpenWrap.format.prototype.hmacSHA256 = hmacSHA256;
+OpenWrap.format.prototype.hmacSHA384 = hmacSHA384;
+OpenWrap.format.prototype.hmacSHA512 = hmacSHA512;
 
 /**
  * <odoc>
@@ -862,7 +1011,7 @@ OpenWrap.format.prototype.timeago = function(date) {
 
 /**
  * <odoc>
- * <key>ow.format.toDate(aStringDate, aFormat) : Date</key>
+ * <key>ow.format.toDate(aStringDate, aFormat, aTimeZone) : Date</key>
  * Will convert aStringDate into a javascript Date given aFormat:\
  * \
  *   G - Era descriptor (AD)\
@@ -888,12 +1037,14 @@ OpenWrap.format.prototype.timeago = function(date) {
  *   Z - Time zone (-0800)\
  *   X - Time zone (-08; -0800; -08:00)\
  * \
+ * Optionally you can also provide the original aTimeZone (like 'America/New_York', 'Europe/London', 'UTC', ...)\
  * (available after ow.loadFormat())
  * </odoc>
  */
-OpenWrap.format.prototype.toDate = function(aStringDate, aFormat) {
+OpenWrap.format.prototype.toDate = function(aStringDate, aFormat, aTimeZone) {
 	var sdf = new java.text.SimpleDateFormat(aFormat);
-	return new Date(sdf.parse(aStringDate).getTime());
+	if (isDef(aTimeZone)) sdf.setTimeZone(java.util.TimeZone.getTimeZone(aTimeZone));
+	return new Date(sdf.parse(aStringDate).toInstant());
 }
 
 /**
@@ -922,17 +1073,8 @@ OpenWrap.format.prototype.toWedoDate = function(aStringDate, aFormat) {
  * </odoc>
  */
 OpenWrap.format.prototype.getActualTime = function(useAlternative) {
-	plugin("HTTP");
-
-	if (useAlternative) {
-		//var h = ow.loadObj();
-		//return new Date(ow.obj.rest.jsonGet("http://now.httpbin.org").now.epoch * 1000);
-		return new Date((1000 * ($rest().get("http://worldclockapi.com/api/json/utc/now").currentFileTime / 10000000 - 11644473600)));
-	} else {
-		//plugin("XML");
-		//return new Date((new XML((new HTTP("https://nist.time.gov/actualtime.cgi")).response())).get("@time")/1000);
-		return new Date($rest().get("https://worldtimeapi.org/api/ip").unixtime * 1000);
-	}
+	ow.loadNet();
+	return ow.net.getActualTime(useAlternative);
 }
 
 /**
@@ -1164,7 +1306,74 @@ OpenWrap.format.prototype.escapeString = function(str, except) {
  * </odoc>
  */
 OpenWrap.format.prototype.getPublicIP = function() {
-	return $rest().get("https://ifconfig.co/json");
+	ow.loadNet();
+	return ow.net.getPublicIP();
+	//return $rest().get("https://ifconfig.co/json");
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.getTLSCertificates(aHost, aPort, withJava, aPath, aPass, aSoTimeout) : Array</key>
+ * Tries to retreive the TLS certificates from aHost, aPort (defaults to 443). Optionally if withJava=true the original certificate
+ * Java object will also be included. If the CA certificates is in a different location you can provide aPath and the corresponding aPass.
+ * Additionally you can specificy aSoTimeout (socket timeout in ms) which defaults to 10s.  
+ * </odoc>
+ */
+OpenWrap.format.prototype.getTLSCertificates = function(aHost, aPort, withJava, aPath, aPass, aSoTimeout) {
+	ow.loadNet();
+	return ow.net.getTLSCertificates(aHost, aPort, withJava, aPath, aPass, aSoTimeout);
+    /*_$(aHost, "aHost").isString().$_();
+	aPort = _$(aPort, "aPort").isNumber().default(443);
+    aPath = _$(aPath, "aPath").isString().default(ow.format.getJavaHome() + "/lib/security/cacerts");
+	aPass = _$(aPass, "aPass").isString().default("changeit");
+	withJava = _$(withJava, "withJava").isBoolean().default(false);
+	aSoTimeout = _$(aSoTimeout, "aSoTimeout").isNumber().default(10000);
+
+    var context = javax.net.ssl.SSLContext.getInstance("TLS");
+    var tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+    var ks = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType());
+    ks.load(io.readFileStream(aPath), (new java.lang.String(aPass)).toCharArray());
+    tmf.init(ks);
+    var defaultTrustManager = tmf.getTrustManagers()[0];
+    var cchain;
+    var tm = new JavaAdapter(javax.net.ssl.X509TrustManager, {
+      getAcceptedIssuers: function() {
+        return new java.security.cert.X509Certificate();
+      },
+      checkClientTrusted: function() {
+        throw new javax.net.ssl.UnsupportedOperationException();
+      },
+      checkServerTrusted: function(chain, authType) {
+        cchain = chain;
+        defaultTrustManager.checkServerTrusted(chain, authType);
+      }
+    });
+    context.init(null, [tm], null);
+    var factory = context.getSocketFactory();
+
+    var socket = factory.createSocket(aHost, aPort);
+    socket.setSoTimeout(aSoTimeout);
+    try {
+      socket.startHandshake();
+    } catch(e) {
+    }
+    socket.close();
+
+    var sres = af.fromJavaArray(cchain);
+    var res = sres.map(r => {
+	  var rr = {
+		issuerDN    : r.getIssuerDN(),
+		subjectDN   : r.getSubjectDN(),
+		notBefore   : new Date( r.getNotBefore().toGMTString() ),
+		notAfter    : new Date( r.getNotAfter().toGMTString() )
+	  };
+      if (withJava) rr.javaObj = r;
+	  if (!isNull(r.getSubjectAlternativeNames())) rr.alternatives = af.fromJavaArray( r.getSubjectAlternativeNames().toArray() ).map(af.fromJavaArray);
+ 
+	  return rr;
+    });
+    
+	return res;*/
 };
 
 /**
@@ -1176,8 +1385,10 @@ OpenWrap.format.prototype.getPublicIP = function() {
  * </odoc>
  */
 OpenWrap.format.prototype.testPublicPort = function(aPort) {
-	plugin("HTTP");
-	return JSON.parse((new HTTP("http://ifconfig.co/port/" + String(aPort))).response());
+	ow.loadNet();
+	return ow.net.testPublicPort(aPort);
+	/*plugin("HTTP");
+	return JSON.parse((new HTTP("http://ifconfig.co/port/" + String(aPort))).response());*/
 };
 
 /**
@@ -1202,6 +1413,26 @@ OpenWrap.format.prototype.getOS = function() {
 
 /**
  * <odoc>
+ * <key>ow.format.getOSArch() : String</key>
+ * Returns the current operating system architecture string.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getOSArch = function() {
+	return String(java.lang.System.getProperty("os.arch"));
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.getOSVersion() : String</key>
+ * Returns the current operating system version string.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getOSVersion = function() {
+	return String(java.lang.System.getProperty("os.version"));
+};
+
+/**
+ * <odoc>
  * <key>ow.format.getCurrentDirectory() : String</key>
  * Returns the current working directory.
  * </odoc>
@@ -1218,6 +1449,16 @@ OpenWrap.format.prototype.getCurrentDirectory = function() {
  */
 OpenWrap.format.prototype.getJavaVersion = function() {
 	return String(java.lang.System.getProperty("java.version"));
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.getUserHome() : String</key>
+ * Returns the current user home path.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getUserHome = function() {
+	return String(java.lang.System.getProperty("user.home"));
 };
 
 /**
@@ -1247,7 +1488,9 @@ OpenWrap.format.prototype.getClasspath = function() {
  * </odoc>
  */
 OpenWrap.format.prototype.getHostName = function() {
-	return String(java.net.InetAddress.getLocalHost().getHostName());
+	ow.loadNet();
+	return ow.net.getHostName();
+	//return String(java.net.InetAddress.getLocalHost().getHostName());
 };
 
 /**
@@ -1257,7 +1500,9 @@ OpenWrap.format.prototype.getHostName = function() {
  * </odoc>
  */
 OpenWrap.format.prototype.getHostAddress = function() {
-	return String(java.net.InetAddress.getLocalHost().getHostAddress());
+	ow.loadNet();
+	return ow.net.getHostAddress();
+	//return String(java.net.InetAddress.getLocalHost().getHostAddress());
 };
 
 /**
@@ -1268,7 +1513,9 @@ OpenWrap.format.prototype.getHostAddress = function() {
  * </odoc>
  */
 OpenWrap.format.prototype.testHost = function(aAddress, aTimeout) {
-	_$(aAddress, "address").isString().$_();
+	ow.loadNet();
+	return ow.net.testHost(aAddress, aTimeout);
+	/*_$(aAddress, "address").isString().$_();
 	aTimeout = _$(aTimeout, "timeout").isNumber().default(4000);
 	
 	var init = now();
@@ -1278,7 +1525,7 @@ OpenWrap.format.prototype.testHost = function(aAddress, aTimeout) {
 	return { 
 	  time: lat,
 	  reachable: res
-	};
+	};*/
 };
 
 /**
@@ -1290,7 +1537,9 @@ OpenWrap.format.prototype.testHost = function(aAddress, aTimeout) {
  * </odoc>
  */
 OpenWrap.format.prototype.testPort = function(aAddress, aPort, aCustomTimeout) {
-    if (isUnDef(aCustomTimeout)) aCustomTimeout = 1500;
+	ow.loadNet();
+	return ow.net.testPort(aAddress, aPort, aCustomTimeout);
+    /*if (isUnDef(aCustomTimeout)) aCustomTimeout = 1500;
 
     try {
         var s = new java.net.Socket();
@@ -1299,7 +1548,7 @@ OpenWrap.format.prototype.testPort = function(aAddress, aPort, aCustomTimeout) {
         return true;
     } catch(e) {
         return false;
-    }
+    }*/
 };
 
 /**
@@ -1311,7 +1560,9 @@ OpenWrap.format.prototype.testPort = function(aAddress, aPort, aCustomTimeout) {
  * </odoc>
  */
 OpenWrap.format.prototype.testPortLatency = function(aHost, aPort, aCustomTimeout) {
-	aCustomTimeout = _$(aCustomTimeout).isNumber().default(60000);
+	ow.loadNet();
+	return ow.net.testPortLatency(aHost, aPort, aCustomTimeout);
+	/*aCustomTimeout = _$(aCustomTimeout).isNumber().default(60000);
 	var sock  = new java.net.Socket();
 	var iaddr = new java.net.InetSocketAddress(aHost, aPort);
 
@@ -1325,7 +1576,7 @@ OpenWrap.format.prototype.testPortLatency = function(aHost, aPort, aCustomTimeou
 		sock.close();
 	}
 
-	return latency;
+	return latency;*/
 };
 
 /**
@@ -1336,19 +1587,21 @@ OpenWrap.format.prototype.testPortLatency = function(aHost, aPort, aCustomTimeou
  * </odoc>
  */
 OpenWrap.format.prototype.testURLLatency = function(aURL, aCustomTimeout) {
-	ow.loadObj();
+	ow.loadNet();
+	return ow.net.testURLLatency(aURL, aCustomTimeout);
+	/*ow.loadObj();
 
 	var hc = new ow.obj.http();
 	hc.setThrowExceptions(true);
 	var ini = now(), latency = -1;
 	try {
-		hc.get(aURL, void 0, void 0, false, aCustomTimeout);
+		hc.get(aURL, __, __, false, aCustomTimeout);
 		latency = now() - ini;
 	} catch(e) {
 		latency = -1;
 	}
 
-	return latency;
+	return latency;*/
 };
 
 /**
@@ -1560,6 +1813,9 @@ OpenWrap.format.prototype.dateDiff = {
  * </odoc>
  */
 OpenWrap.format.prototype.elapsedTime4ms = function(aMs, aFormat) {
+	if (aMs == 0) return "~0 ms"
+	if (aMs < 1) return ">1 ms"
+
     var ms = Math.abs(aMs);
 
     var msSecond = 1000,
@@ -1610,8 +1866,50 @@ OpenWrap.format.prototype.elapsedTime4ms = function(aMs, aFormat) {
         chunksCount++;
     }
 
-    return chunks.join(aFormat.sep);
+	return chunks.join(aFormat.sep);
 };
+
+/**
+ * <odoc>
+ * <key>ow.format.sshProgress(aFn) : Object</key>
+ * Returns a SSH Java progress monitor callback object to be use with the SSH plugin functions.
+ * Expects callback aFn that will be called with state (e.g. begin, count, end) and an Info map.
+ * The Info map is composed of:
+ *    source - the reported source of the transfer\
+ *    target - the reported target of the transfer\
+ *    op     - the operation being performed (get or put)\
+ *    start  - reported unix epoch when the transfer started\
+ *    end    - reported unix epoch when the transfer stopped\
+ *    count  - the last reported byte count\
+ *    speed  - the calculated speed of transfer\
+ * \
+ * If the returned value is false the transfer will be cancelled.
+ * </odoc>
+ */
+OpenWrap.format.prototype.sshProgress = function(aFn) {
+	_$(aFn).isFunction().$_();
+    var info = {};
+
+    return new Packages.com.jcraft.jsch.SftpProgressMonitor({ 
+        count: function(c) {
+            info.count = c;
+            info.speed = (c * 1000) / (now() - info.start);
+            return aFn("count", info);
+        }, 
+        end  : function() { 
+            info.end = now();
+            aFn("end", info);
+        }, 
+        init : function(op, src, dest, max) {
+            info.source   = src;
+            info.target   = dest;
+            info.maxBytes = max;
+            info.op       = (op == 1) ? "get" : "put";
+            info.start    = now();
+            aFn("begin", info);
+        }
+    });
+}
 
 /**
  * <odoc>
@@ -1870,9 +2168,10 @@ OpenWrap.format.prototype.logWarnWithFooter = function(aMessage, aFooter) {
  * aUnixBlock or aWindowsBlock (depending on the current operating system) and aSpace. Example:\
  * \
  *    ow.loadTemplate();\
- *    var fn = ow.template.execCompiled(ow.template.compile("({{percFormat}}%) progress: |{{progress}}|"));
- *    ow.format.printWithProgressFooter("processing xyz...", fn, aPerc);
- *    ow.format.printWithFooter("Done.", "");
+ *    var fn = ow.template.execCompiled(ow.template.compile("({{percFormat}}%) progress: |{{progress}}|"));\
+ *    ow.format.printWithProgressFooter("processing xyz...", fn, aPerc);\
+ *    ow.format.printWithFooter("Done.", "");\
+ * 
  * </odoc>
  */
 OpenWrap.format.prototype.printWithProgressFooter = function(aMessage, aTemplate, aPerc, aSize, aUnixBlock, aWindowsBlock, aSpace, withFunc) {
@@ -1939,6 +2238,326 @@ OpenWrap.format.prototype.logWarnWithProgressFooter = function(aMessage, aTempla
 
 /**
  * <odoc>
+ * <key>ow.format.withMD(aString, defaultAnsi) : String</key>
+ * Use aString with simple markdown and convert it to ANSI. Optionally you can add a defaultAnsi string to return back 
+ * after applying the ansi styles for markdown (use ansiColor function to provide the defaultAnsi).
+ * Currently supports only: bold, italic.
+ * </odoc>
+ */
+OpenWrap.format.prototype.withMD = function(aString, defaultAnsi) {
+    _$(aString, "aString").isString().$_();
+    defaultAnsi = _$(defaultAnsi, "defaultAnsi").isString().default("");
+	var res = aString, da = (defaultAnsi.length > 0 ? ansiColor(defaultAnsi, "") : "");
+
+ 	res = res.replace(/(\*{3}|_{3})([^\*_\n]+)(  \*{3}|_{3})/g, ansiColor("BOLD,ITALIC", "$2")+da)
+ 	res = res.replace(/(\*{2}|_{2})([^\*_\n]+)(\*{2}|_{2})/g, ansiColor("BOLD", "$2")+da)
+ 	res = res.replace(/(\*|_)([^\*_\n]+)(\*|_)/g, ansiColor("ITALIC", "$2")+da)
+
+	res = res.replace(/^# (.+)/mg, ansiColor("WHITE,BOLD,UNDERLINE", "$1") + da)
+	res = res.replace(/^## (.+)/mg, ansiColor("BOLD,UNDERLINE", "$1") + da)
+	res = res.replace(/^###+ (.+)/mg, ansiColor("BOLD", "$1") + da)
+	
+	var isTab = false, fields = [], data = []
+	if (res.indexOf("|") >= 0) {
+		res = res.split("\n").map(l => {
+			if ((/^(\|[^\|]+)+\|$/).test(l)) {
+				if (isTab) {
+					if ((/^(\|[-: ]+)+\|$/).test(l)) {
+						// Separator
+						return null
+					} else {
+						if (l.trim().indexOf("|") == 0) {
+							var m = {}
+							l.split("|").forEach((s, i) => {
+								if (i == 0) return
+		
+								if (isDef(fields[i-1])) {
+									m[fields[i-1]] = s
+								}
+							})
+							data.push(m)
+						} 
+					}
+				} else {
+					if (fields.length == 0) {
+						fields = l.split("|").filter(s => s.length > 0).map(r => r.trim())
+						isTab = true
+						return null
+					}
+				}
+			} else {
+				if (isTab) {
+					isTab = false
+					fields = []
+					var cdata = clone(data)
+					data = []
+					return printTable(cdata)
+				}
+				return l
+			}
+		}).filter(isString).join("\n")
+	}
+
+	return res;
+};
+
+OpenWrap.format.prototype.withSideLineThemes = function() {
+	var _s = ow.format.syms();
+	return {
+		simpleLine: {
+			lmiddle: _s.lineV
+		},
+		doubleLine: {
+			lmiddle: _s.lineV,
+			rmiddle: _s.lineV
+		},
+		simpleLineWithTips: {
+			ltop   : _s.lineVBottom,
+			lmiddle: _s.lineV,
+			lbottom: _s.lineVTop
+		},
+		simpleLineWithBottomTip: {
+			lmiddle: _s.lineV,
+			lbottom: _s.lineVTop
+		},
+		simpleLineWithTopTip: {
+			ltop   : _s.lineVBottom,
+			lmiddle: _s.lineV
+		},
+		simpleLineWithCTips: {
+			ltop   : _s.curveBRight,
+			lmiddle: _s.lineV,
+			lbottom: _s.curveTRight
+		},
+		simpleLineWithCBottomTip: {
+			lmiddle: _s.lineV,
+			lbottom: _s.curveTRight
+		},
+		simpleLineWithCTopTip: {
+			ltop   : _s.curveBRight,
+			lmiddle: _s.lineV
+		},
+		simpleLineWithRTips: {
+			ltop   : _s.lineBRight,
+			lmiddle: _s.lineV,
+			lbottom: _s.lineTRight
+		},
+		simpleLineWithRTopTip: {
+			ltop   : _s.lineBRight,
+			lmiddle: _s.lineV
+		},
+		simpleLineWithRBottomTip: {
+			lmiddle: _s.lineV,
+			lbottom: _s.lineTRight
+		},
+		doubleLineWithRTips: {
+			ltop   : _s.turnBRight,
+			lmiddle: _s.dlineV,
+			lbottom: _s.turnTRight,
+			rtop   : _s.turnBLeft,
+			rmiddle: _s.dlineV,
+			rbottom: _s.turnTLeft
+		},
+		doubleLineBothSides: {
+			lmiddle: _s.dlineV,
+			rmiddle: _s.dlineV
+		},
+		closedRect: {
+			ltop   : _s.lineBRight,
+			lbottom: _s.lineTRight,
+			tmiddle: _s.lineH,
+			bmiddle: _s.lineH,
+			lmiddle: _s.lineV,
+			rmiddle: _s.lineV,
+			rtop   : _s.lineBLeft,
+			rbottom: _s.lineTLeft
+		},
+		closedDoubleRect: {
+			ltop   : _s.turnBRight,
+			lbottom: _s.turnTRight,
+			tmiddle: _s.dlineH,
+			bmiddle: _s.dlineH,
+			lmiddle: _s.dlineV,
+			rmiddle: _s.dlineV,
+			rtop   : _s.turnBLeft,
+			rbottom: _s.turnTLeft
+		},
+		closedCurvedRect: {
+			ltop   : _s.curveBRight,
+			lbottom: _s.curveTRight,
+			tmiddle: _s.lineH,
+			bmiddle: _s.lineH,
+			lmiddle: _s.lineV,
+			rmiddle: _s.lineV,
+			rtop   : _s.curveBLeft,
+			rbottom: _s.curveTLeft
+		},
+		openTopRect: {
+			lbottom: _s.lineTRight,
+			bmiddle: _s.lineH,
+			lmiddle: _s.lineV,
+			rmiddle: _s.lineV,
+			rbottom: _s.lineTLeft
+		},
+		openBottomRect: {
+			ltop   : _s.lineBRight,
+			tmiddle: _s.lineH,
+			lmiddle: _s.lineV,
+			rmiddle: _s.lineV,
+			rtop   : _s.lineBLeft
+		},
+		openRect: {
+			ltop   : _s.lineBRight,
+			lmiddle: _s.lineV,
+			rmiddle: _s.lineV,
+			rtop   : _s.lineBLeft,
+			lbottom: _s.lineTRight,
+			rbottom: _s.lineTLeft
+		},
+		openTopCurvedRect: {
+			lmiddle: _s.lineV,
+			lbottom: _s.curveTRight,
+			bmiddle: _s.lineH,
+			rmiddle: _s.lineV,
+			rbottom: _s.curveTLeft
+		},
+		openBottomCurvedRect: {
+			ltop   : _s.curveBRight,
+			lmiddle: _s.lineV,
+			tmiddle: _s.lineH,
+			rtop   : _s.curveBLeft,
+			rmiddle: _s.lineV
+		},
+		openCurvedRect: {
+			ltop   : _s.curveBRight,
+			lmiddle: _s.lineV,
+			rtop   : _s.curveBLeft,
+			rmiddle: _s.lineV,
+ 			lbottom: _s.curveTRight,
+ 			rbottom: _s.curveTLeft
+		}
+	}
+};
+
+/**
+ * <odoc>
+ * <key>ow.format.withSideLine(aString, aSize, ansiLine, ansiText, aTheme, aExtra) : String</key>
+ * Generates a ansi escaped line with a "left side line" to display aString which will be word-wrap given 
+ * aSize (default to the current console size). Optionally ansi colors for ansiLine and ansiText can be provided (see ansiColor for possible values)
+ * and aTheme (using ow.format.withSideLineThemes, for example). For closed rectangle themes aExtra map can include a header, footer, headerAlign (
+ * left or right or center) and footerAlign (left or right or center).
+ * </odoc>
+ */
+OpenWrap.format.prototype.withSideLine = function(aString, aSize, ansiLine, ansiText, aTheme, aExtra) {
+	var symbols = ow.format.syms();
+
+	aString = _$(aString, "aString").isString().default(__);
+	aExtra  = _$(aExtra, "aExtra").isMap().default({})
+	var defaultTheme = {
+		tab    : "   "
+	};
+	aTheme = _$(aTheme, "aTheme").isMap().default({ lmiddle: symbols.lineV });
+	aTheme = merge(defaultTheme, aTheme);
+
+	aSize = _$(aSize, "aSize").isNumber().default(__);
+	ansiLine = _$(ansiLine, "ansiLine").isString().default("RESET");
+
+	var res = ansiColor("RESET", "\r");
+ 
+	if (isUnDef(aSize)) {
+		__conStatus || __initializeCon(); 
+
+		if (isDef(__con)) {
+			aSize = __con.getTerminal().getWidth();
+		} else {
+			aSize = 80;
+		}
+	}
+      
+        if (isDef(aString)) { 
+		aString = aString.replace(/\t/g, aTheme.tab);
+		aString = ow.format.string.wordWrap(aString, aSize - 2);
+ 	}
+
+	if (isDef(aTheme.ltop) || isDef(aTheme.rtop)) {
+		res += ansiColor(ansiLine, aTheme.ltop);
+		if (isDef(aTheme.rtop)) {
+			var sp = (isDef(aTheme.tmiddle) ? aTheme.tmiddle : " ");
+			if (isString(aExtra.header) && aExtra.header.length < (aSize - 4)) {
+				if (aExtra.headerAlign == "right") {
+					res += ansiColor(ansiLine, repeat(aSize - 4 - ansiLength(aExtra.header), sp))
+					res += aExtra.header
+					res += ansiColor(ansiLine, repeat(2, sp))
+				}
+				if (aExtra.headerAlign == "center") {
+					var _l = aSize - 4 - ansiLength(aExtra.header)
+					res += ansiColor(ansiLine, repeat(Math.floor(_l / 2) +1, sp))
+					res += aExtra.header
+					res += ansiColor(ansiLine, repeat(Math.round(_l / 2) +1, sp))
+				}
+				if (isUnDef(aExtra.headerAlign) || aExtra.headerAlign == "left") {
+					res += ansiColor(ansiLine, repeat(2, sp))
+					res += aExtra.header
+					res += ansiColor(ansiLine, repeat(aSize - 4 - ansiLength(aExtra.header), sp))
+				}
+			} else {
+				res += ansiColor(ansiLine, repeat(aSize - 2, sp));
+			}
+			res += ansiColor(ansiLine, aTheme.rtop);
+		}
+	}
+
+	if (isDef(aString)) {
+        if (isDef(aTheme.ltop) || isDef(aTheme.rtop)) res += "\n";
+    	var ar = aString.split("\n");
+	    ar.forEach((l, li) => {
+			if (isDef(aTheme.lmiddle)) res += ansiColor(ansiLine, aTheme.lmiddle) + ansiColor("RESET", "")
+			res += (isDef(ansiText) ? ansiColor(ansiText, " " + l) : " " + l);
+			if (isDef(aTheme.rmiddle)) {
+				var sp = (isDef(ansiText) ? ansiColor(ansiText, repeat(aSize - ansiLength(l) - 3, ' ')) : repeat(aSize - ansiLength(l) - 3, ' '));
+				res += (isDef(ansiText) ? ansiColor(ansiText, sp) : sp);
+				res += ansiColor("RESET", "") + ansiColor(ansiLine, aTheme.rmiddle);
+			}
+			if (li < (ar.length - 1)) res += ansiColor("RESET", "\n");
+	    });
+		res += ansiColor("RESET", "")
+	}
+
+    if (isDef(aTheme.lbottom) || isDef(aTheme.rbottom)) {
+		if (isDef(aTheme.ltop) || isDef(aTheme.rtop) || isDef(aString)) res += ansiColor("RESET","\n")
+                res += ansiColor(ansiLine, aTheme.lbottom);
+		if (isDef(aTheme.rbottom)) {
+			var sp = (isDef(aTheme.bmiddle) ? aTheme.bmiddle : " ");
+			if (isString(aExtra.footer) && aExtra.footer.length < (aSize - 4)) {
+				if (aExtra.footerAlign == "right") {
+					res += ansiColor(ansiLine, repeat(aSize - 4 - ansiLength(aExtra.footer), sp))
+					res += aExtra.footer
+					res += ansiColor(ansiLine, repeat(2, sp))
+				}
+				if (aExtra.footerAlign == "center") {
+					var _l = aSize - 4 - ansiLength(aExtra.footer)
+					res += ansiColor(ansiLine, repeat(Math.floor(_l / 2) +1, sp))
+					res += aExtra.footer
+					res += ansiColor(ansiLine, repeat(Math.round(_l / 2) +1, sp))
+				}
+				if (isUnDef(aExtra.footerAlign) || aExtra.footerAlign == "left") {
+					res += ansiColor(ansiLine, repeat(2, sp))
+					res += aExtra.footer
+					res += ansiColor(ansiLine, repeat(aSize - 4 - ansiLength(aExtra.footer), sp))
+				}
+			} else {
+				res += ansiColor(ansiLine, repeat(aSize - 2, sp))
+			}
+		}
+		res += ansiColor(ansiLine, aTheme.rbottom)
+		res += ansiColor("RESET", "");
+	}
+
+	return res;
+}
+
+/**
+ * <odoc>
  * <key>ow.format.elapsedTime(aStartTime, aEndTime, aFormat) : String</key>
  * Shortcut for ow.format.elapsedTime4ms calculating the absolute difference, in ms, between
  * aStartTime and aEndTime.
@@ -1951,6 +2570,15 @@ OpenWrap.format.prototype.elapsedTime = function(aStartTime, aEndTime, aFormat) 
 
 
 OpenWrap.format.prototype.xls = {
+	init: function() {
+		var paths = getOPackPaths();
+
+		if (isUnDef(paths["plugin-XLS"])) {
+			throw "Please install the plugin-XLS opack 'opack install plugin-XLS'.";
+		} else {
+			//loadExternalJars(paths["plugin-XLS"]);
+		}
+	},
 	/**
 	 * <odoc>
 	 * <key>ow.format.xls.getStyle(aXLS, aStyleMap)</key>
@@ -1994,15 +2622,20 @@ OpenWrap.format.prototype.xls = {
 	 * dash_dot,dash_dot_dot,dashed,dotted,double,hair,medium,medium_dash_dot,medium_dash_dot_dot,medium_dashed,none,
 	 * slanted_dash_dot,thick,thin\
 	 * \
+	 * Fill patterns:\
+	 * \
+	 * solid_foreground\
+	 * \
 	 * </odoc>
 	 */
 	getStyle: function(aXLS, aStyleMap) {
 		var rcs, rcf;
 
-		_$(aStyleMap, "style map").isMap().$_();
+		if (!isJavaObject(aStyleMap) && !isMap(aStyleMap)) throw "aStyleMap should be a map or a CellStyle object.";
+		ow.format.xls.init();
 
 		if (isUnDef(aXLS.__styleCache)) { aXLS.__styleCache = {}; }
-		var styleId = stringify(sortMapKeys(aStyleMap), void 0, "");
+		var styleId = stringify(sortMapKeys(aStyleMap), __, "");
 		if (isJavaObject(aXLS.__styleCache[styleId])) return aXLS.__styleCache[styleId];
 
 		var fnRCS = () => {
@@ -2021,53 +2654,54 @@ OpenWrap.format.prototype.xls = {
 		if (isDef(aStyleMap.strikeout)) fnRCF().setStrikeout(aStyleMap.strikeout);
 		if (isDef(aStyleMap.fontPoints)) fnRCF().setFontHeightInPoints(aStyleMap.fontPoints);
 		if (isDef(aStyleMap.fontName)) fnRCF().setFontName(aStyleMap.fontName);
-		if (isDef(aStyleMap.fontColor)) fnRCF().setColor(this.getColor(aStyleMap.fontColor));
+		if (isDef(aStyleMap.fontColor)) fnRCF().setColor(this.getColor(aStyleMap.fontColor, aXLS));
 
 		if (isDef(aStyleMap.wrapText)) fnRCS().setWrapText(aStyleMap.wrapText);
 		if (isDef(aStyleMap.shrinkToFit)) fnRCS().setShrinkToFit(aStyleMap.shrinkToFit);
-		if (isDef(aStyleMap.backgroundColor)) fnRCS().setFillBackgroundColor(this.getColor(aStyleMap.backgroundColor));
-		if (isDef(aStyleMap.foregroundColor)) fnRCS().setFillForegroundColor(this.getColor(aStyleMap.foregroundColor));
-		if (isDef(aStyleMap.borderBottom)) fnRCS().setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom));
-		if (isDef(aStyleMap.borderLeft)) fnRCS().setBorderLeft(this.getBorderStyle(aStyleMap.borderLeft));
-		if (isDef(aStyleMap.borderRight)) fnRCS().setBorderRight(this.getBorderStyle(aStyleMap.borderRight));
-		if (isDef(aStyleMap.borderTop)) fnRCS().setBorderTop(this.getBorderStyle(aStyleMap.borderTop));
-		if (isDef(aStyleMap.borderBottom)) fnRCS().setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom));
-		if (isDef(aStyleMap.borderLeftColor)) fnRCS().setLeftBorderColor(this.getColor(aStyleMap.borderLeftColor));
-		if (isDef(aStyleMap.borderRightColor)) fnRCS().setRightBorderColor(this.getColor(aStyleMap.borderRightColor));
-		if (isDef(aStyleMap.borderTopColor)) fnRCS().setTopBorderColor(this.getColor(aStyleMap.borderTopColor));
-		if (isDef(aStyleMap.borderBottomColor)) fnRCS().setBottomBorderColor(this.getColor(aStyleMap.borderBottomColor));
+		if (isDef(aStyleMap.backgroundColor)) fnRCS().setFillBackgroundColor(this.getColor(aStyleMap.backgroundColor, aXLS));
+		if (isDef(aStyleMap.foregroundColor)) fnRCS().setFillForegroundColor(this.getColor(aStyleMap.foregroundColor, aXLS));
+		if (isDef(aStyleMap.borderBottom)) fnRCS().setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom, aXLS));
+		if (isDef(aStyleMap.borderLeft)) fnRCS().setBorderLeft(this.getBorderStyle(aStyleMap.borderLeft, aXLS));
+		if (isDef(aStyleMap.borderRight)) fnRCS().setBorderRight(this.getBorderStyle(aStyleMap.borderRight, aXLS));
+		if (isDef(aStyleMap.borderTop)) fnRCS().setBorderTop(this.getBorderStyle(aStyleMap.borderTop, aXLS));
+		if (isDef(aStyleMap.borderBottom)) fnRCS().setBorderBottom(this.getBorderStyle(aStyleMap.borderBottom, aXLS));
+		if (isDef(aStyleMap.borderLeftColor)) fnRCS().setLeftBorderColor(this.getColor(aStyleMap.borderLeftColor, aXLS));
+		if (isDef(aStyleMap.borderRightColor)) fnRCS().setRightBorderColor(this.getColor(aStyleMap.borderRightColor, aXLS));
+		if (isDef(aStyleMap.borderTopColor)) fnRCS().setTopBorderColor(this.getColor(aStyleMap.borderTopColor, aXLS));
+		if (isDef(aStyleMap.borderBottomColor)) fnRCS().setBottomBorderColor(this.getColor(aStyleMap.borderBottomColor, aXLS));
 		if (isDef(aStyleMap.rotation)) fnRCS().setRotation(aStyleMap.rotation);
 		if (isDef(aStyleMap.indention)) fnRCS().setIndention(aStyleMap.indention);
 
 		if (isDef(aStyleMap.valign)) {
 			switch(aStyleMap.valign) {
-			case "top": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.TOP); break;
-			case "bottom": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.BOTTOM); break;
-			case "center": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.CENTER); break;
-			case "justify": fnRCS().setVerticalAlignment(Packages.org.apache.poi.ss.usermodel.VerticalAlignment.JUSTIFY); break;
+			case "top": fnRCS().setVerticalAlignment(aXLS.getClassVerticalAlignment("TOP")); break;
+			case "bottom": fnRCS().setVerticalAlignment(aXLS.getClassVerticalAlignment("BOTTOM")); break;
+			case "center": fnRCS().setVerticalAlignment(aXLS.getClassVerticalAlignment("CENTER")); break;
+			case "justify": fnRCS().setVerticalAlignment(aXLS.getClassVerticalAlignment("JUSTIFY")); break;
 			}
 		};
 		if (isDef(aStyleMap.align)) {
 			switch(aStyleMap.align) {
-			case "center": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_CENTER); break;
-			case "centerSelection": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_CENTER_SELECTION); break;
-			case "fill": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_FILL); break;
-			case "general": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_GENERAL); break;
-			case "justify": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_JUSTIFY); break;
-			case "left": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_LEFT); break;
-			case "right": fnRCS().setAlignment(Packages.org.apache.poi.ss.usermodel.HorizontalAlignment.ALIGN_RIGHT); break;
+			case "center": fnRCS().setAlignment(aXLS.getClassHorizontalAlignment("CENTER")); break;
+			case "centerSelection": fnRCS().setAlignment(aXLS.getClassHorizontalAlignment("CENTER_SELECTION")); break;
+			case "fill": fnRCS().setAlignment(aXLS.getClassHorizontalAlignment("FILL")); break;
+			case "general": fnRCS().setAlignment(aXLS.getClassHorizontalAlignment("GENERAL")); break;
+			case "justify": fnRCS().setAlignment(aXLS.getClassHorizontalAlignment("JUSTIFY")); break;
+			case "left": fnRCS().setAlignment(aXLS.getClassHorizontalAlignment("LEFT")); break;
+			case "right": fnRCS().setAlignment(aXLS.getClassHorizontalAlignment("RIGHT")); break;
 			}
 		};
 		if (isJavaObject(rcf)) fnRCS().setFont(rcf);
-
+		if (isDef(aStyleMap.fillPattern)) fnRCS().setFillPattern(aXLS.getEnumFillPatternType(aStyleMap.fillPattern.toUpperCase()));
+		
 		aXLS.__styleCache[styleId] = fnRCS();
 		return fnRCS();
 	},
 	
 	/**
 	 * <odoc>
-	 * <key>ow.format.xls.autoFilter(aXLSSheet, aRange)</key>
-	 * Applies a auto filter on the provided aXLSSheet object (from XLS.getSheet) to aRange.\
+	 * <key>ow.format.xls.autoFilter(aXLS, aXLSSheet, aRange)</key>
+	 * Applies a auto filter on the provided aXLS and aXLSSheet object (from XLS.getSheet) to aRange.\
 	 * \
 	 * Example:\
 	 * \
@@ -2075,11 +2709,17 @@ OpenWrap.format.prototype.xls = {
 	 * \
 	 * </odoc>
 	 */
-	autoFilter: function(aXLSSheet, aRange) {
-		aXLSSheet.setAutoFilter(Packages.org.apache.poi.ss.util.CellRangeAddress.valueOf(aRange));
+	autoFilter: function(aXLS, aXLSSheet, aRange) {
+		aXLSSheet.setAutoFilter(aXLS.getCellRangeAddress(aRange));
 	},
 	
-	getColor: function(aColorName) {
+	getColor: function(aColorName, aXLS) {
+		if (isNumber(aColorName)) return aColorName;
+		return aXLS.getIndexedColors(aColorName);
+	},
+	/*
+		ow.format.xls.init();
+
 		var HSSFColor = Packages.org.apache.poi.ss.usermodel.IndexedColors;
 		var c;
 		switch(aColorName) {
@@ -2134,9 +2774,14 @@ OpenWrap.format.prototype.xls = {
 		}
 		
 		if (isDef(c)) return c.getIndex();
-	}, 
+	},*/ 
 	
-	getBorderStyle: function(aBorderStyle) {
+	getBorderStyle: function(aBorderStyle, aXLS) {
+		return aXLS.getBorderStyle(aBorderStyle);
+	},
+	/*
+		ow.format.xls.init();
+		
 		var bs = Packages.org.apache.poi.ss.usermodel.BorderStyle;
 		switch(aBorderStyle) {
 		case "dash_dot": return bs.DASH_DOT; break;
@@ -2154,7 +2799,7 @@ OpenWrap.format.prototype.xls = {
 		case "thick": return bs.THICK; break;
 		case "thin": return bs.THIN; break;
 		}
-	},
+	},*/
 
 	/**
 	 * <odoc>
@@ -2167,7 +2812,7 @@ OpenWrap.format.prototype.xls = {
 	setTable: function(aXLS, aSheet, aColumn, aRow, anArray, autoFilter, headerStyle, linesStyle) {
 		if (isArray(anArray) && anArray.length <= 0) return;
 
-		if (isUnDef(headerStyle)) {
+		if (!isJavaObject(headerStyle) && isUnDef(headerStyle)) {
 			headerStyle = ow.format.xls.getStyle(aXLS, { bold: true });
 		} else {
 			if (isMap(headerStyle)) headerStyle = ow.format.xls.getStyle(aXLS, headerStyle);
@@ -2180,7 +2825,7 @@ OpenWrap.format.prototype.xls = {
 		} 
 
 		if (autoFilter) {
-			ow.format.xls.autoFilter(aSheet, aColumn + String(aRow) + ":" + aXLS.toName(aXLS.toNumber(aColumn) + Object.keys(anArray[0]).length -1) + String(aRow + anArray.length -2));
+			ow.format.xls.autoFilter(aXLS, aSheet, aColumn + String(aRow) + ":" + aXLS.toName(aXLS.toNumber(aColumn) + Object.keys(anArray[0]).length -1) + String(aRow + anArray.length));
 		}
 	}
 }
@@ -2193,7 +2838,9 @@ OpenWrap.format.prototype.xls = {
  * </odoc>
  */
 OpenWrap.format.prototype.getDoH = function(aName, aType, aProvider) {
-	aProvider = _$(aProvider).default("cloudflare");
+	ow.loadNet();
+	return ow.net.getDoH(aName, aType, aProvider);
+	/*aProvider = _$(aProvider).default("cloudflare");
  
 	switch (aProvider) {
 	   case "google":
@@ -2202,7 +2849,7 @@ OpenWrap.format.prototype.getDoH = function(aName, aType, aProvider) {
 			 type: aType
 		  });
 		  if (isDef(res.Answer)) return res.Answer;
-		  else return void 0;
+		  else return __;
 	   case "cloudflare":
 		  var res = $rest({
 						requestHeaders: {
@@ -2215,10 +2862,10 @@ OpenWrap.format.prototype.getDoH = function(aName, aType, aProvider) {
 						type: aType
 					});
 		  if (isDef(res.Answer)) return res.Answer;
-		  else return void 0;
+		  else return __;
 	   default:
 		  break;
-	}
+	}*/
 }
 
 /**
@@ -2228,7 +2875,9 @@ OpenWrap.format.prototype.getDoH = function(aName, aType, aProvider) {
  * </odoc>
  */
 OpenWrap.format.prototype.getReverseDoH = function(tIP, aProvider) {
-	var aIP = tIP, isV6 = false;
+	ow.loadNet();
+	return ow.net.getReverseDoH(tIP, aProvider);
+	/*var aIP = tIP, isV6 = false;
 	if (tIP.match(/:/)) {
 		ow.loadFormat();
 		isV6 = true;
@@ -2240,7 +2889,7 @@ OpenWrap.format.prototype.getReverseDoH = function(tIP, aProvider) {
 		aIP = String(tIP).split(/\./).reverse().join(".");
 	}
 
-	return this.getDoH(aIP + (isV6 ? ".ip6" : ".in-addr") + ".arpa", "ptr");
+	return this.getDoH(aIP + (isV6 ? ".ip6" : ".in-addr") + ".arpa", "ptr");*/
 }
 
 //loadLib(getOpenAFJar() + "::js/later.js");
@@ -2354,7 +3003,7 @@ OpenWrap.format.prototype.cron = {
 	 */
 	isCronMatch: function(aDate, aCronExpr) {
 		var d = aDate;
-		var ct = ow.format.fromDate(d, "s m H d M u", (later.date.isUTC ? "UTC" : void 0)).split(/ /);
+		var ct = ow.format.fromDate(d, "s m H d M u", (later.date.isUTC ? "UTC" : __)).split(/ /);
 		var cr = ow.format.cron.parse(aCronExpr);
 		if (cr.exceptions.length > 0) throw "Exceptions " + stringify(cr.exceptions);
 		var isMatch = true;

@@ -47,6 +47,7 @@ import org.mozilla.javascript.NativeArray;
 import org.mozilla.javascript.NativeJSON;
 import org.mozilla.javascript.NativeJavaArray;
 import org.mozilla.javascript.NativeJavaObject;
+import org.mozilla.javascript.NativeFunction;
 import org.mozilla.javascript.NativeObject;
 import org.mozilla.javascript.Script;
 import org.mozilla.javascript.Scriptable;
@@ -59,7 +60,7 @@ import org.mozilla.javascript.commonjs.module.RequireBuilder;
 import org.mozilla.javascript.commonjs.module.provider.SoftCachingModuleScriptProvider;
 import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
 import org.mozilla.javascript.optimizer.ClassCompiler;
-import org.mozilla.javascript.tools.debugger.Main;
+//import org.mozilla.javascript.tools.debugger.Main;
 import org.mozilla.javascript.xml.XMLObject;
 
 import com.google.gson.Gson;
@@ -85,7 +86,7 @@ public class AFBase extends ScriptableObject {
 	 * 
 	 */
 	private static final long serialVersionUID = 1L;
-	private static final String K = "openappframework";
+	private static String K = "openappframework";
 
 	public AFBase() {
 		super();
@@ -103,6 +104,17 @@ public class AFBase extends ScriptableObject {
 	@JSFunction
 	public static Object fromJson(String in) throws Exception {
 		return jsonParse(in, false);
+	}
+
+	/**
+	 * <odoc>
+	 * <key>af.setK(aK)</key>
+	 * Sets the current 16 bytes encrypt/decrypt key.
+	 * </odoc>
+	 */
+	@JSFunction
+	public static void setK(String k) {
+		AFBase.K = k;
 	}
 
 	/**
@@ -339,18 +351,22 @@ public class AFBase extends ScriptableObject {
 	 */
 	@JSFunction
 	public Object toEncoding(String s, Object encoding, Object fromEncoding) throws UnsupportedEncodingException {
-		if (fromEncoding != null && !(fromEncoding instanceof Undefined)) {
-			if (encoding != null && !(encoding instanceof Undefined)) {
-				return new String(s.getBytes((String) fromEncoding), (String) encoding);
+		if (s != null) {
+			if (fromEncoding != null && !(fromEncoding instanceof Undefined)) {
+				if (encoding != null && !(encoding instanceof Undefined)) {
+					return new String(s.getBytes((String) fromEncoding), (String) encoding);
+				} else {
+					return new String(s.getBytes((String) fromEncoding));
+				}
 			} else {
-				return new String(s.getBytes((String) fromEncoding));
+				if (encoding != null && !(encoding instanceof Undefined)) {
+					return new String(s.getBytes(), (String) encoding);
+				} else {
+					return new String(s.getBytes());
+				}
 			}
 		} else {
-			if (encoding != null && !(encoding instanceof Undefined)) {
-				return new String(s.getBytes(), (String) encoding);
-			} else {
-				return new String(s.getBytes());
-			}
+			return null;
 		}
 	}
 	
@@ -396,11 +412,12 @@ public class AFBase extends ScriptableObject {
 	
 	/**
 	 * <odoc>
-	 * <key>af.sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, encoding) : String/Map</key>
+	 * <key>af.sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, encoding, dontWait, envsMap) : String/Map</key>
 	 * Tries to execute commandArguments (either a String or an array of strings) in the operating system. Optionally
 	 * aStdIn can be provided, aTimeout can be defined for the execution and if shouldInheritIO is true the stdout, stderr and stdin
 	 * will be inherit from OpenAF. If shouldInheritIO is not defined or false it will return the stdout of the command execution.
 	 * It's possible also to provide a different working aDirectory.
+	 * If envsMap (a map of strings) is defined the environment variables will be replaced by envsMap.
 	 * The variables __exitcode and __stderr can be checked for the command exit code and the stderr output correspondingly. In alternative 
 	 * if returnMap = true a map will be returned with stdout, stderr and exitcode.
 	 * A callbackFunc can be provided, if shouldInheritIO is undefined or false, that will receive, as parameters, an output stream, a error stream and an input stream. If defined the stdout and stderr won't
@@ -411,7 +428,7 @@ public class AFBase extends ScriptableObject {
 	 * </odoc>
 	 */
 	@JSFunction
-	public Object sh(Object s, String in, Object timeout, boolean inheritIO, Object directory, boolean returnObj, Object callback, Object encoding) throws IOException, InterruptedException {
+	public Object sh(Object s, String in, Object timeout, boolean inheritIO, Object directory, boolean returnObj, Object callback, Object encoding, boolean dontWait, Object envs) throws IOException, InterruptedException {
 		ProcessBuilder pb = null;
 		Charset Cencoding = null;
 
@@ -433,10 +450,16 @@ public class AFBase extends ScriptableObject {
 				pb = new ProcessBuilder(((String) s).split(" (?=([^\']*\'[^\']*\')*[^\']*$)"));
 			}
 		} 
-		
+
 		if (inheritIO) pb.inheritIO();
 		if (!(directory == null || directory instanceof org.mozilla.javascript.Undefined)) {
 			pb.directory(new File((String) directory));
+		}
+
+		if (envs != null && envs instanceof NativeObject) {
+			Map<String, String> env = pb.environment();
+			env.clear();
+			env.putAll(((NativeObject) envs));
 		}
 		
 		final Process p = pb.start();
@@ -477,10 +500,12 @@ public class AFBase extends ScriptableObject {
 		int exit = -1; 
 		try {
 			if (timeout == null || timeout instanceof org.mozilla.javascript.Undefined) {
-				try {
-					if (is != null   ) lines = IOUtils.toString(is, Cencoding);
-					if (iserr != null) linesErr = IOUtils.toString(iserr, Cencoding);
-				} catch(Exception e) { }
+				if (!dontWait) {
+					try {
+						if (is != null   ) lines = IOUtils.toString(is, Cencoding);
+						if (iserr != null) linesErr = IOUtils.toString(iserr, Cencoding);
+					} catch(Exception e) { }
+				}
 				exit = p.waitFor();
 				try { 
 					if (is != null   ) is.close();
@@ -613,7 +638,7 @@ public class AFBase extends ScriptableObject {
 	 */
 	@JSFunction
 	public static String encrypt(String aString, Object key) throws Exception {
-		if (key == null || key instanceof Undefined) key = "openappframework";
+		if (key == null || key instanceof Undefined) key = AFBase.K;
 		if (key instanceof String) key = ((String) key).getBytes();
 		if (((byte[]) key).length < 16) throw new Exception("Invalid key size. Key should be, at least, 16 bytes."); 
 
@@ -638,7 +663,7 @@ public class AFBase extends ScriptableObject {
 	 */
 	@JSFunction
 	public static String decrypt(String aString, Object key) throws Exception {
-		if (key == null || key instanceof Undefined) key = "openappframework"; 
+		if (key == null || key instanceof Undefined) key = AFBase.K; 
 		if (key instanceof String) key = ((String) key).getBytes();
 		
 		if (((byte[]) key).length < 16) throw new Exception("Invalid key size. Key should be, at least, 16 bytes."); 
@@ -765,7 +790,7 @@ public class AFBase extends ScriptableObject {
 			AFCmdBase.jse.exitContext();
 			URL[] urls = {};
 			urls = aURLs.toArray(urls);
-			URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
+			URLClassLoader loader = new URLClassLoader(urls, ClassLoader.getSystemClassLoader());
 			@SuppressWarnings("rawtypes")
 			Class cl = Class.forName(clName, true, loader);
 			
@@ -796,7 +821,7 @@ public class AFBase extends ScriptableObject {
 			AFCmdBase.jse.exitContext();
 			URL[] urls = {};
 			urls = aURLs.toArray(urls);
-			URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
+			URLClassLoader loader = new URLClassLoader(urls, ClassLoader.getSystemClassLoader());
 			Class<?> cl = Class.forName(clName, true, loader);
 			
 			return cl;
@@ -825,7 +850,7 @@ public class AFBase extends ScriptableObject {
 			AFCmdBase.jse.exitContext();
 			URL[] urls = {};
 			urls = aURLs.toArray(urls);
-			URLClassLoader loader = new URLClassLoader(urls, Thread.currentThread().getContextClassLoader());
+			URLClassLoader loader = new URLClassLoader(urls, ClassLoader.getSystemClassLoader());
 			
 			return loader;
 		} catch (MalformedURLException e) {
@@ -845,14 +870,16 @@ public class AFBase extends ScriptableObject {
 	 */
 	@JSFunction
 	public void externalAddClasspath(String url) throws NoSuchMethodException, SecurityException, IllegalAccessException, IllegalArgumentException, InvocationTargetException, MalformedURLException {		
-		if (Thread.currentThread().getContextClassLoader() instanceof OAFdCL) {
-			OAFdCL dyna = OAFdCL.getInstance(Thread.currentThread().getContextClassLoader());
-			dyna.addURL(new URL(url));
-		} else {
-			ClassLoader sysloader = ClassLoader.getSystemClassLoader();
-			Method method = URLClassLoader.class.getDeclaredMethod("addURL", new Class[] { URL.class });
-			method.setAccessible(true);
-			method.invoke(sysloader, new Object[]{ new URL(url) });
+		if (url != null) {
+			if (ClassLoader.getSystemClassLoader() instanceof OAFdCL) {
+				OAFdCL dyna = OAFdCL.getInstance(ClassLoader.getSystemClassLoader());
+				dyna.addURL(new URL(url));
+			} else {
+				ClassLoader sysloader = ClassLoader.getSystemClassLoader();
+				Method method = URLClassLoader.class.getDeclaredMethod("addURL", new Class[] { URL.class });
+				method.setAccessible(true);
+				method.invoke(sysloader, new Object[]{ new URL(url) });
+			}
 		}
 	}
 	
@@ -866,9 +893,11 @@ public class AFBase extends ScriptableObject {
 	 * </odoc>
 	 */
 	@JSFunction
-	public void load(String js) throws Exception {
+	public void load(String js, NativeFunction callback) throws Exception {
 		String includeScript = null;
 
+		if (js == null) throw new Exception("No filename provided.");
+		
 		// Provide a similar behavior to the require function
 		if (!js.matches(".+\\.[^\\.]+$")) {
 			js = js + ".js";
@@ -876,9 +905,20 @@ public class AFBase extends ScriptableObject {
 		
 		if (js.indexOf("::") > 0) {
 			ZipFile zip = new ZipFile(js.replaceFirst("::.+",  ""));
-			includeScript = IOUtils.toString(new InputStreamReader(zip.getInputStream(zip.getEntry(js.replaceFirst(".+::", "")))));
-			zip.close();
-			ScriptableObject.putProperty((Scriptable) AFCmdBase.jse.getGlobalscope(), "__loadedfromzip", js.replaceFirst("::[^:]+$",  ""));
+			if (zip != null) {
+				try {
+					java.io.InputStreamReader isr = new InputStreamReader(zip.getInputStream(zip.getEntry(js.replaceFirst(".+::", ""))));
+					if (isr != null) {
+						includeScript = IOUtils.toString(isr);
+						isr.close();
+					}
+				} catch(Exception e) {
+					throw e;
+				} finally {
+					zip.close();
+				}
+				ScriptableObject.putProperty((Scriptable) AFCmdBase.jse.getGlobalscope(), "__loadedfromzip", js.replaceFirst("::[^:]+$",  ""));
+			}
 		} else {
 			try {
 				if (AFCmdBase.zip != null &&
@@ -887,30 +927,42 @@ public class AFBase extends ScriptableObject {
 				} else {
 					if (ScriptableObject.getProperty((Scriptable) AFCmdBase.jse.getGlobalscope(), "__loadedfromzip") != Scriptable.NOT_FOUND) {
 						String zipfile = ScriptableObject.getProperty((Scriptable) AFCmdBase.jse.getGlobalscope(), "__loadedfromzip").toString();
+						ZipFile zip = null;
 						try {
-							ZipFile zip = new ZipFile(zipfile);
-							includeScript = IOUtils.toString(new InputStreamReader(zip.getInputStream(zip.getEntry(js))));
-							zip.close();
-							ScriptableObject.putProperty((Scriptable) AFCmdBase.jse.getGlobalscope(), "__loadedfromzip", zipfile);
+							zip = new ZipFile(zipfile);
+							java.io.InputStreamReader isr = new InputStreamReader(zip.getInputStream(zip.getEntry(js)));
+							if (isr != null) {
+								includeScript = IOUtils.toString(isr);
+								ScriptableObject.putProperty((Scriptable) AFCmdBase.jse.getGlobalscope(), "__loadedfromzip", zipfile);
+								isr.close();
+							}
 						} catch (Exception e) {		
 							SimpleLog.log(logtype.DEBUG, "Error trying to load from a recurring zip: " + zipfile + " for '" + js + "'", e);
+						} finally {
+							if (zip != null) zip.close();
 						}
 					}
 					
 					if (includeScript == null)
-						includeScript = FileUtils.readFileToString(new File(js), (Charset) null);
+						includeScript = FileUtils.readFileToString(new File(js), Charset.forName("UTF-8"));
 				}
 			} catch (IOException e) {
 				SimpleLog.log(logtype.DEBUG,
 						"Error loading file: " + js + "; " + e.getMessage(), e);
 				throw e;
 			}			
-		}
+		} 
 
 		Context cx = (Context) AFCmdBase.jse.enterContext();
 		try {
 			ScriptableObject.putProperty((Scriptable) AFCmdBase.jse.getGlobalscope(), "__loadedfrom", js);
-			includeScript = includeScript.replaceAll("^#[^\n]*\n", "//\n");
+			includeScript = includeScript.replaceAll("^#[^\n]*\n", "//\n"); 
+			if (callback != null) {
+				Object isc = callback.call(cx, (Scriptable) AFCmdBase.jse.getGlobalscope(), cx.newObject((Scriptable) AFCmdBase.jse.getGlobalscope()), new Object[] {new java.lang.String(includeScript)});
+				if (isc != null) {
+					includeScript = isc.toString();
+				}
+			}
 			compile(includeScript, js);
 			//cx.evaluateString(AFCmdBase.jse.getGlobalscope(), includeScript.toString(), js, 1, null);
 		} catch (Exception e) {
@@ -933,6 +985,8 @@ public class AFBase extends ScriptableObject {
 	@JSFunction
 	public Object compile(String script, String name) {
 		Context cx = (Context) AFCmdBase.jse.enterContext();
+		cx.setOptimizationLevel(9);
+		cx.setLanguageVersion(org.mozilla.javascript.Context.VERSION_ES6); 
 		org.mozilla.javascript.Script compiledScript = cx.compileString(script, name, 1, null);
 		AFCmdBase.jse.addNumberOfLines(script);
 		Object ret = compiledScript.exec(cx, (Scriptable) AFCmdBase.jse.getGlobalscope());
@@ -1235,12 +1289,13 @@ public class AFBase extends ScriptableObject {
 	}
 
 	/**
-	 * <odoc>
+	 * <!--odoc>
 	 * <key>af.showDebugger(shouldRedirect)</key>
 	 * Shows the default Rhino debugger. If shouldRedirect is true then stdin, stdout and stderr will be 
 	 * redirected to the debugger's console.
-	 * </odoc>
+	 * </odoc-->
 	 */
+	/*
 	@JSFunction
 	public static void showDebugger(boolean shouldRedirect) throws IOException {
 		Context cx = (Context) AFCmdBase.jse.getNotSafeContext();
@@ -1275,7 +1330,7 @@ public class AFBase extends ScriptableObject {
 //		} catch(Exception e) {
 //			SimpleLog.log(logtype.ERROR, "Error trying to load: '" + aScript + "'", e);
 //		}
-	}
+	}*/
 	
 	/**
 	 * <odoc>

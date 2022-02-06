@@ -1,9 +1,7 @@
 //OPENAF common functions
 //Author: Nuno Aguiar
 
-const self = this;
-const global = self;
-const __oafInit = now();
+af.eval("const self = this; const global = self; const __ = void 0; const __oafInit = Number(java.lang.System.currentTimeMillis());");
 
 /**
  * <odoc>
@@ -28,40 +26,102 @@ var noHomeComms = false;
 var __genScriptsUpdate = [];
 var __noSLF4JErrorOnly;
 //Set openaf variables
+
+/**
+ * <odoc>
+ * <key>isJavaObject(aObj) : boolean</key>
+ * Returns true if aObj is a Java object, false otherwise
+ * </odoc>
+ */
+ const isJavaObject = function(obj) {
+	//var s = Object.prototype.toString.call(obj);
+	//return (s === '[object JavaObject]' || s === '[object JavaArray]');
+	try {
+		if (obj.getClass() instanceof java.lang.Object)
+			return true
+		else
+			return false
+	} catch(e) {
+		return false
+	}
+}
+
+/**
+ * <odoc>
+ * <key>isDef(aObject) : boolean</key>
+ * Returns true if the provided aObject is defined as a javascript variable. It will return false otherwise.
+ * (see also isUnDef). Shortcut for the isDefined function.
+ * </odoc>
+ */
+const isDef = function(aObject)   { return (isJavaObject(aObject) || !(typeof aObject == 'undefined')) ? true : false; }
+/**
+ * <odoc>
+ * <key>isUnDef(aObject) : boolean</key>
+ * Returns true if the provided aObject is undefined as a javascript variable. It will return false otherwise.
+ * (see also isDef). Shortcut for the isUndefined function.
+ * </odoc>
+ */
+const isUnDef = function(aObject) { return (!isJavaObject(aObject) && typeof aObject == 'undefined') ? true : false; }
+
 var __openaf;
-try {
+if (isUnDef(__openaf)) __openaf =
+// BEGIN_SET__OPENAF
+{
+   "noHomeComms"   : false,
+   "opackCentral"  : [ "https://openaf.io/opack.db" ],
+   "openafBuild"   : [ "https://openaf.io/build" ],
+   "openafRelease" : [ "https://openaf.io/release" ],
+   "openafDownload": [ "https://openaf.io" ],
+   "odoc"          : [ "https://openaf.io/odoc" ]
+}
+// END_SET__OPENAF
+/*try {
 	__openaf = io.readFile(getOpenAFJar() + "::openaf.json");
 } catch(e) {
 	__openaf = {};
-}
-
+}*/
 noHomeComms = (isDef(__openaf.noHomeComms)) ? __openaf.noHomeComms : false;
 var __opackCentral = (isDef(__openaf.opackCentral)) ? __openaf.opackCentral : [
-	"http://openaf.io/opack.db"
-];
-const __openafBuild = (isDef(__openaf.openafBuild)) ? __openaf.openafBuild : [
+	"http://openaf.io/opack.db" 
+]
+var __openafBuild = (isDef(__openaf.openafBuild)) ? __openaf.openafBuild : [
     "http://openaf.io/build"
-];
-const __openafRelease = (isDef(__openaf.openafRelease)) ? __openaf.openafRelease : [
+]
+var __openafRelease = (isDef(__openaf.openafRelease)) ? __openaf.openafRelease : [
     "http://openaf.io/release"
-];
-const __openafDownload = (isDef(__openaf.openafDownload)) ? __openaf.openafDownload : [
+]
+var __openafDownload = (isDef(__openaf.openafDownload)) ? __openaf.openafDownload : [
 	"https//openaf.io"
-];
-const __odoc = (isDef(__openaf.odoc)) ? __openaf.odoc : [
+]
+var __odoc = (isDef(__openaf.odoc)) ? __openaf.odoc : [
 	"http://openaf.io/odoc"
-];
+]
 
 //const __addToOpenAFjs = (isDef(__openaf.addToOpenAFjs)) ? __openaf.addToOpenAFjs : undefined;
 //const __addToOpenAFConsolejs = (isDef(__openaf.addToOpenAFConsolejs)) ? __openaf.addToOpenAFConsolejs : undefined;
 
 const __separator = String(java.lang.System.lineSeparator());
 
+// Hash list of oaf scripts (each key value is a filepath; value is [hash-alg]-[hash])
+var OAF_INTEGRITY = {};
+// If OAF_INTEGRITY_WARN is false OAF execution is halted if any integrity hash is found to be different
+var OAF_INTEGRITY_WARN = true; 
+// If OAF_INTEGRITY_STRICT is true no OAF will execute if it's integrity is not verified.
+var OAF_INTEGRITY_STRICT = false;
+// If OAF_SIGNATURE_STRICT is true no OAF will execute if it's signature is not valid.
+var OAF_SIGNATURE_STRICT = false;
+// Use OAF_SIGNATURE_KEY key java object to validate OAF signatures;
+var OAF_SIGNATURE_KEY = __;
+// If OAF_VALIDATION_STRICT = true no OAF will execute if the signature doesn't exist or is not valid or if it's integrity wasn't checked & passed.
+var OAF_VALIDATION_STRICT = false;
+
+// -------
+
 /**
  * Get serialize version detecting circular references (internal use)
  *
  */
-function getSerialize (fn, decycle) {
+var getSerialize = function(fn, decycle) {
 	function getPath (value, seen, keys) {
 		var index = seen.indexOf(value);
 		var path = [ keys[index] ];
@@ -96,14 +156,15 @@ function getSerialize (fn, decycle) {
 //UTILS
 //-----
 
-__bfprintFlag = false;
+var __bfprintFlag = true;
 /**
  * <odoc>
  * <key>print(aStr)</key>
  * Prints the aStr to the stdout (with a new line on the end) (example: print("hello world!"))
  * </odoc>
  */
-function print(str) {
+const print = function(str) {
+	str = _$(str, "str").default("");
 	if (__bfprintFlag) {
 		bfprint(str);
 	} else {
@@ -113,7 +174,7 @@ function print(str) {
 
 var __bfprint = {};
 var __bfprintCodePage = io.getDefaultEncoding();
-function bfprintnl(str, codePage) {
+const bfprintnl = function(str, codePage) {
 	if (isUnDef(codePage)) codePage = __bfprintCodePage;
 	if (isUnDef(__bfprint[codePage])) __bfprint[codePage] = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.io.FileDescriptor.out), codePage), 512);
 
@@ -121,7 +182,7 @@ function bfprintnl(str, codePage) {
 	__bfprint[codePage].flush();
 }
 
-function bfprintErrnl(str, codePage) {
+const bfprintErrnl = function(str, codePage) {
 	if (isUnDef(codePage)) codePage = __bfprintCodePage;
 	if (isUnDef(__bfprint[codePage])) __bfprint[codePage] = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.io.FileDescriptor.err), codePage), 512);
 
@@ -129,11 +190,11 @@ function bfprintErrnl(str, codePage) {
 	__bfprint[codePage].flush();
 }
 
-function bfprint(str, codePage) {
+const bfprint = function(str, codePage) {
 	bfprintnl(str + __separator, codePage);
 }
 
-function bfprintErr(str, codePage) {
+const bfprintErr = function(str, codePage) {
 	bfprintErrnl(str + __separator, codePage);
 }
 
@@ -143,29 +204,29 @@ function bfprintErr(str, codePage) {
  * "Stringifies" and prints the aStr to the stdout (with a new line on the end) (example: sprint("hello world!"))
  * </odoc>
  */
-function sprint(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return print(stringify(str, undefined, delim)); }
+const sprint = function(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return print(stringify(str, undefined, delim)); }
 /**
  * <odoc>
  * <key>bprint(aStr)</key>
  * "Beautifies" and prints the aStr to the stdout (with a new line on the end) (example: bprint("hello world!"))
  * </odoc>
  */
-function bprint(str) { return print(beautifier(str)); }
+const bprint = function(str) { return print(beautifier(str)); }
 /**
  * <odoc>
  * <key>cprint(aStr)</key>
  * "Stringifies" in ANSI color and prints the aStr to the stdout (with a new line on the end) (example: cprint("hello world!"))
  * </odoc>
  */
-function cprint(str, delim) { ansiStart(); print(colorify(str)); ansiStop(); }
+const cprint = function(str, delim) { ansiStart(); print(colorify(str)); ansiStop(); }
 
 /**
  * <odoc>
- * <key>yprint(aObj)</key>
- * Prints aObj in YAML.
+ * <key>yprint(aObj, multidoc)</key>
+ * Prints aObj in YAML. If multiDoc = true and aJson is an array the output will be multi-document.
  * </odoc>
  */
-function yprint(str) { return print(af.toYAML(str)); }
+const yprint = function(str, multidoc) { return print(af.toYAML(str, multidoc)); }
 
 /**
  * <odoc>
@@ -173,7 +234,8 @@ function yprint(str) { return print(af.toYAML(str)); }
  * Prints the aStr to the stdout (without adding a new line on the end) (example: printnl("hello world!"))
  * </odoc>
  */
-function printnl(str) {
+const printnl = function(str) {
+	str = _$(str, "str").default("");
 	if (__bfprintFlag) {
 		bfprintnl(str);
 	} else {
@@ -187,21 +249,21 @@ function printnl(str) {
  * "Stringifies" and prints the aStr to the stdout (without adding a new line on the end) (example: sprintnl("hello world!"))
  * </odoc>
  */
-function sprintnl(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return printnl(stringify(str, undefined, delim)); }
+const sprintnl = function(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return printnl(stringify(str, undefined, delim)); }
 /**
  * <odoc>
  * <key>bprintnl(aStr)</key>
  * "Beautifies" and prints the aStr to the stdout (without adding a new line on the end) (example: bprintnl("hello world!"))
  * </odoc>
  */
-function bprintnl(str) { return printnl(beautifier(str)); }
+const bprintnl = function(str) { return printnl(beautifier(str)); }
 /**
  * <odoc>
  * <key>cprintnl(aStr)</key>
  * "Stringifies" in ANSI color and prints the aStr to the stdout (with a new line on the end) (example: cprintnl("hello world!"))
  * </odoc>
  */
-function cprintnl(str, delim) { ansiStart(); printnl(colorify(str)); ansiStop(); }
+const cprintnl = function(str, delim) { ansiStart(); printnl(colorify(str)); ansiStop(); }
 
 /**
  * <odoc>
@@ -216,7 +278,7 @@ function cprintnl(str, delim) { ansiStart(); printnl(colorify(str)); ansiStop();
  * tprintln("Hi, {{someText}}"); // Hi, Hello World!
  * </odoc>
  */
-function tprintnl(aTemplateString, someData) {
+const tprintnl = function(aTemplateString, someData) {
 	someData = (isUnDef(someData)) ? this : someData;
 	printnl(templify(aTemplateString, someData));
 }
@@ -234,7 +296,7 @@ function tprintnl(aTemplateString, someData) {
  * tprint("Hi, {{someText}}"); // Hi, Hello World!
  * </odoc>
  */
-function tprint(aTemplateString, someData) {
+const tprint = function(aTemplateString, someData) {
 	tprintnl(aTemplateString + __separator, someData);
 }
 
@@ -244,7 +306,8 @@ function tprint(aTemplateString, someData) {
  * Prints the aStr to the stderr (with a new line on the end) (example: printErr("Hupps!! A problem!"))
  * </odoc>
  */
-function printErr(str) {
+const printErr = function(str) {
+	str = _$(str, "str").default("");
 	if (__bfprintFlag) {
 		bfprintErr(str);
 	} else {
@@ -258,29 +321,29 @@ function printErr(str) {
  * "Stringifies" and prints the aStr to the stderr (with a new line on the end) (example: sprintErr("Hupps!! A problem!"))
  * </odoc>
  */
-function sprintErr(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return printErr(stringify(str, undefined, delim)); }
+const sprintErr = function(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return printErr(stringify(str, undefined, delim)); }
 /**
  * <odoc>
  * <key>bprintErr(aStr)</key>
  * "Beautifies" and prints the aStr to the stderr (with a new line on the end) (example: bprintErr("Hupps!! A problem!"))
  * </odoc>
  */
-function bprintErr(str) { return printErr(beautifier(str)); }
+const bprintErr = function(str) { return printErr(beautifier(str)); }
 /**
  * <odoc>
  * <key>cprintErr(aStr)</key>
  * "Stringifies" in ANSI color and prints the aStr to the stderr (with a new line on the end) (example: cprintErr("Hupps!! A problem!"))
  * </odoc>
  */
-function cprintErr(str) { ansiStart(); printErr(colorify(str)); ansiStop(); }
+const cprintErr = function(str) { ansiStart(); printErr(colorify(str)); ansiStop(); }
 
 /**
  * <odoc>
- * <key>yprintErr(aObj)</key>
- * Prints aObj in YAML to stderr.
+ * <key>yprintErr(aObj, multidoc)</key>
+ * Prints aObj in YAML to stderr. If multiDoc = true and aJson is an array the output will be multi-document.
  * </odoc>
  */
-function yprintErr(str) { return printErr(af.toYAML(str)); }
+const yprintErr = function(str, multidoc) { return printErr(af.toYAML(str, multidoc)); }
 
 /**
  * <odoc>
@@ -288,7 +351,8 @@ function yprintErr(str) { return printErr(af.toYAML(str)); }
  * Prints the aStr to the stderr (without adding a new line on the end) (example: printErrnl("Hupps!! A problem!"))
  * </odoc>
  */
-function printErrnl(str) {
+const printErrnl = function(str) {
+	str = _$(str, "str").default("");
 	if (__bfprintFlag) {
 		bfprintErrnl(str);
 	} else {
@@ -302,7 +366,7 @@ function printErrnl(str) {
  * "Stringifies" and prints the aStr to the stderr (without adding a new line on the end) (example: sprintErrnl("Hupps!! A problem!"))
  * </odoc>
  */
-function sprintErrnl(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return printErrnl(stringify(str, undefined, delim)); }
+const sprintErrnl = function(str, delim) { delim = (isUnDef(delim) ? "  " : delim); return printErrnl(stringify(str, undefined, delim)); }
 
 /**
  * <odoc>
@@ -310,7 +374,7 @@ function sprintErrnl(str, delim) { delim = (isUnDef(delim) ? "  " : delim); retu
  * "Beautifies" and prints the aStr to the stderr (without adding a new line on the end) (example: bprintErrnl("Hupps!! A problem!"))
  * </odoc>
  */
-function bprintErrnl(str) { return printErrnl(beautifier(str)); }
+const bprintErrnl = function(str) { return printErrnl(beautifier(str)); }
 
 /**
  * <odoc>
@@ -318,7 +382,7 @@ function bprintErrnl(str) { return printErrnl(beautifier(str)); }
  * "Stringifies" in ANSI color and prints the aStr to the stderr (with a new line on the end) (example: cprintErrnl("Hupps!! A problem!"))
  * </odoc>
  */
-function cprintErrnl(str, delim) { ansiStart(); printErrnl(colorify(str)); ansiStop(); }
+const cprintErrnl = function(str, delim) { ansiStart(); printErrnl(colorify(str)); ansiStop(); }
 
 /**
  * <odoc>
@@ -333,7 +397,7 @@ function cprintErrnl(str, delim) { ansiStart(); printErrnl(colorify(str)); ansiS
  * tprintErrnl("Hi, {{someText}}"); // Hi, Hello World!
  * </odoc>
  */
-function tprintErrnl(aTemplateString, someData) {
+const tprintErrnl = function(aTemplateString, someData) {
 	someData = (isUnDef(someData)) ? this : someData;
 	printErrnl(templify(aTemplateString, someData));
 }
@@ -351,7 +415,7 @@ function tprintErrnl(aTemplateString, someData) {
  * tprintErr("Hi, {{someText}}"); // Hi, Hello World!
  * </odoc>
  */
-function tprintErr(aTemplateString, someData) {
+const tprintErr = function(aTemplateString, someData) {
 	tprintErrnl(aTemplateString + __separator, someData);
 }
 
@@ -363,14 +427,30 @@ function tprintErr(aTemplateString, someData) {
  * If you want to include a count of rows just use displayCount = true. If useAnsi = true you can provide a theme (e.g. "utf" or "plain")
  * </odoc>
  */
-function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, aTheme) {
+const printTable = function(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, aTheme) {
 	var count = 0;
 	var maxsize = {};
 	var output = "";
 	var colorMap = { lines: "RESET", value: "CYAN" };
 
 	ow.loadFormat();
-	if (isUnDef(aTheme) && !ow.format.isWindows()) aTheme = "utf";
+	if (isUnDef(aTheme)) {
+        ow.loadFormat();
+		if (!ow.format.isWindows()) {
+			aTheme = (__conAnsi ? "utf" : "plain");
+			if (isUnDef(useAnsi) && __initializeCon()) {
+				useAnsi = __conAnsi;
+			}
+		} else {
+			if (__initializeCon()) {
+				if (!ansiWinTermCap()) ansiStart();
+				if (isDef(__con.getTerminal().getOutputEncoding())) aTheme = (__conAnsi ? "utf" : "plain");
+				if (isUnDef(useAnsi)) {
+					useAnsi = __conAnsi;
+				}
+			}
+		}
+	}
 
 	var hLine = "-", vLine = "|", hvJoin = "+";
 	if (aTheme == "utf") {
@@ -394,8 +474,8 @@ function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, aTheme
 		var cols = Object.keys(row);
 		cols.forEach(function(col) {
 			if (isUnDef(maxsize[col])) 
-				maxsize[String(col)] = col.length;
-			if (maxsize[String(col)] < String(row[String(col)]).length) maxsize[String(col)] = String(row[String(col)]).length;
+				maxsize[String(col)] = ansiLength(col);
+			if (maxsize[String(col)] < ansiLength(String(row[String(col)]))) maxsize[String(col)] = ansiLength(String(row[String(col)]));
 		});
 	});
 
@@ -414,7 +494,7 @@ function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, aTheme
 				if (aWidthLimit > 0 && lineSize > (aWidthLimit+3)) {
 					output += (useAnsi ? ansiColor(colorMap.lines, "...") : "..."); outOfWidth = true;
 				} else {
-					output += repeat(Math.floor((maxsize[String(col)] - String(col).length)/2), ' ') + (useAnsi ? ansiColor(colorMap.lines, String(col)) : String(col)) + repeat(Math.round((maxsize[String(col)] - String(col).length) / 2), ' ');
+					output += repeat(Math.floor((maxsize[String(col)] - ansiLength(String(col)))/2), ' ') + (useAnsi ? ansiColor(colorMap.lines, String(col)) : String(col)) + repeat(Math.round((maxsize[String(col)] - ansiLength(String(col))) / 2), ' ');
 					if (colNum < (cols.length-1)) output += (useAnsi ? ansiColor(colorMap.lines, vLine) : vLine);
 				}
 				colNum++;
@@ -445,7 +525,7 @@ function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, aTheme
 				output += "..."; outOfWidth = true;
 			} else {	
 				var value = String(row[String(col)]).replace(/\n/g, " ");
-				output += (useAnsi ? ansiColor(_getColor(row[String(col)]), value) : value) + repeat(maxsize[String(col)] - String(row[String(col)]).length, ' ');
+				output += (useAnsi ? ansiColor(_getColor(row[String(col)]), value) : value) + repeat(maxsize[String(col)] - ansiLength(String(row[String(col)])), ' ');
 				if (colNum < (cols.length-1)) output += (useAnsi ? ansiColor(colorMap.lines, vLine) : vLine);
 			}
 			colNum++;
@@ -469,9 +549,27 @@ function printTable(anArrayOfEntries, aWidthLimit, displayCount, useAnsi, aTheme
  * terminal capabilities.
  * </odoc>
  */
-function printMap(aValueR, aWidth, aTheme, useAnsi) {
+const printMap = function(aValueR, aWidth, aTheme, useAnsi) {
 	if (!isMap(aValueR) && !isArray(aValueR)) throw "Not a map or array.";
 
+	if (isUnDef(aTheme)) {
+        ow.loadFormat();
+		if (!ow.format.isWindows()) {
+			aTheme = (__conAnsi ? "utf" : "plain");
+			if (isUnDef(useAnsi) && __initializeCon()) {
+				useAnsi = __conAnsi;
+			}
+		} else {
+			if (__initializeCon()) {
+				if (!ansiWinTermCap()) ansiStart();
+				if (isDef(__con.getTerminal().getOutputEncoding())) aTheme = (__conAnsi ? "utf" : "plain");
+				if (isUnDef(useAnsi)) {
+					useAnsi = __conAnsi;
+				}
+			}
+		}
+	}
+	
 	__initializeCon();
 	var matrix = [], matrixrule = [], maxX = 0,	maxY = 0, cM = [], al = [];
 
@@ -539,7 +637,7 @@ function printMap(aValueR, aWidth, aTheme, useAnsi) {
 					if (useAnsi) {
 						if (isUnDef(cM[x])) cM[x] = [];
 						cM[x][igY] = __colorFormat.key;
-						cM[x][igY + 1] = _getColor(void 0);
+						cM[x][igY + 1] = _getColor(__);
 					}
 					x++;
 				}
@@ -585,7 +683,7 @@ function printMap(aValueR, aWidth, aTheme, useAnsi) {
 					if (useAnsi) {
 						if (isUnDef(cM[x])) cM[x] = [];
 						cM[x][igY] = __colorFormat.key;
-						cM[x][igY + 1] = _getColor(void 0);
+						cM[x][igY + 1] = _getColor(__);
 					}
 					x++;
 				}
@@ -646,7 +744,11 @@ function printMap(aValueR, aWidth, aTheme, useAnsi) {
 
 	if (isUnDef(aTheme)) {
 		if (io.getDefaultEncoding() == "UTF-8") {
-			aTheme = Packages.de.vandermeer.asciitable.v2.themes.V2_E_TableThemes.UTF_LIGHT.get();
+			if (!openafOldTheme && ansiWinTermCap()) {
+				aTheme = Packages.de.vandermeer.asciitable.v2.themes.OpenAFTableThemes.OPENAF_UTF_LIGHT.get();
+			} else {
+				aTheme = Packages.de.vandermeer.asciitable.v2.themes.V2_E_TableThemes.UTF_LIGHT.get();
+			}
 		} else {
 			aTheme = Packages.de.vandermeer.asciitable.v2.themes.V2_E_TableThemes.PLAIN_7BIT.get();
 		}
@@ -654,7 +756,13 @@ function printMap(aValueR, aWidth, aTheme, useAnsi) {
 
 	if (isString(aTheme)) {
 		switch(aTheme) {
-		case "utf"  : aTheme = Packages.de.vandermeer.asciitable.v2.themes.V2_E_TableThemes.UTF_LIGHT.get(); break;
+		case "utf"  : 
+			if (!openafOldTheme && ansiWinTermCap()) {
+				aTheme = Packages.de.vandermeer.asciitable.v2.themes.OpenAFTableThemes.OPENAF_UTF_LIGHT.get();
+			} else {
+				aTheme = Packages.de.vandermeer.asciitable.v2.themes.V2_E_TableThemes.UTF_LIGHT.get();
+			}
+			break;
 		case "plain": aTheme = Packages.de.vandermeer.asciitable.v2.themes.V2_E_TableThemes.PLAIN_7BIT.get(); break;
 		default     : aTheme = Packages.de.vandermeer.asciitable.v2.themes.V2_E_TableThemes.PLAIN_7BIT.get(); break;
 		}
@@ -674,6 +782,9 @@ function printMap(aValueR, aWidth, aTheme, useAnsi) {
 }
 
 var __con, __conStatus, __conAnsi;
+if (isUnDef(__conAnsi) && String(java.lang.System.getProperty("file.encoding")) != "UTF-8") {
+	__conAnsi = false;
+}
 function __initializeCon() {
 	if (isDef(__conStatus)) return __conStatus;
 
@@ -682,7 +793,7 @@ function __initializeCon() {
 	} catch(e) {
 		while(__con == "") sleep(25);
 		__conStatus = true;
-		__conAnsi = true;
+		__conAnsi = (isDef(__conAnsi) ? __conAnsi : true);
 		if (__conAnsi == true) __ansiColorFlag = true;
 		return true;
 	}
@@ -694,18 +805,18 @@ function __initializeCon() {
 			var ___c = new Console();
 			__con = (___c).getConsoleReader();
 			__conStatus = true;
-			__conAnsi = (___c).isAnsiSupported();
+			__conAnsi = (isDef(__conAnsi) ? __conAnsi : (___c).isAnsiSupported());
 			if (__conAnsi == true) __ansiColorFlag = true;
 			return true;
 		} catch(e) {
 			__conStatus = false;
-			__conAnsi = false;
+			__conAnsi = (isDef(__conAnsi) ? __conAnsi : false);
 			return false;
 		}
 	} else {
-		while(__con == "") sleep(25);
+		while(__con == "") sleep(25, true);
 		__conStatus = true;
-		__conAnsi = true;
+		__conAnsi = (isDef(__conAnsi) ? __conAnsi : true);
 		if (__conAnsi == true) __ansiColorFlag = true;
 		return true;
 	}
@@ -725,17 +836,37 @@ function __initializeCon() {
  * \
  * </odoc>
  */
-function ansiColor(aAnsi, aString, force) {
+const ansiColor = function(aAnsi, aString, force) {
 	if (!__initializeCon()) return aString;
+	aAnsi = _$(aAnsi, "aAnsi").isString().default("");
+	aString = _$(aString, "aString").isString().default("");
+	force = _$(force, "force").isBoolean().default(false);
 
 	var con = __con;
 	var ansis = force || (__conAnsi && (java.lang.System.console() != null));
 	var jansi = JavaImporter(Packages.org.fusesource.jansi);
 	var res = "";
 	
-	if (ansis) {
-		var res = jansi.Ansi.ansi().render("@|" + aAnsi.toLowerCase() + " " + aString + "|@");
-		return res; 
+	if (ansis && aAnsi.length > 0) {
+		var nAnsi = [];
+		aAnsi.split(",").forEach(r => {
+			if (r.startsWith("BG(")) {
+				var bg = r.match(/BG\((\d+)\)/);
+				if (!isNull(bg)) aString = "\033[48;5;" + bg[1] + "m" + aString;
+			} else if (r.startsWith("FG(")) {
+				var fg = r.match(/FG\((\d+)\)/);
+				if (!isNull(fg)) aString = "\033[38;5;" + fg[1] + "m" + aString;
+			} else {
+				nAnsi.push(r);
+			}
+		});
+		if (nAnsi.length > 0) {
+			res = jansi.Ansi.ansi().render("@|" + nAnsi.join(",").toLowerCase() + " " + aString + "|@");
+		} else {
+			res = aString;
+		}
+		//var res = Packages.openaf.JAnsiRender.render(aAnsi.toLowerCase() + " " + aString);
+		return String(res); 
 	} else {
 		return aString;
 	}
@@ -743,15 +874,47 @@ function ansiColor(aAnsi, aString, force) {
 
 var __ansiColorFlag = String(java.lang.System.getProperty("os.name")).match(/Windows/) ? true : false;
 var __ansiColorValue;
+var openafOldTheme = false;
+
+/**
+ * <odoc>
+ * <key>ansiWinTermCap() : boolean</key>
+ * Determines in Windows if the current terminal has support for newer capabilities or not (e.g. cmd.exe)
+ * </odoc>
+ */
+const ansiWinTermCap = function() {
+	if (String(java.lang.System.getProperty("os.name")).match(/Windows/)) {
+		if (isDef(__ansiColorValue)) return (__ansiColorValue > 3);
+
+		var k32 = Packages.com.sun.jna.Native.loadLibrary("kernel32", Packages.com.sun.jna.platform.win32.Kernel32, com.sun.jna.win32.W32APIOptions.UNICODE_OPTIONS);
+		var hout = k32.GetStdHandle(k32.STD_OUTPUT_HANDLE);
+		var herr = k32.GetStdHandle(k32.STD_ERROR_HANDLE);
+		var mode = new com.sun.jna.ptr.IntByReference();
+		if (k32.GetConsoleMode(hout, mode)) {
+			__ansiColorValue = mode.getValue();
+			k32.SetConsoleMode(hout, 7); //15
+			k32.SetConsoleMode(herr, 7); 
+			if (__ansiColorValue <= 3) __bfprintFlag = false;
+			return (__ansiColorValue > 3);
+		} else {
+			__bfprintFlag = false;
+			return false;
+		}
+	} else {
+		return true;
+	}
+}
+
 /**
  * <odoc>
  * <key>ansiStart(force)</key>
  * Prepares to output ansi codes if the current terminal is capable off (unless force = true). Use with ansiColor() and ansiStop().
  * </odoc>
  */
-function ansiStart(force) {
+const ansiStart = function(force) {
 	if (__ansiColorFlag) {
-		if (isUnDef(__ansiColorValue) && String(java.lang.System.getProperty("os.name")).match(/Windows/)) {
+		ansiWinTermCap();
+		/*if (isUnDef(__ansiColorValue) && String(java.lang.System.getProperty("os.name")).match(/Windows/)) {
 			var k32 = Packages.com.sun.jna.Native.loadLibrary("kernel32", Packages.com.sun.jna.platform.win32.Kernel32, com.sun.jna.win32.W32APIOptions.UNICODE_OPTIONS);
 			var hout = k32.GetStdHandle(k32.STD_OUTPUT_HANDLE);
 			var herr = k32.GetStdHandle(k32.STD_ERROR_HANDLE);
@@ -762,17 +925,17 @@ function ansiStart(force) {
 				k32.SetConsoleMode(herr, 7); //
 				__ansiColorFlag = true;
 			}
-		}
-	} else {
-		if (!__initializeCon()) return false;
-		var con = __con;
-		var ansis = force || (__conAnsi && (java.lang.System.console() != null));
-		var jansi = JavaImporter(Packages.org.fusesource.jansi);
-		if (ansis) {
-			java.lang.System.out.flush(); java.lang.System.err.flush();
-			jansi.AnsiConsole.systemInstall();
-		}
+		}*/
+	} 
+	if (!__initializeCon()) return false;
+	var con = __con;
+	var ansis = force || (__conAnsi && (java.lang.System.console() != null));
+	var jansi = JavaImporter(Packages.org.fusesource.jansi);
+	if (ansis) {
+		java.lang.System.out.flush(); java.lang.System.err.flush();
+		jansi.AnsiConsole.systemInstall();
 	}
+	//}
 }
 
 /**
@@ -781,7 +944,7 @@ function ansiStart(force) {
  * Disables the output of ansi codes if the current terminal is capable off (unless force = true). Use with ansiColor() and ansiStart().
  * </odoc>
  */
-function ansiStop(force) {
+const ansiStop = function(force) {
 	if (__ansiColorFlag) {
 		if (isDef(__ansiColorValue) && String(java.lang.System.getProperty("os.name")).match(/Windows/)) {
 			var k32 = Packages.com.sun.jna.Native.loadLibrary("kernel32", Packages.com.sun.jna.platform.win32.Kernel32, com.sun.jna.win32.W32APIOptions.UNICODE_OPTIONS);
@@ -799,6 +962,23 @@ function ansiStop(force) {
 			jansi.AnsiConsole.systemUninstall();
 			java.lang.System.out.flush(); java.lang.System.err.flush();
 		}
+	}
+}
+
+/**
+ * <odoc>
+ * <key>ansiLength(aString) : Number</key>
+ * Tries to return the aString length without any ansi control sequences.
+ * </odoc>
+ */
+const ansiLength = function(aString, force) {
+	_$(aString, "aString").isString().$_()
+
+	var ansis = force || (__conAnsi && (java.lang.System.console() != null))
+	if (ansis) {
+		return aString.replace(/\033\[[0-9;]*m/g, "").length
+	} else {
+		return aString.length
 	}
 }
 
@@ -823,7 +1003,7 @@ function ansiStop(force) {
  * second and ms or a Date object.
  * </odoc>
  */
-function wedoDate(year, month, day, hour, minute, second, ms) {
+const wedoDate = function(year, month, day, hour, minute, second, ms) {
 	if ((typeof year) == "number")
 		return {"__wedo__type__": "date",
 		"content"       : [year + "-" + month + "-" + day + "T" + hour + ":" + minute + ":" + second + "." + ms + "Z"]};
@@ -842,7 +1022,7 @@ function wedoDate(year, month, day, hour, minute, second, ms) {
  * Shortcut for the af.js2s function providing a human readable representation of the javascript object provided.
  * </odoc>
  */
-function beautifier(aobj) {
+const beautifier = function(aobj) {
 	if (aobj instanceof java.lang.Object) aobj = String(aobj);
 	return af.js2s(aobj);
 }
@@ -856,7 +1036,7 @@ function beautifier(aobj) {
  * To see more info on the remaining parameters please check https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify
  * </odoc>
  */
-function stringify(aobj, replacer, space) {
+const stringify = function(aobj, replacer, space) {
 	if (aobj instanceof java.lang.Object) aobj = String(aobj);
 	if (isUnDef(space)) space = "  ";
 	if (isUnDef(replacer)) replacer = (k, v) => { return isJavaObject(v) ? String(v) : v; };
@@ -885,7 +1065,7 @@ var __colorFormat = {
 	boolean: "RED",
 	default: "YELLOW"
 };
-function colorify(json) {
+const colorify = function(json) {
 	if (typeof json != 'string') {
 		//json = JSON.stringify(json, undefined, 2);
 		json = stringify(json, undefined, 2);
@@ -924,13 +1104,16 @@ function colorify(json) {
 	});
 };
 
+__JSONformat = {
+  unsafe: true
+};
 /**
  * <odoc>
  * <key>jsonParse(aString) : Map</key>
  * Shorcut for the native JSON.parse that returns an empty map if aString is not defined, empty or unparsable.
  * </odoc>
  */
-function jsonParse(astring, alternative) {
+const jsonParse = function(astring, alternative, unsafe) {
 	if (isDef(astring) && String(astring).length > 0) {
 		try {
 			var a;
@@ -939,6 +1122,9 @@ function jsonParse(astring, alternative) {
 			} else {
 				a = JSON.parse(astring);
 			}
+                        if (__JSONformat.unsafe && unsafe) {
+                     		traverse(a, (aK, aV, aP, aO) => { if (isString(aV) && aV.startsWith("!!js/eval ")) aO[aK] = eval(aV.slice(10)); });
+                        }
 			return a;
 		} catch(e) {
 			return astring;
@@ -961,9 +1147,10 @@ function jsonParse(astring, alternative) {
  * var retText = templify("Hi, {{someText}}"); // Hi, Hello World!
  * </odoc>
  */
-function templify(aTemplateString, someData) {
+const templify = function(aTemplateString, someData) {
 	someData = (isUnDef(someData)) ? this : someData;
-	return String(ow.loadTemplate().parse(aTemplateString, someData));
+	if (isUnDef(ow.template)) { ow.loadTemplate(); ow.template.addOpenAFHelpers(); }
+	return String(ow.template.parse(aTemplateString, someData));
 }
 
 /**
@@ -973,7 +1160,7 @@ function templify(aTemplateString, someData) {
  * If shouldCheck is true it will enforce checking if the time has really passed or not.
  * </odoc>
  */
-function sleep(millis, shouldCheck, alternative) {
+const sleep = function(millis, shouldCheck, alternative) {
 	var ini = now();
 	if (alternative) {
 		af.sleep(millis);
@@ -996,7 +1183,7 @@ function sleep(millis, shouldCheck, alternative) {
  * AF operation AF.KeyGenerator.GenerateUUID).
  * </odoc>
  */
-function genUUID() {
+const genUUID = function() {
 	// Internal generate UUID
 	function s4() {
 		return Math.floor((1 + Math.random()) * 0x10000)
@@ -1013,7 +1200,7 @@ function genUUID() {
  * Converts a given javascript anArray into a CSV object instance.
  * </odoc>
  */
-function toCSV(anArray) {
+const toCSV = function(anArray) {
 	var csv = new CSV();
 	csv.toCsv(anArray);
 	return csv;
@@ -1027,11 +1214,12 @@ var __logFormat = {
 	indent    : "",
 	async     : true,
 	asyncLevel: 3,
-	profile   : false
+	profile   : false,
+	format    : "default"
 };
 var __logPromise;
 
-function __initializeLogPromise() {
+const __initializeLogPromise = function() {
 	if (__logFormat.async) {
 		if (isUnDef(__logPromise)) {
 			__logPromise = $do(() => {}).catch((e) => {});
@@ -1062,22 +1250,26 @@ function __initializeLogPromise() {
  * - separator  (string)  String to use as separator\
  * - async      (boolean) Run in async mode\
  * - profile    (boolean) Gathers memory and system load stats\
+ * - format     (string)  Sets the format to output logs (e.g. json, slon, human)\
  * \
  * </odoc>
  */
-function setLog(aMap) {
+const setLog = function(aMap) {
 	__logFormat = merge(__logFormat, aMap);
 }
 
 /**
  * <odoc>
- * <key>startLog(externalLogging)</key>
+ * <key>startLog(externalLogging, hkItems)</key>
  * Starts collecting log messages logged with log* functions. See stopLog() and dumpLog().
- * You can also specify externalLogging, a custom channel subscribe function. 
+ * You can also specify externalLogging, a custom channel subscribe function and a different number
+ * of hkItems (housekeeping items) from the default 100 (if -1 it won't delete items).
  * </odoc>
  */
-function startLog(externalLogging) {
+const startLog = function(externalLogging, hkItems) {
+	hkItems = _$(hkItems, "hkItems").isNumber().default(100);
 	$ch("__log").create(true, "simple");
+	if (hkItems > -1 && isUnDef(__logFormat.hk)) __logFormat.hk = $ch("__log").subscribe(ow.ch.utils.getHousekeepSubscriber("__log", hkItems));
 	__logStatus = true;
 	global.__logQueue = [];
 	if (isDef(externalLogging) && isFunction(externalLogging)) {
@@ -1094,7 +1286,7 @@ function startLog(externalLogging) {
  * Returns the current log dump channel.
  * </odoc>
  */
-function getChLog() {
+const getChLog = function() {
 	if (__logStatus) 
 		return $ch("__log");
 	else
@@ -1107,7 +1299,7 @@ function getChLog() {
  * Returns an array with collected log messages. Each entry has: d - timestamp; t - type; m - message.
  * </odoc>
  */
-function dumpLog() {
+const dumpLog = function() {
 	return $ch("__log").getAll();
 }
 
@@ -1118,7 +1310,7 @@ function dumpLog() {
  * to keep the recorded log messages.
  * </odoc>
  */
-function stopLog() {
+const stopLog = function() {
 	__logStatus = false;
 	/*if (isDef(global.__logQueue) && global.__logQueue > 0) {
 		var it = now();
@@ -1130,6 +1322,7 @@ function stopLog() {
 	//sleep(100);
 	$ch("__log").waitForJobs(-1);
 	$ch("__log").destroy();
+	__logFormat.hk = __
 }
 
 /**
@@ -1140,21 +1333,22 @@ function stopLog() {
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function log(msg, formatOptions) {
+const log = function(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
+	__clogInfo.inc();
 	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
 	if (__logStatus) {
 		var f = () => {
 			k = { n: nw, t: "INFO" };
 			v = { n: nw, d: data, t: "INFO", m: msg };
-			if (isDef(__logFormat) && formatOptions.profile) {
+			if (isDef(formatOptions) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=> {
@@ -1165,19 +1359,30 @@ function log(msg, formatOptions) {
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offInfo)) ? false : true;
+	var go = (isDef(formatOptions) && (formatOptions.off || formatOptions.offInfo)) ? false : true;
 	if (go) {
 		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
-			ansiStart();
-			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
-			print(ind + ansiColor("BOLD", data) + sep + "INFO" + sep + msg);
-			ansiStop();
+			formatOptions = _$(formatOptions).isMap().default({});
+			formatOptions.format = _$(formatOptions.format).isString().default("default");
+			switch(formatOptions.format) {
+			case "json":
+				sprint({ "@timestamp": new Date(data), level: "INFO", message: msg }, "");
+				break;
+			case "slon":
+				print(af.toSLON({ "@timestamp": new Date(data), level: "INFO", message: msg }));
+				break;
+			default:
+				var sep = (isDef(formatOptions) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+				var ind = (isDef(formatOptions) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
+				ansiStart();
+				data = (isDef(formatOptions) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
+				print(ind + ansiColor("BOLD", data) + sep + "INFO" + sep + msg);
+				ansiStop();
+			}
 			return 1;
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=>{
@@ -1198,7 +1403,7 @@ function log(msg, formatOptions) {
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function tlog(msg, someData, formatOptions) {
+const tlog = function(msg, someData, formatOptions) {
 	log(templify(msg, someData), formatOptions);
 }
 
@@ -1210,21 +1415,22 @@ function tlog(msg, someData, formatOptions) {
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function lognl(msg, formatOptions) {
+const lognl = function(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
+	__clogInfo.inc();
 	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
 	if (__logStatus) {
 		var f = () => {
 			k = { n: nw, t: "INFO" };
 			v = { n: nw, d: data, t: "INFO", m: msg };
-			if (isDef(__logFormat) && formatOptions.profile) {
+			if (isDef(formatOptions) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=>{
@@ -1235,19 +1441,31 @@ function lognl(msg, formatOptions) {
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offInfo)) ? false : true;
+	var go = (isDef(formatOptions) && (formatOptions.off || formatOptions.offInfo)) ? false : true;
 	if (go) {
 		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
-			ansiStart();
-			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
-			printnl(ind + ansiColor("BOLD", data) + sep + "INFO" + sep + msg + "\r");
-			ansiStop();
+			formatOptions = _$(formatOptions).isMap().default({});
+			formatOptions.format = _$(formatOptions.format).isString().default("default");
+			switch(formatOptions.format) {
+			case "json":
+				sprintnl({ "@timestamp": new Date(data), level: "INFO", message: msg }, "");
+				break;
+			case "slon":
+				printnl(af.toSLON({ "@timestamp": new Date(data), level: "INFO", message: msg }));
+				break;
+			default:
+				var sep = (isDef(formatOptions) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+				var ind = (isDef(formatOptions) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
+				ansiStart();
+				data = (isDef(formatOptions) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
+				printnl(ind + ansiColor("BOLD", data) + sep + "INFO" + sep + msg);
+				ansiStop();
+			}
+
 			return 1;
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=>{
@@ -1269,7 +1487,7 @@ function lognl(msg, formatOptions) {
  * Optinionally you can provide also someData.
  * </odoc>
  */
-function tlognl(msg, someData, formatOptions) {
+const tlognl = function(msg, someData, formatOptions) {
 	lognl(templify(msg, someData), formatOptions);
 }
 
@@ -1281,7 +1499,7 @@ function tlognl(msg, someData, formatOptions) {
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function logErr(msg, formatOptions) {
+const logErr = function(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
 	__clogErr.inc();
 	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
@@ -1289,14 +1507,14 @@ function logErr(msg, formatOptions) {
 		var f = () => {
 			k = { n: nw, t: "ERROR" };
 			v = { n: nw, d: data, t: "ERROR", m: msg };
-			if (isDef(__logFormat) && formatOptions.profile) {
+			if (isDef(formatOptions) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw);
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=>{
@@ -1307,19 +1525,31 @@ function logErr(msg, formatOptions) {
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offError)) ? false : true;
+	var go = (isDef(formatOptions) && (formatOptions.off || formatOptions.offError)) ? false : true;
 	if (go) {
 		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
-			ansiStart();
-			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
-			printErr(ind + ansiColor("BOLD", data) + sep + ansiColor("red", "ERROR") + sep + msg);
-			ansiStop();
+			formatOptions = _$(formatOptions).isMap().default({});
+			formatOptions.format = _$(formatOptions.format).isString().default("default");
+			switch(formatOptions.format) {
+			case "json":
+				sprintErr({ "@timestamp": new Date(data), level: "ERROR", message: msg }, "");
+				break;
+			case "slon":
+				printErr(af.toSLON({ "@timestamp": new Date(data), level: "ERROR", message: msg }));
+				break;
+			default:
+				var sep = (isDef(formatOptions) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+				var ind = (isDef(formatOptions) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
+				ansiStart();
+				data = (isDef(formatOptions) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
+				printErr(ind + ansiColor("BOLD", data) + sep + ansiColor("red", "ERROR") + sep + msg);
+				ansiStop();
+			}
+
 			return 1;
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=>{
@@ -1341,7 +1571,7 @@ function logErr(msg, formatOptions) {
  * Note: you can use startLog, stopLog and dumpLog to keep an internal record of theses messages.
  * </odoc>
  */
-function logWarn(msg, formatOptions) {
+const logWarn = function(msg, formatOptions) {
 	var data = (new Date()).toJSON(), nw = nowNano(), k, v;
 	__clogWarn.inc();
 	if (isDef(__logFormat)) formatOptions = merge(__logFormat, formatOptions);
@@ -1349,14 +1579,14 @@ function logWarn(msg, formatOptions) {
 		var f = () => {
 			k = { n: nw, t: "WARN" };
 			v = { n: nw, d: data, t: "WARN", m: msg };
-			if (isDef(__logFormat) && formatOptions.profile) {
+			if (isDef(formatOptions) && formatOptions.profile) {
 				v.freeMem = Number(java.lang.Runtime.getRuntime().freeMemory());
 				v.totalMem = Number(java.lang.Runtime.getRuntime().totalMemory());
 				v.systemLoad = getCPULoad();
 			}
 			$ch("__log").set(k, v);
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw);
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=>{
@@ -1367,19 +1597,30 @@ function logWarn(msg, formatOptions) {
 		} else 
 			f();
 	}
-	var go = (isDef(__logFormat) && (formatOptions.off || formatOptions.offWarn)) ? false : true;
+	var go = (isDef(formatOptions) && (formatOptions.off || formatOptions.offWarn)) ? false : true;
 	if (go) {
 		if (isUnDef(__conStatus)) __initializeCon();
 		var f = () => {
-			var sep = (isDef(__logFormat) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
-			var ind = (isDef(__logFormat) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
-			ansiStart();
-			data = (isDef(__logFormat) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
-			print(ind + ansiColor("BOLD", data) + sep + ansiColor("yellow", "WARN") + sep + msg);
-			ansiStop();
+			formatOptions = _$(formatOptions).isMap().default({});
+			formatOptions.format = _$(formatOptions.format).isString().default("default");
+			switch(formatOptions.format) {
+			case "json":
+				sprint({ "@timestamp": new Date(data), level: "WARN", message: msg }, "");
+				break;
+			case "slon":
+				print(af.toSLON({ "@timestamp": new Date(data), level: "WARN", message: msg }));
+				break;
+			default:
+				var sep = (isDef(formatOptions) && (isDef(formatOptions.separator))) ? formatOptions.separator : " | ";
+				var ind = (isDef(formatOptions) && (isDef(formatOptions.indent))) ? formatOptions.indent : "";
+				ansiStart();
+				data = (isDef(formatOptions) && isDef(formatOptions.dateFormat)) ? ow.loadFormat().fromDate(new Date(data), formatOptions.dateFormat, formatOptions.dateTZ) : data;
+				print(ind + ansiColor("BOLD", data) + sep + ansiColor("yellow", "WARN") + sep + msg);
+				ansiStop();
+			}
 			return 1;
 		};
-		if (isDef(__logFormat) && formatOptions.async) {
+		if (isDef(formatOptions) && formatOptions.async) {
 			if (isDef(global.__logQueue)) global.__logQueue.push(nw + "S");
 			__initializeLogPromise();
 			__logPromise = __logPromise.then(f, ()=>{
@@ -1400,7 +1641,7 @@ function logWarn(msg, formatOptions) {
  * Optinionally you can provide also someData.
  * </odoc>
  */
-function tlogErr(msg, someData, formatOptions) {
+const tlogErr = function(msg, someData, formatOptions) {
 	logErr(templify(msg, someData), formatOptions);
 }
 
@@ -1412,7 +1653,7 @@ function tlogErr(msg, someData, formatOptions) {
  * Optinionally you can provide also someData.
  * </odoc>
  */
-function tlogWarn(msg, someData, formatOptions) {
+const tlogWarn = function(msg, someData, formatOptions) {
 	logWarn(templify(msg, someData), formatOptions);
 }
 
@@ -1422,7 +1663,7 @@ function tlogWarn(msg, someData, formatOptions) {
  * Determines if aObject is a java exception object or a javascript exception with an embeeded java exception.
  * </odoc>
  */
-function isJavaException(aObj) {
+const isJavaException = function(aObj) {
 	if (isObject(aObj)) {
 		if (isJavaObject(aObj)) {
 			return aObj instanceof java.lang.Exception;
@@ -1441,7 +1682,7 @@ function isJavaException(aObj) {
  * trace information in the form of an array.
  * </odoc>
  */
-function getJavaStackTrace(anException) {
+const getJavaStackTrace = function(anException) {
 	if (isJavaException(anException)) {
 		var ar = [], res = [];
 		if (isDef(anException.javaException))
@@ -1464,7 +1705,7 @@ function getJavaStackTrace(anException) {
 
 		return res;
 	} else {
-		return void 0;
+		return v0;
 	}
 }
 
@@ -1474,7 +1715,7 @@ function getJavaStackTrace(anException) {
  * Will build a string composed of aStr repeated nTimes.
  * </odoc>
  */
-function repeat(nTimes, aStr) {
+const repeat = function(nTimes, aStr) {
 	return aStr.repeat(nTimes);
 }
 
@@ -1484,7 +1725,7 @@ function repeat(nTimes, aStr) {
  * Will return the current system time in milliseconds.
  * </odoc>
  */
-function now() {
+const now = function() {
 	return Number(java.lang.System.currentTimeMillis());
 }
 
@@ -1494,7 +1735,7 @@ function now() {
  * Will return the current system time in milliseconds.
  * </odoc>
  */
-function nowUTC() {
+const nowUTC = function() {
 	return Number(java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).getTimeInMillis());
 }
 
@@ -1504,9 +1745,22 @@ function nowUTC() {
  * Will return the current system time in nanoseconds.
  * </odoc>
  */
-function nowNano() {
+const nowNano = function() {
 	return Number(java.lang.System.nanoTime());
 }
+
+/**
+ * <odoc>
+ * <key>md2(anObject) : String</key>
+ * Will return of the MD2 in hexadecimal format for a given anObject.\
+ * For files you can provide a file stream: var s = io.readFileStream(getOpenAFJar()); md2(s); s.close()
+ * </odoc>
+ */
+const md2 = function(obj) {
+	var DigestUtils = org.apache.commons.codec.digest.DigestUtils;
+	return DigestUtils.md2Hex(obj) + "";
+}
+
 
 /**
  * <odoc>
@@ -1515,7 +1769,7 @@ function nowNano() {
  * For files you can provide a file stream: var s = io.readFileStream(getOpenAFJar()); md5(s); s.close()
  * </odoc>
  */
-function md5(obj) {
+const md5 = function(obj) {
 	var DigestUtils = org.apache.commons.codec.digest.DigestUtils;
 	return DigestUtils.md5Hex(obj) + "";
 }
@@ -1527,7 +1781,7 @@ function md5(obj) {
  * For files you can provide a file stream: var s = io.readFileStream(getOpenAFJar()); sha1(s); s.close()
  * </odoc>
  */
-function sha1(obj) {
+const sha1 = function(obj) {
 	var DigestUtils = org.apache.commons.codec.digest.DigestUtils;
 	return DigestUtils.sha1Hex(obj) + "";
 }
@@ -1539,9 +1793,21 @@ function sha1(obj) {
  * For files you can provide a file stream: var s = io.readFileStream(getOpenAFJar()); sha256(s); s.close()
  * </odoc>
  */
-function sha256(obj) {
+const sha256 = function(obj) {
 	var DigestUtils = org.apache.commons.codec.digest.DigestUtils;
 	return DigestUtils.sha256Hex(obj) + "";
+}
+
+/**
+ * <odoc>
+ * <key>sha384(anObject) : String</key>
+ * Will return of the SHA-384 in hexadecimal format for a given anObject.\
+ * For files you can provide a file stream: var s = io.readFileStream(getOpenAFJar()); sha384(s); s.close()
+ * </odoc>
+ */
+const sha384 = function(obj) {
+	var DigestUtils = org.apache.commons.codec.digest.DigestUtils;
+	return DigestUtils.sha384Hex(obj) + "";
 }
 
 /**
@@ -1551,7 +1817,7 @@ function sha256(obj) {
  * For files you can provide a file stream: var s = io.readFileStream(getOpenAFJar()); sha512(s); s.close()
  * </odoc>
  */
-function sha512(obj) {
+const sha512 = function(obj) {
 	var DigestUtils = org.apache.commons.codec.digest.DigestUtils;
 	return DigestUtils.sha512Hex(obj) + "";
 }
@@ -1563,8 +1829,8 @@ function sha512(obj) {
  * function. Optionally if toHex = true the output will be converted to hexadecimal lower case.
  * </odoc>
  */
-function hmacSHA256(data, key, toHex, alg) {
-	var alg = "HmacSHA256";
+const hmacSHA256 = function(data, key, toHex, alg) {
+	var alg = _$(alg).default("HmacSHA256");
 	if (isString(key)) key = (new java.lang.String(key)).getBytes("UTF-8");
 	var mac = javax.crypto.Mac.getInstance(alg);
 	mac.init(new javax.crypto.spec.SecretKeySpec(key, alg));
@@ -1583,8 +1849,19 @@ function hmacSHA256(data, key, toHex, alg) {
  * function. Optionally if toHex = true the output will be converted to hexadecimal lower case.
  * </odoc>
  */
-function hmacSHA512(data, key, toHex) {
+const hmacSHA512 = function(data, key, toHex) {
 	return hmacSHA256(data, key, toHex, "HmacSHA512");
+}
+
+/**
+ * <odoc>
+ * <key>hmacSHA384(data, key, toHex) : ArrayOfBytes</key>
+ * Given data and a key will calculate the hash-based message authentication code (HMAC) using the SHA384 hash
+ * function. Optionally if toHex = true the output will be converted to hexadecimal lower case.
+ * </odoc>
+ */
+const hmacSHA384 = function(data, key, toHex) {
+	return hmacSHA256(data, key, toHex, "HmacSHA384");
 }
 
 /**
@@ -1596,7 +1873,7 @@ function hmacSHA512(data, key, toHex) {
  * matches the aText provided (hashingRounds will be ignored since the hash string already provides the rounds used).
  * </odoc>
  */
-function bcrypt(aText, aVerifyHash, hashingRounds) {
+const bcrypt = function(aText, aVerifyHash, hashingRounds) {
 	_$(aText).isString().$_("Please provide a string text");
 	_$(aVerifyHash).isString();
 	_$(hashingRounds).isNumber().check((v) => { return (v >= 4 || v <= 31); }, "hashingRounds need to be between 4 and 31");
@@ -1622,7 +1899,7 @@ function bcrypt(aText, aVerifyHash, hashingRounds) {
  * aString 'abc\\;def;123" only the second ';' will be considered.
  * </odoc>
  */
-function splitBySeparator(aString, aSep) {
+const splitBySeparator = function(aString, aSep) {
 	if (isUnDef(aString) || aString == null) return [];
 	if (isUnDef(aSep)) aSep = ";";
 
@@ -1637,7 +1914,7 @@ function splitBySeparator(aString, aSep) {
  * __pmIn values will be also included. If ignoreCase = true all keys will be lower cased.
  * </odoc>
  */
-function processExpr(aSep, ignoreCase, aSource) {
+const processExpr = function(aSep, ignoreCase, aSource) {
     aSource = _$(aSource, "aSource").isString().default(__expr);
 	aSep    = _$(aSep, "aSep").isString().default(";");
 	var args = splitBySeparator(aSource, aSep);
@@ -1671,7 +1948,7 @@ function processExpr(aSep, ignoreCase, aSource) {
  * being used.
  * </odoc>
  */
-function getVersion() {
+const getVersion = function() {
 	return af.getVersion();
 }
 
@@ -1681,7 +1958,7 @@ function getVersion() {
  * Returns the current distribution channel for this version of OpenAF.
  * </odoc>
  */
-function getDistribution() {
+const getDistribution = function() {
 	return af.getDistribution();
 }
 
@@ -1691,15 +1968,26 @@ function getDistribution() {
  * Returns the filesystem path to the openaf.jar currently being used for the script execution.
  * </odoc>
  */
-function getOpenAFPath() {
+var __OpenAFJar;
+const getOpenAFPath = function() {
 	if (isDef(__forcedOpenAFJar)) {
-		return String(new java.io.File(__forcedOpenAFJar).getParent());
+		__OpenAFJar = String(new java.io.File(__forcedOpenAFJar).getParent());
 	} else {
-		var classPath = new java.io.File(java.lang.System.getProperty("java.class.path")).getAbsolutePath() + "";
-		classPath = classPath.replace(/openaf\.jar$/, "").replace(/\\/g, "/");
-
-		return classPath.replace(/[/\\][^/\\]+$/, "");
+		if (isUnDef(__OpenAFJar)) {
+			var ar = String(java.lang.System.getProperty("java.class.path")).split(java.io.File.pathSeparator);
+			var res;
+			ar.map(f => {
+				if (f.match(/openaf\.jar$/)) {
+					res = String(java.io.File(f).getAbsolutePath());
+					res = res.replace(/openaf\.jar$/, "").replace(/\\/g, "/");
+					res = res.replace(/[/\\][^/\\]+$/, "");
+				}
+			});
+			__OpenAFJar = res;
+		}	
 	}
+
+	return __OpenAFJar;
 }
 
 //------------------------------------------
@@ -1710,9 +1998,11 @@ const PACKAGEJSON  = ".package.json";
 const PACKAGEYAML  = ".package.yaml";
 const PACKAGESJSON = "packages.json";
 const PACKAGESJSON_DB = ".opack.db";
+const PACKAGESJSON_USERDB = ".openaf-opack.db";
 const OPACKCENTRALJSON = "packages.json";
 
 var __opackParams;
+var __opackOpenAF;
 /**
  * <odoc>
  * <key>oPack(aParameters)</key>
@@ -1720,7 +2010,7 @@ var __opackParams;
  * aParameters = "help" will, for example, print all the help information. 
  * </odoc> 
  */
-function oPack(aCmd) { 
+const oPack = function(aCmd) { 
 	__opackParams = aCmd;
 	load(getOpenAFJar() + "::js/opack.js");
 }
@@ -1731,11 +2021,11 @@ function oPack(aCmd) {
  * Shortcut for oJobRunFile return the result on the variable __pm. Keep in mind that it doesn't support concurrency.
  * </odoc>
  */
-function oJob(aFile, args, aId, aOptionsMap) {
+const oJob = function(aFile, args, aId, aOptionsMap) {
 	args = merge({ "__format": "pm" }, args);
-	if (isDef(__pm._list)) __pm._list = void 0;
-	if (isDef(__pm._map)) __pm._list = void 0;
-	if (isDef(__pm.result)) __pm.result = void 0;
+	if (isDef(__pm._list)) __pm._list = __;
+	if (isDef(__pm._map)) __pm._list = __;
+	if (isDef(__pm.result)) __pm.result = __;
 	oJobRunFile(aFile, args, aId, aOptionsMap);
 	if (isDef(__pm._list)) return __pm._list;
 	if (isDef(__pm._map)) return __pm._map;
@@ -1748,7 +2038,7 @@ function oJob(aFile, args, aId, aOptionsMap) {
  * Adds a path to an opack.db file to the current search path.
  * </odoc>
  */
-function addOPackRemoteDB(aURL) {
+const addOPackRemoteDB = function(aURL) {
 	__opackCentral.push(aURL);
 }
 
@@ -1758,7 +2048,7 @@ function addOPackRemoteDB(aURL) {
  * Returns an Array of maps. Each map element is an opack package description registered in the OpenAF central repository.
  * </odoc>
  */
-function getOPackRemoteDB() {
+const getOPackRemoteDB = function() {
 	var packages = {};
 	if (noHomeComms) return packages;
 
@@ -1768,13 +2058,13 @@ function getOPackRemoteDB() {
 	var http;
 	var zip;
 
-	for(let i in __opackCentral) {
+	for(var i in __opackCentral) {
 		try {
 			http = new HTTP(__opackCentral[i], "GET", "", {}, true, 1500);
 			zip = new ZIP(http.responseBytes());
 			if (isDef(http)) {
 				packages = merge(packages, af.fromJson(af.fromBytes2String(zip.getFile(OPACKCENTRALJSON))));
-                        }
+            }
 			if (!isUnDef(zip)) zip.close();
 		} catch(e) {
 			// Continue to next
@@ -1787,23 +2077,33 @@ function getOPackRemoteDB() {
 	//if (!isUnDef(zip)) zip.close();
 	return packages;
 }
-
+ 
 /**
  * <odoc>
  * <key>getOPackLocalDB() : Array</key>
  * Returns an Array of maps. Each map element is an opack package description of the currently 
- * locally installed opack packages.
+ * locally, and per user, installed opack packages.
  * </odoc>
  */
-function getOPackLocalDB() {
+const getOPackLocalDB = function() {
 	var fileDB = getOpenAFPath() + "/" + PACKAGESJSON_DB;
+    var homeDB = String(java.lang.System.getProperty("user.home")) + "/" + PACKAGESJSON_USERDB;
 	var packages = {};
-	var exc;
+	var exc, homeDBCheck = false;
 
-	// Verify fileDB
+    if (isUnDef(__opackOpenAF)) {
+		__opackOpenAF = io.readFileJSON(getOpenAFJar() + "::.package.json")
+		__opackOpenAF.version = getVersion()
+	}
+
+	// Verify fileDB and homeDB
 	try {
 		if (!io.fileInfo(fileDB).permissions.match(/r/) && io.fileInfo(fileDB).permissions != "") {
 			exc = fileDB + " is not acessible. Please check permissions (" + io.fileInfo(fileDB).permissions + ").";
+		}
+		homeDBCheck = io.fileExists(homeDB);
+		if (homeDBCheck && !io.fileInfo(homeDB).permissions.match(/r/) && io.fileInfo(homeDB).permissions != "") {
+			exc = homeDB + " is not acessible. Please check permissions (" + io.fileInfo(homeDB).permissions + ").";
 		}
 	} catch(e) {
 		exc = e;
@@ -1815,9 +2115,21 @@ function getOPackLocalDB() {
 			var zip = new ZIP(io.readFileBytes(fileDB));
 			packages = af.fromJson(af.fromBytes2String(zip.getFile(PACKAGESJSON)));
 			zip.close();
-			
+
+			if (homeDBCheck) {
+				var zip = new ZIP(io.readFileBytes(homeDB));
+				var packagesLocal = af.fromJson(af.fromBytes2String(zip.getFile(PACKAGESJSON)));
+				packages = merge(packagesLocal, packages)
+				zip.close();
+			}
+
 			for(var pack in packages) {
-				if (packages[pack].name == "OpenAF") packages[pack].version = getVersion();
+				if (packages[pack].name == "OpenAF") packages[pack].version = getVersion()
+				if (pack.startsWith("$DIR/")) {
+					var newPack = pack.replace("$DIR/", getOpenAFPath())
+					packages[newPack] = packages[pack]
+					delete packages[pack]
+				}
 			}
 		} catch(e) {
 			exc = e;
@@ -1825,6 +2137,10 @@ function getOPackLocalDB() {
 	}
 
 	if (isDef(exc) && isDef(exc.message) && (!exc.message.match(/NoSuchFileException/))) throw exc;
+
+	// No OpenAF on packages loaded
+	for(var pi in packages) { if (packages[pi].name == "OpenAF") delete packages[pi] }
+	packages["OpenAF"] = __opackOpenAF
 
 	return packages;
 }
@@ -1835,7 +2151,7 @@ function getOPackLocalDB() {
  * Returns an array of strings with the paths for each of the installed opacks.
  * </odoc>
  */
-function getOPackPaths() {
+const getOPackPaths = function() {
 	var packages = getOPackLocalDB();
 
 	var paths = {};
@@ -1853,7 +2169,7 @@ function getOPackPaths() {
  * path where the opack is installed.
  * </odoc>
  */
-function getOPackPath(aPackage) {
+const getOPackPath = function(aPackage) {
 	var paths = getOPackPaths();
 	return paths[aPackage];
 }
@@ -1864,7 +2180,7 @@ function getOPackPath(aPackage) {
  * Tries to execute the provided opack aPackageName.
  * </odoc>
  */
-function opackExec(aPackageName) {
+const opackExec = function(aPackageName) {
 	__expr = "exec " + aPackageName + " " + __expr;
 	load(getOpenAFJar() + "::js/opack.js");
 }
@@ -1877,7 +2193,7 @@ var __loadedJars = [];
  * '.jar'. Optionally you can override the dontCheck if it was loaded with this command previously.
  * </odoc>
  */
-function loadExternalJars(aPath, dontCheck) {
+const loadExternalJars = function(aPath, dontCheck) {
 	if (!io.fileExists(aPath) || io.fileInfo(aPath).isFile) throw "Folder not found.";
 	$from(io.listFiles(aPath).files).ends("filename", '.jar').sort("-filename").select((v) => {
 		var libfile = v.filename;
@@ -1887,7 +2203,7 @@ function loadExternalJars(aPath, dontCheck) {
 		}
     });
 }
-
+ 
 /**
  * 0 - no force pre-compilation
  * 1 - pre-compilation of opacks
@@ -1895,6 +2211,68 @@ function loadExternalJars(aPath, dontCheck) {
  * 3 - pre-compilation of all scripts
  */
 var __preCompileLevel = 2;
+
+var __loadPreParser = function(s) { return s }
+const __codeVerify = function(aCode, aFile) {
+	_$(aCode, "aCode").isString().$_()
+	aFile     = _$(aFile, "aFile").isString().default("untitled")
+
+	var validation = false
+
+	var verifyFn = function(aFile) {
+		_$(aFile, "aFile").isString().$_();
+	
+		if (isUnDef(OAF_INTEGRITY[aFile]) && isDef(OAF_INTEGRITY[io.fileInfo(aFile).canonicalPath]))
+			aFile = io.fileInfo(aFile).canonicalPath
+
+		if (isDef(OAF_INTEGRITY[aFile])) {	
+			var valid = false;
+	
+			if (OAF_INTEGRITY[aFile].indexOf("-") >= 0) {
+				[alg, h] = OAF_INTEGRITY[aFile].split("-")
+				switch (alg) {
+				case "sha256": valid = (sha256(aCode) == h); break;
+				case "sha512": valid = (sha512(aCode) == h); break;
+				case "sha384": valid = (sha384(aCode) == h); break;
+				case "sha1"  : valid = (sha1(aCode) == h);   break;
+				case "md5"   : valid = (md5(aCode) == h);    break;
+				case "md2"   : valid = (md2(aCode) == h);    break;
+				default      : valid = false;
+				}
+
+				// If a file is on the OAF_INTEGRITY list close code execution
+				__flags.OAF_CLOSED = true
+			}
+	
+			return valid;
+		} else {
+			return __;
+		}
+	};
+
+	// Verify integrity 
+	if (Object.keys(OAF_INTEGRITY).length > 0) {
+		Packages.openaf.SimpleLog.log(Packages.openaf.SimpleLog.logtype.DEBUG, "oaf checking integrity of '" + aFile + "'", null);
+
+		var ig = verifyFn(aFile);
+		if (isDef(ig) && ig == false) {
+			if (OAF_INTEGRITY_WARN) {
+				logWarn("INTEGRITY OF '" + aFile + "' failed. Please check the source and update the corresponding integrity hash list. Execution will continue.");
+			} else {
+				throw "INTEGRITY OF '" + aFile + "' failed. Please check the source and update the corresponding integrity hash list.";
+			}
+		} else {
+			if (OAF_INTEGRITY_STRICT && ig != true) {
+				throw "INTEGRITY OF '" + aFile + "' failed. Please check the source and update the corresponding integrity hash list.";
+			} else {
+				if (ig == true) validation = true;
+			}
+		}
+	}
+	if (OAF_VALIDATION_STRICT && !validation) {
+		throw "OAF VALIDATION OF '" + aFile + "' failed.";
+	}
+}
 
 /**
  * <odoc>
@@ -1904,11 +2282,11 @@ var __preCompileLevel = 2;
  * If it doesn't find the provided aScript it will throw an exception "Couldn't find aScript".
  * </odoc>
  */
-function load(aScript, loadPrecompiled) {
-	var error = "";
-	var fn = (aS, aLevel) => {
-		var res = false;
-		if (aS.indexOf("::") < 0 && (loadPrecompiled || __preCompileLevel >= aLevel)) {
+const load = function(aScript, loadPrecompiled) {
+	var error = [], inErr = false;
+	var fn = function(aS, aLevel) {
+		var res = false, err;
+		if (aS.indexOf("::") < 0 && (loadPrecompiled || __preCompileLevel >= aLevel) && io.fileExists(aS)) {
 			try {
 				var cl = io.fileInfo(aS).filename.replace(/\.js$/, "_js");
 				res = loadCompiled(aS);
@@ -1918,131 +2296,104 @@ function load(aScript, loadPrecompiled) {
 					global[io.fileInfo(aS).filename.replace(/\.js$/, "")] = exp;
 					return aS;
 				}
-			} catch(e) {
-				if (e.message == "\"exports\" is not defined.") {
+			} catch(e1) {
+				if (e1.message == "\"exports\" is not defined.") {
 					io.rm(io.fileInfo(aS).canonicalPath.substr(0, io.fileInfo(aS).canonicalPath.length - io.fileInfo(aS).filename.length) + ".openaf_precompiled");
 					var exp = requireCompiled(aS);
 					global[io.fileInfo(aS).filename.replace(/\.js$/, "")] = exp;
 					return aS;
 				} else {
-					throw e;
+					err = e1
 				}
 			}
 		}
-		if (!res) {
-			try { 
-				af.load(aS);
-			} catch(e) {
-				if (e.message == "\"exports\" is not defined.") {
+		if (!res && isUnDef(err)) {
+			try {
+				__codeVerify(aS, aScript)
+				if (__flags.OAF_CLOSED) af.load(aS); else af.load(aS, __loadPreParser);
+			} catch(e2) {
+				if (e2.message == "\"exports\" is not defined.") {
 					var exp = require(aS);
 					global[io.fileInfo(aS).filename.replace(/\.js$/, "")] = exp;
 					return aS;
 				} else {
-					throw e;
+					err = e2;
 				}
 			}
 		}
-		return aScript;
+
+		if (isDef(err)) throw err; else return aScript;
 	};
 
-	if (io.fileExists(aScript)) {
+	if (io.fileExists(aScript) || aScript.indexOf("::") > 0) {
 		return fn(aScript, 3);
 	} else {
 		var paths = getOPackPaths();
-		paths["__default"] = String(java.lang.System.getProperty("java.class.path") + "::js");
+		//paths["__default"] = getOpenAFJar() + "::js/";
 
-		var error;
-		for(let i in paths) {
+		for(var i in paths) {
 			try {
 				paths[i] = paths[i].replace(/\\+/g, "/");
-				return fn(paths[i] + "/" + aScript, 1);
+				if (io.fileExists(paths[i] + "/" + aScript)) return fn(paths[i] + "/" + aScript, 1);
+			} catch(_e) {
+				if (_e.message.indexOf("java.io.FileNotFoundException") < 0 &&
+				    _e.message.indexOf("java.lang.NullPointerException: entry") < 0) {
+						error.push(_e);
+						inErr = true;
+				}
+			}
+		}
+
+		if (isDef(__loadedfrom)) {
+			return fn(__loadedfrom.replace(/[^\/]+$/, "") + aScript, 3);
+		}
+
+		throw new Error("Couldn't find or load '" + aScript + "' (" + String(error.join("; ")) + ")");
+	}
+}
+
+/**
+ * <odoc>
+ * <key>loadPy(aPyScript, aInput, aOutputArray, dontStop) : Map</key>
+ * Provides a shortcut for the $py function (see more in $py). If the provided aPyScript is not found
+ * this function will try to search the python script on the installed opacks.
+ * If it doesn't find the provided aScript it will throw an exception "Couldn't find aPyScript".
+ * If aInput map is defined each entry will be converted into python variables. If aOutputArray is
+ * defined the python variables string names in the array will be returned as a map.
+ * </odoc>
+ */
+const loadPy = function(aPyScript, aInput, aOutputArray, dontStop) {
+	var error = "";
+
+	if (io.fileExists(aPyScript)) {
+		$pyStart();
+		var res = $py(aPyScript, aInput, aOutputArray);
+		if (!dontStop) $pyStop();
+		return res;
+	} else {
+		var paths = getOPackPaths();
+
+		var error;
+		for(var i in paths) {
+			try {
+				paths[i] = paths[i].replace(/\\+/g, "/");
+				if (io.fileExists(paths[i] + "/" + aPyScript)) {
+					$pyStart();
+					var res = $py(paths[i] + "/" + aPyScript, aInput, aOutputArray);
+					if (!dontStop) $pyStop();
+					return res;
+				}
 			} catch(e) {
 				error = e;
 			}
 		}
 
-		if (typeof __loadedfrom !== 'undefined') {
-			return fn(__loadedfrom.replace(/[^\/]+$/, "") + aScript, 3);
-		}
-
 		if (isDef(error)) {
-			throw aScript + ": " + String(error);
+			throw aPyScript + ": " + String(error);
+		} else {
+			throw aPyScript + ": " + "Couldn't find aPyScript.";
 		}
 	}
-
-	/*
-	try {
-		try {
-			af.load(aScript);
-		} catch(e) {
-			if (e.message == "\"exports\" is not defined.") {
-				var exp = require(aScript);
-				global[io.fileInfo(aScript).filename.replace(/\.js$/, "")] = exp;
-				return aScript;
-			} else {
-				throw e;
-			}
-		}
-		return aScript;
-	} catch(e0) {
-		if (e0.message.match(/FileNotFoundException/) || e0.message == "\"exports\" is not defined.") {
-			error = e0; var exp;
-			try {
-				if (e0.message == "\"exports\" is not defined.") {
-					exp = require(aScript + ".js");
-					global[io.fileInfo(aScript).filename.replace(/\.js$/, "")] = exp;
-					return aScript;
-				} else {
-					af.load(aScript + ".js");
-					return aScript;
-				}
-			} catch(e) {
-				if (e.message.match(/FileNotFoundException/) || e.message == "\"exports\" is not defined.") {
-					error = e;
-					var paths = getOPackPaths();
-					paths["__default"] = java.lang.System.getProperty("java.class.path") + "::js";
-			
-					for(let i in paths) {
-						try {
-							paths[i] = paths[i].replace(/\\+/g, "/");
-							if (e0.message == "\"exports\" is not defined.") {
-								exp = require(paths[i] + "/" + aScript);
-								global[aScript.replace(/\.js$/, "")] = exp;
-								return aScript;
-							} else {
-								af.load(paths[i] + "/" + aScript);
-								return aScript;
-							}
-						} catch(e) {
-							if (e.message == "\"exports\" is not defined.") {
-								try {
-									exp = require(paths[i] + "/" + aScript);
-									global[aScript.replace(/\.js$/, "")] = exp;
-									return aScript;
-								} catch(e1) {
-									error = e1;
-								}
-							} else {
-								error = e;
-							}
-						}
-					}
-			
-					if (typeof __loadedfrom !== 'undefined') {
-						af.load(__loadedfrom.replace(/[^\/]+$/, "") + aScript);
-						return aScript;
-					}
-				} else {
-					throw e;
-				}
-				
-			}
-		} else { 
-			throw e0;
-		}
-	}
-	throw "Couldn't find " + aScript + "; " + error;
-	*/
 }
 
 /**
@@ -2052,7 +2403,7 @@ function load(aScript, loadPrecompiled) {
  * IF dontLoad = true the module exports won't be returned.
  * </odoc>
  */
-function requireCompiled(aScript, dontCompile, dontLoad) {
+const requireCompiled = function(aScript, dontCompile, dontLoad) {
 	var res = false, cl, clFile, clFilepath;
 	if (io.fileExists(aScript)) {
 		var info = io.fileInfo(aScript);
@@ -2067,6 +2418,9 @@ function requireCompiled(aScript, dontCompile, dontLoad) {
 					if (!dontCompile) {
 						io.mkdir(path);
 						io.rm(clFilepath);
+						var code = io.readFileString(info.canonicalPath)
+						__codeVerify(code, aScript)
+						if (!__flags.OAF_CLOSED) code = __loadPreParser(code) 
 						af.compileToClasses(cl, "var __" + cl + " = function(require, exports, module) {" + io.readFileString(info.canonicalPath) + "}", path);
 					}
 				}
@@ -2103,13 +2457,13 @@ function requireCompiled(aScript, dontCompile, dontLoad) {
  * Optionally you can force to not compile dontCompile=true or just to compile with dontLoad=true
  * </odoc>
  */
-function loadCompiled(aScript, dontCompile, dontLoad) {
+const loadCompiled = function(aScript, dontCompile, dontLoad) {
     var res = false, cl, clFile, clFilepath;
     if (io.fileExists(aScript)) {
 		var info = io.fileInfo(aScript);
 		if (info.isFile) {
             var path = info.canonicalPath.substr(0, info.canonicalPath.indexOf(info.filename)) + ".openaf_precompiled/";
-			if (info.filename.endsWith(".js")) {
+			if (info.filename.endsWith(".js") || info.filename.endsWith("_profile")) {
 				cl = info.filename.replace(/\./g, "_");
 				clFile = cl + ".class";
 				clFilepath = path + clFile;
@@ -2118,7 +2472,10 @@ function loadCompiled(aScript, dontCompile, dontLoad) {
 					if (!dontCompile) {
 						io.mkdir(path);
 						io.rm(clFilepath);
-						af.compileToClasses(cl, io.readFileString(info.canonicalPath), path);
+						var code = io.readFileString(info.canonicalPath)
+						__codeVerify(code, aScript)
+						if (!__flags.OAF_CLOSED) code = __loadPreParser(code) 
+						af.compileToClasses(cl, code, path);
 					}
 				}
                 aScript = clFilepath;
@@ -2142,21 +2499,21 @@ function loadCompiled(aScript, dontCompile, dontLoad) {
 
 /**
  * <odoc>
- * <key>plugin(aPlugin)</key>
+ * <key>plugin(aPlugin, aClass)</key>
  * Provides a shortcut for the af.plugin function. It also provides a shortcut for plugins with
  * the java package "openaf.plugins" (e.g. af.plugin("openaf.plugins.HTTP") is the same
- * as plugin("HTTP")).
+ * as plugin("HTTP")). In alternative you can provide plugin aClass if it's different from aPlugin. 
  * </odoc>
  */
 var __loadedPlugins;
-function plugin(aPlugin) {
+const plugin = function(aPlugin, aClass) {
 	if (isUnDef(__loadedPlugins)) __loadedPlugins = {};
 	var pluginLoaded;
 	try {
 		if (!aPlugin.match(/\./)) {
 			pluginLoaded = "openaf.plugins." + aPlugin;
 			
-			if (__loadedPlugins[pluginLoaded]) return;
+			if (__loadedPlugins[pluginLoaded + (isDef(aClass) ? "::aClass" : "")]) return;
 			// Because ZIP is used in getOPackPath
 			if (aPlugin != "ZIP" && isDef(getOPackPath("plugin-" + aPlugin))) {
 				af.externalPlugin(
@@ -2165,12 +2522,12 @@ function plugin(aPlugin) {
 					.select((f) => {
 						return (new java.io.File(f)).toURI().toURL();
 					}),
-					"openaf.plugins." + aPlugin
+					"openaf.plugins." + (isDef(aClass) ? aClass : aPlugin)
 				);
 			} else {
-				af.plugin("openaf.plugins." + aPlugin);
+				af.plugin("openaf.plugins." + (isDef(aClass) ? aClass : aPlugin));
 			}
-			__loadedPlugins[pluginLoaded] = true;
+			__loadedPlugins[pluginLoaded + (isDef(aClass) ? "::aClass" : "")] = true;
 
 			return;
 		}
@@ -2204,6 +2561,12 @@ function plugin(aPlugin) {
 		if (String(e).indexOf("java.lang.ClassNotFoundException: SVN") >= 0) {
 			throw("The SVN plugin is no longer included. Please install the SVN oPack (\"opack install plugin-svn\").");
 		}
+		if (String(e).indexOf("java.lang.ClassNotFoundException: XLS") >= 0) {
+			throw("The XLS plugin is no longer included. Please install the XLS oPack (\"opack install plugin-xls\").");
+		}
+		if (String(e).indexOf("java.lang.ClassNotFoundException: DOC") >= 0) {
+			throw("The DOC plugin is no longer included. Please install the XLS oPack (\"opack install plugin-xls\").");
+		}
 	}
 }
 
@@ -2214,7 +2577,7 @@ function plugin(aPlugin) {
  * (see also isDefined)
  * </odoc>
  */
-function isUndefined(aObject) {
+const isUndefined = function(aObject) {
 	return (typeof aObject == 'undefined') ? true : false;
 }
 
@@ -2225,28 +2588,11 @@ function isUndefined(aObject) {
  * (see also isUndefined)
  * </odoc>
  */
-function isDefined(aObject) {
+const isDefined = function(aObject) {
 	return (!isUnDef(aObject));
 }
 
-/**
- * <odoc>
- * <key>isDef(aObject) : boolean</key>
- * Returns true if the provided aObject is defined as a javascript variable. It will return false otherwise.
- * (see also isUnDef). Shortcut for the isDefined function.
- * </odoc>
- */
-function isDef(aObject)   { return (!(typeof aObject == 'undefined')) ? true : false; }
-/**
- * <odoc>
- * <key>isUnDef(aObject) : boolean</key>
- * Returns true if the provided aObject is undefined as a javascript variable. It will return false otherwise.
- * (see also isDef). Shortcut for the isUndefined function.
- * </odoc>
- */
-function isUnDef(aObject) { return (typeof aObject == 'undefined') ? true : false; }
-
-if (isUnDef(Object.values)) Object.values = (m) => { return Object.keys(m).map(r => m[r]); };
+//if (isUnDef(Object.values)) Object.values = (m) => { return Object.keys(m).map(r => m[r]); };
 
 /**
  * <odoc>
@@ -2257,7 +2603,7 @@ if (isUnDef(Object.values)) Object.values = (m) => { return Object.keys(m).map(r
 *  windows-1252 and windows-1253. Returns true if file is believed to be binary.
  * </odoc>
  */
-function isBinaryArray(anArrayOfChars, confirmLimit) {
+const isBinaryArray = function(anArrayOfChars, confirmLimit) {
 	var rcstream = 0;
 	confirmLimit = _$(confirmLimit).isNumber().default(1024);
 	var isit = {
@@ -2299,7 +2645,7 @@ function isBinaryArray(anArrayOfChars, confirmLimit) {
  * the io.listFiles function (see more in io.listFiles). 
  * </odoc>
  */
-function listFilesRecursive(aPath) {
+const listFilesRecursive = function(aPath) {
 	if (isUnDef(aPath)) return [];
 
 	var files = io.listFiles(aPath);
@@ -2324,7 +2670,7 @@ function listFilesRecursive(aPath) {
  * Tries to clear the screen. The commands to try to clean the screen are given in ANSI.
  * </odoc>
  */
-function cls() {
+const cls = function() {
 	var jansi = JavaImporter(Packages.org.fusesource.jansi);
 
 	if (!__initializeCon()) return false;
@@ -2342,8 +2688,22 @@ function cls() {
  * Tries to produce a beep sound.
  * </odoc>
  */
-function beep() {
+const beep = function() {
 	Packages.java.awt.Toolkit.getDefaultToolkit().beep();
+}
+
+/**
+ * <odoc>
+ * <key>objOrStr(aObj, aStr) : String</key>
+ * Given aObj (a map or an array) will try to assess if aStr is an aObj key (using $$.get).
+ * If yes, it will return the corresponding aObj value otherwise it will return aStr.
+ * </odoc>
+ */
+const objOrStr = function(aObj, aStr) {
+    if (!isMap(aObj) && !isArray(aObj)) return aStr;
+	var r = $$(aObj).get(aStr);
+	if (isUnDef(r)) r = aStr;
+	return r;
 }
 
 /**
@@ -2354,7 +2714,7 @@ function beep() {
  * Optionally a beautifyFlag can be provided to execute the beautifier function on the aCommand result.
  * </odoc>
  */
-function watch(waitFor, aCommand, beautifyFlag, noPrint) {
+const watch = function(waitFor, aCommand, beautifyFlag, noPrint) {
 	var c = -2;
 
 	plugin("Threads");
@@ -2403,7 +2763,7 @@ function watch(waitFor, aCommand, beautifyFlag, noPrint) {
  * provided. The sorted array will be returned.
  * </odoc>
  */
-function quickSort(items, aCompareFunction) {
+const quickSort = function(items, aCompareFunction) {
 	function swap(items, firstIndex, secondIndex){
 		var temp = items[firstIndex];
 		items[firstIndex] = items[secondIndex];
@@ -2476,7 +2836,7 @@ function quickSort(items, aCompareFunction) {
  * https://api.jquery.com/jquery.extend/
  * </odoc>
  */
-function extend() {
+const extend = function() {
 	var class2type = {
 			"[object Boolean]":   "boolean",
 			"[object Number]":    "number",
@@ -2510,6 +2870,8 @@ function extend() {
 	};
 
 	jQuery.isPlainObject = function( obj ) {
+		if (isJavaObject(obj)) return false;
+		
 		if ( jQuery.type( obj ) !== "object" || obj.nodeType ) {
 			return false;
 		}
@@ -2589,7 +2951,7 @@ function extend() {
  * Immediately exits execution with the provided exit code
  * </odoc>
  */
-function exit(exitCode) {
+const exit = function(exitCode) {
 	if(isUnDef(exitCode)) exitCode = 0;
 
 	java.lang.System.exit(exitCode);
@@ -2601,7 +2963,7 @@ function exit(exitCode) {
  * Creates a new copy of a JavaScript object.
  * </odoc>
  */
-function clone(aObject) {
+const clone = function(aObject) {
 	if (Array.isArray(aObject)) return aObject.slice(0);
  	return extend(true, {}, aObject);
 }
@@ -2612,16 +2974,59 @@ function clone(aObject) {
  * Merges a JavaScript object A with a JavaScript object B a returns the result as a new object.
  * </odoc>
  */
-function merge(aObjectA, aObjectB) {
+var __merge_alternative = true;
+const merge = function(aObjectA, aObjectB, alternative, deDup) {
 	if (isObject(aObjectA) && isArray(aObjectB)) {
-		for(let i in aObjectB) { aObjectB[i] = merge(aObjectB[i], clone(aObjectA)); }
+		for(var i in aObjectB) { aObjectB[i] = merge(aObjectB[i], clone(aObjectA), alternative, deDup); }
 		return aObjectB;
 	}
 	if (isObject(aObjectB) && isArray(aObjectA)) {
-		for(let i in aObjectA) { aObjectA[i] = merge(aObjectA[i], clone(aObjectB)); }
+		for(var i in aObjectA) { aObjectA[i] = merge(aObjectA[i], clone(aObjectB), alternative, deDup); }
 		return aObjectA;
 	}
-	return extend(true, clone(aObjectA), aObjectB);
+	if (__merge_alternative || alternative) {
+		var r = Object.assign({}, aObjectA);
+		if (isDef(aObjectB) && isMap(aObjectB) && !isNull(aObjectB)) {
+		  Object.keys(aObjectB).forEach(k => {
+			if (!isMap(aObjectB[k]) && !isArray(aObjectB[k])) {
+			  r[k] = aObjectB[k];
+			} else {
+			  if (isArray(aObjectB[k])) {
+				if (isUnDef(r[k])) r[k] = [];
+				
+				if (deDup) {
+				  r[k] = r[k].concat(aObjectB[k].filter(s => arrayContains(r[k], s) < 0));
+				} else {
+				  r[k] = r[k].concat(aObjectB[k]);
+				}
+			  } else if (isMap(aObjectB[k])) {
+				if (isUnDef(r[k])) r[k] = {};
+				r[k] = merge(r[k], aObjectB[k], alternative, deDup);
+			  }
+			}
+		  });
+		}
+	  
+		return r;
+	} else {
+		return extend(true, clone(aObjectA), aObjectB);
+	}
+}
+
+/**
+ * <odoc>
+ * <key>uniqArray(anArray) : Array</key>
+ * Returns anArray with no duplicates entries (including duplicate maps).
+ * </odoc>
+ */
+const uniqArray = function(anArray) {
+	if (!isArray(anArray)) return anArray;
+
+	var r = [];
+	anArray.forEach(s => {
+		if (arrayContains(r, s) < 0) r.push(s);
+	});
+	return r;
 }
 
 /**
@@ -2632,7 +3037,7 @@ function merge(aObjectA, aObjectB) {
  * To restart OpenAF please use the restartOpenAF function.
  * </odoc>
  */
-function stopOpenAFAndRun(aCommandLineArray, addCommand) {
+const stopOpenAFAndRun = function(aCommandLineArray, addCommand) {
 	_$(aCommandLineArray).isArray().$_("Please provide a command line array.");
 	addCommand = _$(addCommand).isBoolean().default(false);
 
@@ -2661,7 +3066,7 @@ function stopOpenAFAndRun(aCommandLineArray, addCommand) {
  * preCommandLineArray can be used to provide java arguments if defined.
  * </odoc>
  */
-function restartOpenAF(aCommandLineArray, preLineArray, noStop) {
+const restartOpenAF = function(aCommandLineArray, preLineArray, noStop) {
 	var javaBin = java.lang.System.getProperty("java.home") + java.io.File.separator + "bin" + java.io.File.separator + "java";
 	var currentJar = getOpenAFJar();
 	
@@ -2673,7 +3078,7 @@ function restartOpenAF(aCommandLineArray, preLineArray, noStop) {
 	var command = new java.util.ArrayList();
 	command.add(javaBin);
 	if (isDef(preLineArray)) {
-		for(let c in preLineArray) {
+		for(var c in preLineArray) {
 			command.add(preLineArray[c]);
 		}
 	} else {
@@ -2685,11 +3090,11 @@ function restartOpenAF(aCommandLineArray, preLineArray, noStop) {
 	command.add("-jar");
 	command.add(currentJar);
 	if (isUnDef(aCommandLineArray)) {
-		for(let c in __args) {
+		for(var c in __args) {
 			command.add(__args[c]);
 		}
 	} else {
-		for(let c in aCommandLineArray) {
+		for(var c in aCommandLineArray) {
 			command.add(aCommandLineArray[c]);
 		}
 	}
@@ -2709,7 +3114,7 @@ function restartOpenAF(aCommandLineArray, preLineArray, noStop) {
  * provide java arguments if defined.
  * </odoc>
  */
-function forkOpenAF(aCommandLineArray, preLineArray) {
+const forkOpenAF = function(aCommandLineArray, preLineArray) {
 	return $do(() => {
 		restartOpenAF(aCommandLineArray, preLineArray, true);
 	});
@@ -2722,7 +3127,7 @@ function forkOpenAF(aCommandLineArray, preLineArray) {
  * otherwise it will return false.
  * </odoc>
  */
-function compare(x, y) {
+const compare = function(x, y) {
 	'use strict';
 
 	if (x === null || x === undefined || y === null || y === undefined) { return x === y; }
@@ -2735,9 +3140,14 @@ function compare(x, y) {
 	if (!(x instanceof Object)) { return false; }
 	if (!(y instanceof Object)) { return false; }
 
-	var p = Object.keys(x);
-	return Object.keys(y).every(function (i) { return p.indexOf(i) !== -1; }) &&
-	p.every(function (i) { return compare(x[i], y[i]); });
+	var p = Object.keys(x), q = Object.keys(y);
+    if (p.length != q.length) return false;
+    for(var k in x) { 
+        var v = x[k];
+	    if (isUnDef(y[k]) || (!compare(v, y[k]))) return false;
+	}
+    
+	return true;
 }
 
 /**
@@ -2747,7 +3157,7 @@ function compare(x, y) {
  * Optionally aPreFilter function can prepare each object for comparing.
  * </odoc>
  */
-function arrayContains(anArray, aObj, aPreFilter) {
+const arrayContains = function(anArray, aObj, aPreFilter) {
 	_$(anArray).isArray().$_();
 
 	var ii, found = false;
@@ -2766,20 +3176,20 @@ function arrayContains(anArray, aObj, aPreFilter) {
  * copying the Parent prototype to the Child prototype. This is similar to "Parent.call(this, arg1, arg2)"
  * </odoc>
  */
-function inherit(Child, Parent) {
+const inherit = function(Child, Parent) {
 	Child.prototype = Object.create(Parent.prototype);
 	Child.prototype.constructor = Child;
 }
 
 /**
  * <odoc>
- * <key>$from : Array</key>
+ * <key>$$from : Array</key>
  * Shortcut for the JLinq library for easy query and access to arrays/objects. To see all the available options
  * please refer to http://hugoware.net/Projects/jlinq and the list of available functions by executing,
- * in the openaf-console: "desc $from([])".
+ * in the openaf-console: "desc $$from([])".
  * </odoc>
  */
-$from = function(a) {
+const $$from = function(a) {
 	loadCompiledLib("jlinq_js");
 
 	if(Object.prototype.toString.call(a) == '[object Array]') {
@@ -2792,6 +3202,19 @@ $from = function(a) {
 		}));
 		//throw "Only queries to arrays of objects.";
 	}
+};
+
+/**
+ * <odoc>
+ * <key>$from : Array</key>
+ * Shortcut for the nLinq library for easy query and access to arrays/objects. To see all the available options
+ * please refer to https://github.com/nmaguiar/nLinq/blob/main/Reference.md and the list of available functions by executing,
+ * in the openaf-console: "desc $from([])".
+ * </odoc>
+ */
+var $from = function(a) {
+	loadCompiledLib("openafnlinq_js");
+	return $from(a);
 };
 
 /**
@@ -2824,7 +3247,7 @@ $from = function(a) {
  * \
  * </odoc>
  */
-$path = function(aObj, aPath, customFunctions) {
+const $path = function(aObj, aPath, customFunctions) {
 	loadCompiledLib("jmespath_js");
 	
 	if (isDef(aObj))
@@ -2840,7 +3263,7 @@ $path = function(aObj, aPath, customFunctions) {
  * please refer to https://github.com/winterbe/streamjs/blob/master/APIDOC.md.
  * </odoc>
  */
-$stream = function(a) {
+const $stream = function(a) {
 	loadCompiledLib("stream_js");
 	
 	if (isUnDef(a)) return Stream;
@@ -2856,7 +3279,7 @@ var __cpucores;
  * Try to identify the current number of cores on the system where the script is being executed.
  * </odoc>
  */
-function getNumberOfCores() {
+const getNumberOfCores = function() {
   	plugin("Threads");
 
   	var t = new Threads();
@@ -2873,7 +3296,7 @@ function getNumberOfCores() {
  * If the current system doesn't provide a load average it will fallback to the current system load.
  * </odoc>
  */
-function getCPULoad(useAlternative) {
+const getCPULoad = function(useAlternative) {
         if (useAlternative) {
         	return Number(java.lang.management.ManagementFactory.getOperatingSystemMXBean().getSystemCpuLoad() * getNumberOfCores());
         } else {
@@ -2889,7 +3312,7 @@ function getCPULoad(useAlternative) {
  * Tries to retrieve the current script execution operating system PID and returns it.
  * </odoc>
  */
-function getPid() {
+const getPid = function() {
 	return (Packages.java.lang.management.ManagementFactory.getRuntimeMXBean().getName() + "").replace(/(\d+).+/, "$1");
 }
 
@@ -2900,10 +3323,10 @@ function getPid() {
  * executed until the first hook added (actually a shortcut for Threads.addOpenAFShutdownHook).
  * </odoc>
  */
-function addOnOpenAFShutdown(aFunction) {
+const addOnOpenAFShutdown = function(aFunction) {
 	plugin("Threads");
 	try {
-		(new Threads()).addOpenAFShutdownHook(() => {
+		(new Threads()).addOpenAFShutdownHook(function() {
 			try {
 				aFunction();
 			} catch(e) {}
@@ -2920,7 +3343,7 @@ function addOnOpenAFShutdown(aFunction) {
  * Verifies if aPid is running (returning true) or not (returning false).
  * </odoc>
  */
-function pidCheck(aPid) {
+const pidCheck = function(aPid) {
 	try {
 		aPid = Number(aPid);
 		if (java.lang.System.getProperty("os.name").match(/Windows/)) {
@@ -2948,7 +3371,7 @@ function pidCheck(aPid) {
  * end of the current process. 
  * </odoc>
  */
-function pidCheckIn(aFilename) {
+const pidCheckIn = function(aFilename) {
 	var checkPid;
 	
 	try {
@@ -2973,7 +3396,7 @@ function pidCheckIn(aFilename) {
  * return false. If necessary, a boolean true value on isForce, will force the termination of the process.
  * </odoc>
  */
-function pidKill(aPidNumber, isForce) {
+const pidKill = function(aPidNumber, isForce) {
 	try {
 		var force = "";
 		if (java.lang.System.getProperty("os.name").match(/Windows/)) {
@@ -3001,7 +3424,7 @@ function pidKill(aPidNumber, isForce) {
  * If successful returns true, if not returns false. 
  * </odoc>
  */
-function pidCheckOut(aFilename) {
+const pidCheckOut = function(aFilename) {
 	try {
 		io.writeFileString(aFilename, "");
 		if (io.rm(aFilename)) {
@@ -3020,14 +3443,14 @@ function pidCheckOut(aFilename) {
  * If numberOfParts is not provided the current result of getNumberOfCores() will be used. 
  * </odoc>
  */
-function splitArray(anArray, numberOfParts) {
+const splitArray = function(anArray, numberOfParts) {
     var res = [];
     if (isUnDef(numberOfParts)) numberOfParts = getNumberOfCores();
     
 	if (numberOfParts >= anArray.length) {
-		for(let i in anArray) { res.push([anArray[i]]); }
+		for(var i in anArray) { res.push([anArray[i]]); }
 	} else {
-	    for(let i = 0; i < numberOfParts; i++) {
+	    for(var i = 0; i < numberOfParts; i++) {
 	        var lower = Math.round(anArray.length/numberOfParts * i);
 	        var upper = Math.round(anArray.length/numberOfParts * (i+1));
 	        res.push(anArray.slice(lower, upper));
@@ -3048,7 +3471,7 @@ function splitArray(anArray, numberOfParts) {
  * threads object, the aControlMap.__numThreads for the number of threads in use and a thread __uuid list.
  * </odoc>
  */
-function parallel(aFunction, numThreads, aAggFunction, threads) {
+const parallel = function(aFunction, numThreads, aAggFunction, threads) {
 	plugin("Threads");
 
 	var __threads = new Threads();
@@ -3069,17 +3492,17 @@ function parallel(aFunction, numThreads, aAggFunction, threads) {
 	function __balance() {
 		var l = getCPULoad();
 		if (l > numThreads) {
-			sync(function() { cooldown++; });
+			syncFn(function() { cooldown++; });
 			while (l > numThreads && __cooldown < numThreads) {
 				sleep((l - numThreads) * 2000);
 				l = getCPULoad();
 			}
-			sync(function() { cooldown--; });
+			syncFn(function() { cooldown--; });
 		}
 	}
 	
 	var results = [];
-	for(let i = 0; i < numThreads; i++) {
+	for(var i = 0; i < numThreads; i++) {
 		var uuid = __threads.addThread(function(uuid) {
 			results.push(aFunction(uuid, __threads));
 			if (balance) __balance();
@@ -3111,7 +3534,7 @@ function parallel(aFunction, numThreads, aAggFunction, threads) {
  * with the threads object, the aControlMap.__numThreads for the number of threads in use and a thread __uuid list.
  * </odoc>
  */
-function parallelArray(anArray, aReduceFunction, initValues, aAggFunction, numThreads, threads) {
+const parallelArray = function(anArray, aReduceFunction, initValues, aAggFunction, numThreads, threads) {
 	plugin("Threads");
 
 	if (isUnDef(anArray) || isUnDef(aReduceFunction)) {
@@ -3130,12 +3553,12 @@ function parallelArray(anArray, aReduceFunction, initValues, aAggFunction, numTh
 	function __balance() {
 		var l = getCPULoad();
 		if (l > numThreads) {
-			sync(function() { cooldown++; });
+			syncFn(function() { cooldown++; });
 			while (l > numThreads && __cooldown < numThreads) {
 				sleep((l - numThreads) * 2000);
 				l = getCPULoad();
 			}
-			sync(function() { cooldown--; });
+			syncFn(function() { cooldown--; });
 		}
 	}
 	
@@ -3150,9 +3573,9 @@ function parallelArray(anArray, aReduceFunction, initValues, aAggFunction, numTh
 	// Map it to threads
 	var myMap = [];
 	if (numThreads >= anArray.length) {
-		for(let i in anArray) { myMap.push([anArray[i]]); }
+		for(var i in anArray) { myMap.push([anArray[i]]); }
 	} else {
-		for(let i = 0; i < numThreads; i++) {
+		for(var i = 0; i < numThreads; i++) {
 			var lower = Math.round(anArray.length/numThreads * i);
 			var upper = Math.round(anArray.length/numThreads * (i+1));
 			myMap.push(anArray.slice(lower, upper));
@@ -3213,14 +3636,14 @@ function parallelArray(anArray, aReduceFunction, initValues, aAggFunction, numTh
  * );\
  * </odoc>
  */
-function parallel4Array(anArray, aFunction, numberOfThreads, threads) {
+const parallel4Array = function(anArray, aFunction, numberOfThreads, threads) {
 	var res = parallelArray(anArray,
 		function(p, c, i, a) {
 			var subres = aFunction(c);
 			return [ subres ].concat(p);
 		},
 		[],
-		function(arr) { var res = []; for(let i in arr) { res = res.concat(arr[i]); } return res; },
+		function(arr) { var res = []; for(var i in arr) { res = res.concat(arr[i]); } return res; },
 		numberOfThreads,
 		threads
 	);
@@ -3233,8 +3656,8 @@ function parallel4Array(anArray, aFunction, numberOfThreads, threads) {
  * Compresses a JSON object into an array of bytes suitable to be uncompressed using the uncompress function.
  * </odoc>
  */
-function compress(anObject) {
-	return io.gzip(af.fromString2Bytes(stringify(anObject, void 0, "")));
+const compress = function(anObject) {
+	return io.gzip(af.fromString2Bytes(stringify(anObject, __, "")));
 }
 
 /**
@@ -3243,7 +3666,7 @@ function compress(anObject) {
  * Uncompresses a JSON object, compressed by using the compress function, into a JSON object.
  * </odoc>
  */
-function uncompress(aCompressedObject) {
+const uncompress = function(aCompressedObject) {
 	return JSON.parse(af.fromBytes2String(io.gunzip(aCompressedObject)));
 }
 
@@ -3269,7 +3692,7 @@ const isMap = (a) => { return (Object.prototype.toString.call(a) == "[object Obj
  * Returns true if aObj is an object, false otherwise;
  * </odoc>
  */
-function isObject(obj) {
+const isObject = function(obj) {
     var type = typeof obj;
     return type === 'function' || type === 'object' && !!obj;
 }
@@ -3280,7 +3703,7 @@ function isObject(obj) {
  * Returns true if aObj is a function, false otherwise;
  * </odoc>
  */
-function isFunction(obj) {
+const isFunction = function(obj) {
     return typeof obj == 'function' || false;
 }
 
@@ -3290,7 +3713,7 @@ function isFunction(obj) {
  * Returns true if aObj is a string, false otherwise
  * </odoc>
  */
-function isString(obj) {
+const isString = function(obj) {
 	return typeof obj == 'string' || false;
 }
 
@@ -3300,7 +3723,7 @@ function isString(obj) {
  * Returns true if aObj can be a number, false otherwise
  * </odoc>
  */
-function isNumber(obj) {
+const isNumber = function(obj) {
 	return !isNaN(parseFloat(obj)) && isFinite(obj);
 }
 
@@ -3310,7 +3733,7 @@ function isNumber(obj) {
  * Returns true if aObj doesn't have a decimal component.
  * </odoc>
  */
-function isInteger(obj) {
+const isInteger = function(obj) {
 	return isNumber(obj) && Number.isSafeInteger(obj);
 }
 
@@ -3320,7 +3743,7 @@ function isInteger(obj) {
  * Returns true if aObj has a decimal component.
  * </odoc>
  */
-function isDecimal(obj) {
+const isDecimal = function(obj) {
 	return isNumber(obj) && !isInteger(obj);
 }
 
@@ -3330,7 +3753,7 @@ function isDecimal(obj) {
  * Returns true if aObj is of type number, false otherwise
  * </odoc>
  */
-function isTNumber(obj) {
+const isTNumber = function(obj) {
 	return typeof obj === "number";
 }
 
@@ -3340,7 +3763,7 @@ function isTNumber(obj) {
  * Returns true if aObj is a date, false otherwise
  * </odoc>
  */
-function isDate(obj) { 
+const isDate = function(obj) { 
 	return (null != obj) && !isNaN(obj) && ("undefined" !== typeof obj.getDate); 
 }
 
@@ -3350,7 +3773,7 @@ function isDate(obj) {
  * Returns true if aObj is boolean, false otherwise
  * </odoc>
  */
-function isBoolean(obj) {
+const isBoolean = function(obj) {
 	return typeof obj == 'boolean' || false;
 }
 
@@ -3360,19 +3783,8 @@ function isBoolean(obj) {
  * Returns true if aObj is null, false otherwise
  * </odoc>
  */
-function isNull(obj) {
+const isNull = function(obj) {
 	return obj == null || false;
-}
-
-/**
- * <odoc>
- * <key>isJavaObject(aObj) : boolean</key>
- * Returns true if aObj is a Java object, false otherwise
- * </odoc>
- */
-function isJavaObject(obj) {
-	var s = Object.prototype.toString.call(obj);
-	return (s === '[object JavaObject]' || s === '[object JavaArray]');
 }
 
 /**
@@ -3381,7 +3793,7 @@ function isJavaObject(obj) {
  * Returns true if aObj is a byte array object, false otherwise.
  * </odoc>
  */
-function isByteArray(obj) {
+const isByteArray = function(obj) {
 	return (isDef(obj.getClass) && obj.getClass().getName() == "byte[]");
 }
 
@@ -3391,7 +3803,7 @@ function isByteArray(obj) {
  * Returns true if aObj is an UUID.
  * </odoc>
  */
-function isUUID(obj) {
+const isUUID = function(obj) {
 	if (isString(obj) && obj.match(/^\b[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b$/)) {
 		return true;
 	} else {
@@ -3399,7 +3811,7 @@ function isUUID(obj) {
 	}
 }
 
-function descType(aObj) {
+const descType = function(aObj) {
 	if (isUnDef(aObj)) return "undefined";
 	if (isNull(aObj)) return "null";
 	if (isBoolean(aObj)) return "boolean";
@@ -3416,6 +3828,19 @@ function descType(aObj) {
 
 /**
  * <odoc>
+ * <key>toBoolean(aObj) : Boolean</key>
+ * Tries to convert aObj (String, Number or Boolean) into a boolean value
+ * </odoc>
+ */
+const toBoolean = function(aObj) {
+	if (isBoolean(aObj)) return aObj;
+	if (isNumber(aObj)) return Boolean(aObj);
+	if (isString(aObj)) return (aObj.trim().toLowerCase() == 'true');
+	return aObj;
+}
+
+/**
+ * <odoc>
  * <key>loadLib(aLib, forceReload, aFunction) : boolean</key>
  * Loads the corresponding javascript library and keeps track if it was already loaded or not (in __loadedLibs).
  * Optionally you can force reload and provide aFunction to execute after the successful loading.
@@ -3424,7 +3849,7 @@ function descType(aObj) {
  */
 var __loadedLibs;
 if (isUnDef(__loadedLibs)) __loadedLibs = {};
-function loadLib(aLib, forceReload, aFunction) {
+const loadLib = function(aLib, forceReload, aFunction) {
 	if (forceReload ||
 		isUnDef(__loadedLibs[aLib.toLowerCase()]) || 
 		__loadedLibs[aLib.toLowerCase()] == false) {
@@ -3445,7 +3870,7 @@ function loadLib(aLib, forceReload, aFunction) {
  * Returns true if successfull, false otherwise.
  * </odoc>
  */
-function loadCompiledLib(aClass, forceReload, aFunction) {
+const loadCompiledLib = function(aClass, forceReload, aFunction) {
 	if (forceReload ||
 		isUnDef(__loadedLibs[aClass.toLowerCase()]) || 
 		__loadedLibs[aClass.toLowerCase()] == false) {		
@@ -3458,7 +3883,7 @@ function loadCompiledLib(aClass, forceReload, aFunction) {
 	return false;
 }
 
-function loadCompiledRequire(aClass, forceReload, aFunction) {
+const loadCompiledRequire = function(aClass, forceReload, aFunction) {
 	if (forceReload ||
 		isUnDef(__loadedLibs[aClass.toLowerCase()]) || 
 		__loadedLibs[aClass.toLowerCase()] == false) {		
@@ -3485,7 +3910,7 @@ function loadCompiledRequire(aClass, forceReload, aFunction) {
  * anObject to synchronized upon.
  * </odoc>
  */
-function sync(aFunction, anObj) {
+const sync = function(aFunction, anObj) {
 	var foundException = false;
 	var exception;
 	
@@ -3499,6 +3924,29 @@ function sync(aFunction, anObj) {
 	}, anObj)();
 	
 	if (foundException) throw exception;
+}
+
+/**
+ * <odoc>
+ * <key>syncFn(aFunction, anObject) : Object</key>
+ * Will ensure that aFunction is synchronized, in multi-threaded scripts (alternative to sync). Optionally you can provide
+ * anObject to synchronized upon. Returns the result of aFunction.
+ * </odoc>
+ */
+const syncFn = function(aFunction, anObj) {
+   var foundException = false, exception;
+
+   var r = new Packages.org.mozilla.javascript.Synchronizer(function() { 
+      try { 
+         return aFunction();
+      } catch(e) {
+         foundException = true;
+         exception = e;
+      }
+   }, anObj)();
+
+   if (foundException) throw exception;
+   return r;
 }
 
 
@@ -3608,7 +4056,7 @@ Pod.require = function (req, callback) {
 	// Wrap a single dependency definition in an array.
 	req = single ? [req] : req.slice();
 	
-	for (let i = 0; i < req.length; i++) {
+	for (var i = 0; i < req.length; i++) {
 	    var id = req[i];
 	
 	    if (this._m.hasOwnProperty(id)) {
@@ -3702,7 +4150,7 @@ loadRequire();
  * plus the current working directory). Returns the exports object manipulated in aScript (note: results are cached)
  * </odoc>
  */
-function require(aScript, force) {
+const require = function(aScript, force) {
 	var o, f, exports = {}, module = { id: aScript, uri: aScript, exports: exports };
 	
 	if (isUnDef(require.cache)) require.cache = {};
@@ -3710,20 +4158,33 @@ function require(aScript, force) {
 	if (!force && isFunction(require.cache[aScript])) {
 		f = require.cache[aScript];
 	} else {	
+		var fPath = aS => {
+			if (!io.fileExists(aS)) {
+				var origScript = String(aS)
+				for(var opack in getOPackPaths()) {
+					if (opack != "OpenAF") {
+						var path = getOPackPath(opack) + "/" + origScript
+						if (io.fileExists(path)) {
+							aS = path
+						}
+					}
+				}
+			}
+			return aS
+		}
+
 		if (aScript.match(/::/)) {
 			var comps = aScript.match(/(.+)::(.+)/);
 			plugin("ZIP");
 			var zip = new ZIP();
-			o = af.fromBytes2String(zip.streamGetFile(comps[1], comps[2]));
+			o = af.fromBytes2String(zip.streamGetFile(fPath(comps[1]), comps[2]));
 		} else {	
-			o = io.readFileString(aScript);
+			o = io.readFileString(fPath(aScript));
 		}
 		
-		var opackpaths = getOPackPaths();
-		for(var opack in opackpaths) {
-			o = io.readFileString(aScript);
-		}
-		
+		if (isUnDef(o)) throw "Couldn't load '" + aScript + "'"
+		__codeVerify(o, aScript)
+		if (!__flags.OAF_CLOSED) o = __loadPreParser(o)
 		f = new Function('require', 'exports', 'module', o);
 		require.cache[aScript] = f;
 	}
@@ -3748,11 +4209,32 @@ const ow = new OpenWrap();
 
 /**
  * <odoc>
+ * <key>ow.loadDebug()</key>
+ * Loads OpenWrap debug functionality.
+ * </odoc>
+ */
+OpenWrap.prototype.loadDebug = function() { loadCompiledLib("owrap_debug_js"); if (isUnDef(ow.debug)) { ow.debug = new OpenWrap.debug(); pods.declare("ow.debug", ow.debug); }; return ow.debug; };
+/**
+ * <odoc>
  * <key>ow.loadDev()</key>
  * Loads OpenWrap dev functionality. Basically functions being tested.
  * </odoc>
  */
 OpenWrap.prototype.loadDev = function() { loadCompiledLib("owrap_dev_js"); if (isUnDef(ow.dev)) { ow.dev = new OpenWrap.dev(); pods.declare("ow.dev", ow.dev); }; return ow.dev; };
+/**
+ * <odoc>
+ * <key>ow.loadNet()</key>
+ * Loads OpenWrap net functionality. Basically functions for net.
+ * </odoc>
+ */
+OpenWrap.prototype.loadNet = function() { loadCompiledLib("owrap_net_js"); if (isUnDef(ow.net)) { ow.net = new OpenWrap.net(); pods.declare("ow.net", ow.net); }; return ow.net; };
+/**
+ * <odoc>
+ * <key>ow.loadSec()</key>
+ * Loads OpenWrap sec functionality. Basically functions for sec.
+ * </odoc>
+ */
+OpenWrap.prototype.loadSec = function() { loadCompiledLib("owrap_sec_js"); if (isUnDef(ow.sec)) { ow.sec = new OpenWrap.sec(); pods.declare("ow.sec", ow.sec); }; return ow.sec; };
 /**
  * <odoc>
  * <key>ow.loadFormat()</key>
@@ -3858,7 +4340,7 @@ OpenWrap.prototype.loadJava = function() { loadCompiledLib("owrap_java_js"); if 
  * \
  * </odoc>
  */
-function loadHandlebars() {
+const loadHandlebars = function() {
 	var res = loadCompiledLib("handlebars_js");
 	if (res) pods.declare("Handlebars", loadHandlebars());
 }
@@ -3871,10 +4353,15 @@ function loadHandlebars() {
  * See more in: http://underscorejs.org and https://lodash.com/docs
  * </odoc>
  */
-function loadUnderscore() {
-	var res = loadCompiledLib("lodash_js");
+const loadUnderscore = function() {
+	/*var res = loadCompiledLib("lodash_js");
 	if (res) pods.declare("Underscore", loadUnderscore());
-	if (res) pods.declare("Lodash", loadUnderscore());
+	if (res) pods.declare("Lodash", loadUnderscore());*/
+	try {
+		loadCompiledLib("lodash_js");
+	} catch(e) {
+		loadLib(getOpenAFJar() + "::js/lodash.js");
+	}
 }
 
 /**
@@ -3885,7 +4372,7 @@ function loadUnderscore() {
  * See more in: http://fusejs.io/
  * </odoc>
  */
-function loadFuse() {
+const loadFuse = function() {
 	var res = loadCompiledLib("fusejs_js");
 	if (res) pods.declare("FuseJS", loadFuse());
 }
@@ -3896,13 +4383,13 @@ function loadFuse() {
  * Loads the JsDiff javascript library into scope (check https://github.com/kpdecker/jsdiff).
  * </odoc>
  */
-function loadDiff() {
+const loadDiff = function() {
 	var res = loadCompiledLib("diff_js");
 	global.JsDiff = global.Diff;
 	if (res) pods.declare("JsDiff", loadDiff());
 }
 
-function loadAjv() {
+const loadAjv = function() {
 	var res = loadCompiledLib("ajv_js");
 	if (res) pods.declare("Ajv", loadAjv());
 }
@@ -3915,7 +4402,7 @@ function loadAjv() {
  * See more in https://lodash.com/docs
  * </odoc>
  */
-function loadLodash() {
+const loadLodash = function() {
 	loadUnderscore();
 }
 
@@ -3925,7 +4412,7 @@ function loadLodash() {
  * Loads into scope the ODoc objects for documentation support.
  * </odoc>
  */
-function loadHelp() {
+const loadHelp = function() {
 	var res = loadCompiledLib("odoc_js");
 	if (res) pods.declare("Help", loadHelp());
 }
@@ -3935,10 +4422,11 @@ if (isUnDef(__odocsurl)) __odocsurl = __odoc;
 var __odocs, __odocsfiles = [];
 var __offlineHelp;
 if (isUnDef(__offlineHelp)) {
-	if (noHomeComms)
+	/*if (noHomeComms)
 		__offlineHelp = true;
 	else
-		__offlineHelp = false;
+		__offlineHelp = false;*/
+	__offlineHelp = true;
 }
 
 
@@ -3949,7 +4437,7 @@ if (isUnDef(__offlineHelp)) {
  * of retriving from online first (if aBoolean is false)
  * </odoc>
  */
-function setOfflineHelp(aBoolean) {
+const setOfflineHelp = function(aBoolean) {
 	__offlineHelp = aBoolean;
 	if (isDef(__odocs)) __odocs = undefined; //__odocs.offline = __offlineHelp;
 }
@@ -3964,10 +4452,10 @@ function setOfflineHelp(aBoolean) {
  * also restrict by anArrayOfIds.
  * </odoc>
  */
-function searchHelp(aTerm, aPath, aId) {
+const searchHelp = function(aTerm, aPath, aId) {
 	loadHelp();
 
-	if (isUnDef(__odocs)) __odocs = new ODocs(void 0, void 0, __odocsurl, __offlineHelp);
+	if (isUnDef(__odocs)) __odocs = new ODocs(__, __, __odocsurl, __offlineHelp);
 	if (isDef(aPath)) __odocs.loadFile(aPath);
 	var keys = __odocs.search(aTerm, aId);
 
@@ -3978,7 +4466,7 @@ function searchHelp(aTerm, aPath, aId) {
 			paths = paths.concat(Object.keys(getOPackLocalDB()));
 		} catch(e) {
 		}
-		paths.map(path => {
+		paths.forEach(path => {
 			if (!(path.match(/\.(jar|db|zip)/))) path += "/";
 			if (__odocsfiles.indexOf(path) < 0) {
 				__odocs.loadFile(path);
@@ -4002,7 +4490,7 @@ function searchHelp(aTerm, aPath, aId) {
 	} else {
 		keys = keys.sort(function(a, b) { return (a.key.toLowerCase() > b.key.toLowerCase()) ? 1 : -1; });
 	}
-	return keys;
+	return uniqArray(keys);
 }
 
 /**
@@ -4013,7 +4501,7 @@ function searchHelp(aTerm, aPath, aId) {
  * provided aPath suitable for offline use.
  * </odoc>
  */
-function saveHelp(aPath, aMapOfFiles) {
+const saveHelp = function(aPath, aMapOfFiles) {
 	loadHelp();
 	
 	var odgen = new ODocsGen(aMapOfFiles);
@@ -4029,7 +4517,7 @@ function saveHelp(aPath, aMapOfFiles) {
  * provided aPath suitable for online use.
  * </odoc>
  */
-function saveHelpWeb(aPath, aMapOfFiles) {
+const saveHelpWeb = function(aPath, aMapOfFiles) {
 	loadHelp();
 	
 	var odgen = new ODocsGen(aMapOfFiles);
@@ -4052,7 +4540,7 @@ function saveHelpWeb(aPath, aMapOfFiles) {
  * only inMemCompressed will be used. And useNIO will only affect inMemFileSystem or inMemCompressed options.
  * </odoc>
  */
-function createDBInMem(aName, dontClose, aLogin, aPass, inMemFileSystem, inMemCompressed, useNIO) {
+const createDBInMem = function(aName, dontClose, aLogin, aPass, inMemFileSystem, inMemCompressed, useNIO) {
 	var suffix = (dontClose) ? ";DB_CLOSE_DELAY=-1" : "";
 	var login = (isUnDef(aLogin)) ? "sa" : aLogin;
 	var pass = (isUnDef(aPass)) ? "sa" : aPass;
@@ -4071,7 +4559,7 @@ function createDBInMem(aName, dontClose, aLogin, aPass, inMemFileSystem, inMemCo
  * aLogin and aPass(word).
  * </odoc>
  */
-function createDBServer(aFile, aPort, aLogin, aPass) {
+const createDBServer = function(aFile, aPort, aLogin, aPass) {
 	aPort = _$(aPort).isNumber().default(9090);
 	aFile = _$(aFile).isString().$_("Please provide a filename");
 
@@ -4085,7 +4573,7 @@ function createDBServer(aFile, aPort, aLogin, aPass) {
  * aLogin and aPass(word).
  * </odoc>
  */
-function createDB(aFile, aLogin, aPass) {
+const createDB = function(aFile, aLogin, aPass) {
 	aFile = _$(aFile).isString().$_("Please provide a filename");
 	return new DB("org.h2.Driver", "jdbc:h2:" + io.getCanonicalPath(aFile), aLogin, aPass);
 };
@@ -4098,7 +4586,7 @@ function createDB(aFile, aLogin, aPass) {
  * a port bind error since it the first instance wasn't shutdown.
  * </odoc>
  */
-function showH2Console() {
+const showH2Console = function() {
 	var o = new Packages.org.h2.tools.Console();
 	o.runTool();
 	return o;
@@ -4111,7 +4599,7 @@ function showH2Console() {
  * This can later be used to load again using the loadDBInMem function.
  * </odoc>
  */
-function persistDBInMem(aDB, aFilename) {
+const persistDBInMem = function(aDB, aFilename) {
 	return aDB.q("script to '" + aFilename + "'");
 }
 
@@ -4122,7 +4610,7 @@ function persistDBInMem(aDB, aFilename) {
  * probably created by the function persistDBInMem.
  * </odoc>
  */
-function loadDBInMem(aDB, aFilename) {
+const loadDBInMem = function(aDB, aFilename) {
 	return aDB.u("runscript from '" + aFilename + "'");
 }
 
@@ -4132,11 +4620,11 @@ function loadDBInMem(aDB, aFilename) {
  * Traverses aObject executing aFunction for every single element. The aFunction will receive the arguments: aKey, aValue, aPath, aObject.
  * </odoc>
  */
-function traverse(aObject, aFunction, aParent) {
+const traverse = function(aObject, aFunction, aParent) {
 	var keys = (isJavaObject(aObject)) ? [] : Object.keys(aObject);
 	var parent = isUnDef(aParent) ? "" : aParent;
 
-	for(let i in keys) {
+	for(var i in keys) {
 		if (isObject(aObject[keys[i]])) {
 			var newParent = parent + ((isNaN(Number(keys[i]))) ? 
 							"." + keys[i] : 
@@ -4156,7 +4644,7 @@ function traverse(aObject, aFunction, aParent) {
  * can use ow.obj.setPath to replace a value: "(key, value, path) => { ow.obj.setPath(aObject, path + '.' + key, replaceValue); }"
  * </odoc>
  */
-function searchKeys(aObject, aSearchKey, useCase, actFunc) {
+const searchKeys = function(aObject, aSearchKey, useCase, actFunc) {
 	var res = {};
 	var usecase = useCase ? "" : "i";
 	
@@ -4178,7 +4666,7 @@ function searchKeys(aObject, aSearchKey, useCase, actFunc) {
  * replace a value: "(key, value, path) => { ow.obj.setPath(aObject, path + '.' + key, replaceValue); }"
  * </odoc>
  */
-function searchValues(aObject, aSearchValue, useCase, actFunc) {
+const searchValues = function(aObject, aSearchValue, useCase, actFunc) {
 	var res = {};
 	var usecase = useCase ? "" : "i";
 	
@@ -4199,7 +4687,7 @@ function searchValues(aObject, aSearchValue, useCase, actFunc) {
  * Optionally you can also limit the number of results to the first "limit" (number).
  * </odoc>
  */
-function mapArray(anArray, selectors, limit) {
+const mapArray = function(anArray, selectors, limit) {
 	_$(anArray).isArray("Please provide an array.");
 	var res = [], c = 1;
 
@@ -4235,7 +4723,7 @@ function mapArray(anArray, selectors, limit) {
  * Shortcut to ow.obj.searchArray.
  * </odoc>
  */
-function searchArray(anArray, aPartialMap, useRegEx, ignoreCase, useParallel) {
+const searchArray = function(anArray, aPartialMap, useRegEx, ignoreCase, useParallel) {
 	return ow.loadObj.searhArray(anArray, aPartialMap, useRegEx, ignoreCase, useParallel);
 }
 
@@ -4248,7 +4736,7 @@ function searchArray(anArray, aPartialMap, useRegEx, ignoreCase, useParallel) {
  * as separate elements but rather a directly as key and value.
   * </odoc>
  */
-function flatten(aObject, noKeyValSeparation) {
+const flatten = function(aObject, noKeyValSeparation) {
 	var f = []; 
 	traverse(aObject, function(key, val, pat) { 
 		var e = {};
@@ -4265,18 +4753,18 @@ function flatten(aObject, noKeyValSeparation) {
 }
 
 /**
- * <odoc>
+ * <!--odoc>
  * <key>showDebugger(shouldRedirect)</key>
  * Starts the a graphical Rhino debugger instance, typically from the openaf-console. The stdin, stdout and stderr
  * can be redirected to the debugger by having shouldRedirect = true. The Rhino context will be shared between the
  * debugger and the original script that invoked it (for example: openaf-console).
- * </odoc>
+ * </odoc-->
  */
-function showDebugger(shouldRedirect) {
+/*function showDebugger(shouldRedirect) {
 	print("Trying to create a debugger instance...");
 	af.showDebugger(shouldRedirect);
 	print("Please use File|Run to select the script you wish to debug.");
-}
+}*/
 
 /**
  * <odoc>
@@ -4284,7 +4772,7 @@ function showDebugger(shouldRedirect) {
  * Tries to open anURL on the current OS desktop browser. Returns false if it's unable to open the OS desktop browser for some reason.
  * </odoc>
  */
-function openInBrowser(aURL) {
+const openInBrowser = function(aURL) {
 	try { 
 		java.awt.Desktop.getDesktop().browse(new java.net.URI(aURL)); 
 		return true;
@@ -4300,7 +4788,7 @@ function openInBrowser(aURL) {
  * if you need an update.
  * </odoc>
  */
-function checkLatestVersion() {	
+const checkLatestVersion = function() {	
 	plugin("HTTP");
 	var version = -1;
 	if (noHomeComms) return version;
@@ -4322,27 +4810,27 @@ function checkLatestVersion() {
 
 /**
  * <odoc>
- * <key>sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding) : String</key>
+ * <key>sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding, dontWait, envsMap) : String</key>
  * Tries to execute commandArguments (either a String or an array of strings) in the operating system as a shortcut for 
  * AF.sh except that it will run them through the OS shell. Optionally aStdIn can be provided, aTimeout can be defined 
  * for the execution and if shouldInheritIO is true the stdout, stderr and stdin will be inherit from OpenAF. If 
  * shouldInheritIO is not defined or false it will return the stdout of the command execution. It's possible also to 
- * provide a different working aDirectory.
+ * provide a different working aDirectory. If envsMap (a map of strings) is defined the environment variables will be replaced by envsMap.
  * The variables __exitcode and __stderr can be checked for the command exit code and the stderr output correspondingly.
  * In alternative if returnMap = true a map will be returned with stdout, stderr and exitcode.
  * A callbackFunc can be provided, if shouldInheritIO is undefined or false, that will receive, as parameters, an output 
  * stream, a error stream and an input stream (see help af.sh for an example). If defined the stdout and stderr won't be available for the returnMap if true.
  * </odoc>
  */
-function sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding) {
+const sh = function(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding, dontWait, envsMap) {
 	if (typeof commandArguments == "string") {
 		if (java.lang.System.getProperty("os.name").match(/Windows/)) {
-			return af.sh(["cmd", "/c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding);
+			return af.sh(["cmd", "/c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding, dontWait, envsMap);
 		} else {
-			return af.sh(["/bin/sh", "-c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding);
+			return af.sh(["/bin/sh", "-c", commandArguments], aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding, dontWait, envsMap);
 		}
 	} else {
-		return af.sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding);
+		return af.sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, returnMap, callbackFunc, anEncoding, dontWait, envsMap);
 	}
 }
 
@@ -4352,7 +4840,7 @@ function sh(commandArguments, aStdIn, aTimeout, shouldInheritIO, aDirectory, ret
  * Tries to find a random open port on all network interfaces. Useful to start network servers on an available port. 
  * </odoc>
  */
-function findRandomOpenPort() {
+const findRandomOpenPort = function() {
 	try {
 		var s = new java.net.ServerSocket(0);
 		var port = s.getLocalPort();
@@ -4374,7 +4862,7 @@ var __ioNIO = true;
  * a value for the useNIO function argument.
  * </odoc>
  */
-function ioSetNIO(aFlag) {
+const ioSetNIO = function(aFlag) {
 	_$(aFlag).isBoolean();
 	__ioNIO = aFlag;
 }
@@ -4386,7 +4874,7 @@ function ioSetNIO(aFlag) {
  * aBufferSize (default: 1024) and/or also specify that Java NIO functionality should be used. 
  * </odoc>
  */
-function ioStreamWrite(aStream, aString, aBufferSize, useNIO) {
+const ioStreamWrite = function(aStream, aString, aBufferSize, useNIO) {
 	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
 	if (useNIO) {
 		Packages.org.apache.commons.io.IOUtils.write(aString, aStream, "utf-8");
@@ -4417,7 +4905,7 @@ function ioStreamWrite(aStream, aString, aBufferSize, useNIO) {
  * aBufferSize (default: 1024) and/or also specify that Java NIO functionality should be used. 
  * </odoc>
  */
-function ioStreamWriteBytes(aStream, aArrayBytes, aBufferSize, useNIO) {
+const ioStreamWriteBytes = function(aStream, aArrayBytes, aBufferSize, useNIO) {
 	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
 	if (useNIO) {
 		Packages.org.apache.commons.io.IOUtils.write(aArrayBytes, aStream);
@@ -4449,7 +4937,7 @@ function ioStreamWriteBytes(aStream, aArrayBytes, aBufferSize, useNIO) {
  * Java NIO functionality should be used. If aFunction returns true the read operation stops.
  * </odoc>
  */
-function ioStreamRead(aStream, aFunction, aBufferSize, useNIO, encoding) {
+const ioStreamRead = function(aStream, aFunction, aBufferSize, useNIO, encoding) {
 	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
 	encoding = _$(encoding).isString().default(io.getDefaultEncoding());
 	var bufferSize = (isUnDef(aBufferSize)) ? 1024 : aBufferSize;
@@ -4513,7 +5001,7 @@ function ioStreamRead(aStream, aFunction, aBufferSize, useNIO, encoding) {
  * If aFunctionPerLine returns true the read operation stops. Optionally you can also provide anEncoding.
  * </odoc>
  */
-function ioStreamReadLines(aStream, aFunction, aSeparator, useNIO, anEncoding) {
+const ioStreamReadLines = function(aStream, aFunction, aSeparator, useNIO, anEncoding) {
 	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
 	var buf = "", go = true;
 	if (isUnDef(aSeparator)) aSeparator = __separator;
@@ -4529,7 +5017,7 @@ function ioStreamReadLines(aStream, aFunction, aSeparator, useNIO, anEncoding) {
 			}
 			return res;
 		}
-	}, void 0, useNIO, anEncoding);
+	}, __, useNIO, anEncoding);
 	while (buf.indexOf(aSeparator) >= 0 && go) {
 		var res = aFunction(buf.substring(0, buf.indexOf(aSeparator)));
 		buf = buf.substring(buf.indexOf(aSeparator) + 1);
@@ -4549,7 +5037,7 @@ function ioStreamReadLines(aStream, aFunction, aSeparator, useNIO, anEncoding) {
  * be closed in the end.
  * </odoc>
  */
-function ioStreamCopy(aOutputStream, aInputStream) {
+const ioStreamCopy = function(aOutputStream, aInputStream) {
 	Packages.org.apache.commons.io.IOUtils.copyLarge(aInputStream, aOutputStream);
 	Packages.org.apache.commons.io.IOUtils.closeQuietly(aInputStream);
 	Packages.org.apache.commons.io.IOUtils.closeQuietly(aOutputStream);
@@ -4563,7 +5051,7 @@ function ioStreamCopy(aOutputStream, aInputStream) {
  * also specify that Java NIO functionality should be used. If aFunction returns true the read operation stops.
  * </odoc>
  */
-function ioStreamReadBytes(aStream, aFunction, aBufferSize, useNIO) {
+const ioStreamReadBytes = function(aStream, aFunction, aBufferSize, useNIO) {
 	if (isUnDef(useNIO) && isDef(__ioNIO)) useNIO = __ioNIO;
 	var bufferSize = (isUnDef(aBufferSize)) ? 1024 : aBufferSize;
 
@@ -4625,7 +5113,7 @@ function ioStreamReadBytes(aStream, aFunction, aBufferSize, useNIO) {
  * Converts the provided aString to a different anEncoding (by default UTF-8).
  * </odoc>
  */
-function toEncoding(aString, anEncoding) {
+const toEncoding = function(aString, anEncoding) {
 	if (isUnDef(anEncoding)) anEncoding = "UTF-8";
 	return String(new java.lang.String(af.fromString2Bytes(aString), anEncoding));
 }
@@ -4636,7 +5124,7 @@ function toEncoding(aString, anEncoding) {
  * Converts the provided aString into UTF-8 encoding.
  * </odoc>
  */
-function utf8(aString) {
+const utf8 = function(aString) {
 	return toEncoding(aString, "UTF-8");
 }
 
@@ -4648,7 +5136,7 @@ function utf8(aString) {
  * for a slower but less memory retrieval.
  * </odoc>
  */
-function getFromZip(aZipFile, aResource, isBy, encoding, notInMemory) {
+const getFromZip = function(aZipFile, aResource, isBy, encoding, notInMemory) {
 	plugin("ZIP");
 
 	if (isDef(aResource)) {
@@ -4765,7 +5253,7 @@ if (!Array.from) {
  * \
  * </odoc>
  */
-function newJavaArray(aJavaClass, aSize) {
+const newJavaArray = function(aJavaClass, aSize) {
 	return java.lang.reflect.Array.newInstance(aJavaClass, aSize);
 }
 
@@ -4779,11 +5267,11 @@ function newJavaArray(aJavaClass, aSize) {
  * Note: see threadBoxCtrlC as aStopFunction to stop executing on Ctrl-C
  * </odoc>
  */
-function threadBox(aFunction, aTimeout, aStopFunction) {
+const threadBox = function(aFunction, aTimeout, aStopFunction) {
     if (isUnDef(aStopFunction)) aStopFunction = (aR) => { if (!aR) sleep(25); return aR; };
 
 	var done = false;
-	var exc = void 0;
+	var exc = __;
 
 	plugin("Threads");
 	var t = new Threads();
@@ -4834,8 +5322,8 @@ function threadBox(aFunction, aTimeout, aStopFunction) {
  */
 const $tb = function(aFunction) {
 	var tb = function(afu) {
-		this._timeout  = void 0;
-		this._stopfunc = void 0;
+		this._timeout  = __;
+		this._stopfunc = __;
 		this._func     = afu;
 	};
 
@@ -4860,16 +5348,19 @@ const $tb = function(aFunction) {
 var __openaf_rest = { urls: {}, stats: false };
 const $rest = function(ops) {
 	ow.loadObj();
+	var _toptions = {};
 	var _rest = function(aOptions) {
-		this.options = _$(aOptions).isMap().default({ });
-		this.options.default = _$(this.options.default, "default").isMap().default({});
-		this.options.throwExceptions = _$(this.options.throwExceptions, "throwExceptions").isBoolean().default(false);
-		this.options.collectAllStats = _$(this.options.collectAllStats, "collectAllStats").isBoolean().default(__openaf_rest.stats);
-		this.options.preAction = _$(this.options.preAction, "preAction").isFunction().default(void 0);
-		this.options.uriQuery = _$(this.options.uriQuery, "uriQuery").isBoolean().default(false);
-		this.options.downloadResume = _$(this.options.downloadResume, "downloadResume").isBoolean().default(false);
-		this.options.retry = _$(this.options.retry, "retry").isNumber().default(0);
-		this.options.retryWait = _$(this.options.retryWait, "retryWait").isNumber().default(1500);
+		_toptions = _$(aOptions).isMap().default({ });
+		_toptions.default = _$(_toptions.default, "default").isMap().default({});
+		_toptions.throwExceptions = _$(_toptions.throwExceptions, "throwExceptions").isBoolean().default(false);
+		_toptions.collectAllStats = _$(_toptions.collectAllStats, "collectAllStats").isBoolean().default(__openaf_rest.stats);
+		_toptions.preAction = _$(_toptions.preAction, "preAction").isFunction().default(__);
+		_toptions.uriQuery = _$(_toptions.uriQuery, "uriQuery").isBoolean().default(false);
+		_toptions.downloadResume = _$(_toptions.downloadResume, "downloadResume").isBoolean().default(false);
+		_toptions.retry = _$(_toptions.retry, "retry").isNumber().default(0);
+		_toptions.retryWait = _$(_toptions.retryWait, "retryWait").isNumber().default(1500);
+		_toptions.login = _$(_toptions.login, "login").default(__);
+		_toptions.pass = _$(_toptions.pass, "pass").default(__);
 	};
 
     _rest.prototype.__check = function(aBaseURI) {
@@ -4892,11 +5383,12 @@ const $rest = function(ops) {
 
 		return true;
 	};
-    _rest.prototype.__stats = function(aBaseURI, isFail) {
-		if (this.options.collectAllStats) {
+    _rest.prototype.__stats = function(aBaseURI, isFail, aETime) {
+		if (_toptions.collectAllStats) {
 			if (isUnDef(__openaf_rest.urls[aBaseURI])) __openaf_rest.urls[aBaseURI] = {};
-			__openaf_rest.urls[aBaseURI].c = (isDef(__openaf_rest.urls[aBaseURI].c) ? __openaf_rest.urls[aBaseURI].c++ : 1);
-			if (isFail) __openaf_rest.urls[aBaseURI].f = (isDef(__openaf_rest.urls[aBaseURI].f) ? __openaf_rest.urls[aBaseURI].f++ : 1);
+			__openaf_rest.urls[aBaseURI].c = (isDef(__openaf_rest.urls[aBaseURI].c) ? __openaf_rest.urls[aBaseURI].c + 1 : 1);
+			if (isFail) __openaf_rest.urls[aBaseURI].f = (isDef(__openaf_rest.urls[aBaseURI].f) ? __openaf_rest.urls[aBaseURI].f + 1 : 1);
+			if (!isFail && isDef(aETime)) __openaf_rest.urls[aBaseURI].t = (isDef(__openaf_rest.urls[aBaseURI].t) ? __openaf_rest.urls[aBaseURI].t + aETime : aETime);
 
 			if (Object.keys(__openaf_rest.urls).length > 0) {
 				// try host based
@@ -4912,126 +5404,143 @@ const $rest = function(ops) {
 					var host = String(url.getHost() + ":" + port);
 
 					if (isUnDef(__openaf_rest.urls[host])) __openaf_rest.urls[host] = {};
-					__openaf_rest.urls[host].c = (isDef(__openaf_rest.urls[host].c) ? __openaf_rest.urls[host].c++ : 1);
-					if (isFail) __openaf_rest.urls[host].f = (isDef(__openaf_rest.urls[host].f) ? __openaf_rest.urls[host].f++ : 1);
+					__openaf_rest.urls[host].c = (isDef(__openaf_rest.urls[host].c) ? __openaf_rest.urls[host].c + 1 : 1);
+					if (isFail) __openaf_rest.urls[host].f = (isDef(__openaf_rest.urls[host].f) ? __openaf_rest.urls[host].f + 1 : 1);
+					if (!isFail && isDef(aETime)) __openaf_rest.urls[host].t = (isDef(__openaf_rest.urls[host].t) ? __openaf_rest.urls[host].t + aETime : aETime);
 				} catch(e) { }
 			}
+
+			Packages.openaf.SimpleLog.log(Packages.openaf.SimpleLog.logtype.DEBUG, "REST call to '" + aBaseURI + "' fail=" + isFail + (!isFail ? "; time=" + aETime : ""), null);
 		}
 	};
 	_rest.prototype.__f1 = function(aFn, aSubFn, aBaseURI, aIdxMap, retBytes, aVerb) {
 		var res, parent = this;
 		aIdxMap = _$(aIdxMap).isMap().default({});
-		if (parent.options.uriQuery) {
+		if (_toptions.uriQuery) {
 			aBaseURI += "?" + $rest().query(aIdxMap);
 			aIdxMap = {};
 		}
 		var fdef = [ "aBaseURL", "aIdxMap", "login", "pass", "conTimeout", "reqHeaders", "urlEncode", "httpClient", "retBytes" ];
 		if (parent.__check(aBaseURI)) {
-			var c = parent.options.retry, error;
+			var c = _toptions.retry, error, __t;
 			do {
-				error = void 0;
+				error = __;
 				try {
-					if (isDef(parent.options.timeout) || isDef(parent.options.stopWhen)) {
+					if (isDef(_toptions.timeout) || isDef(_toptions.stopWhen)) {
 						var _r = $tb(() => {
-							if (isDef(parent.options.preAction)) { 
-								var rres = parent.options.preAction(merge({aVerb: aVerb}, $a2m(fdef, [ aBaseURI, aIdxMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ])));
+							if (isDef(_toptions.preAction)) { 
+								var _a = $a2m(fdef, [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ]);
+								_a.aVerb = aVerb;
+								var rres = _toptions.preAction(_a);
 								var args;
 								if (isDef(rres) && rres != null) 
 									args = $m2a(fdef, rres);
 								else
-									args = [ aBaseURI, aIdxMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ];
+									args = [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ];
 								res = aFn[aSubFn].apply(aFn, args);
 							} else {
-								res = aFn[aSubFn](aBaseURI, aIdxMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.httpClient, retBytes);
+								__t = now();
+								res = aFn[aSubFn](aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.httpClient, retBytes);
+								__t = now() - __t;
 							}		
-						}).timeout(parent.options.timeout).stopWhen(parent.options.stopWhen).exec();
+						}).timeout(_toptions.timeout).stopWhen(_toptions.stopWhen).exec();
 						if (_r !== true) {
-							parent.__stats(aBaseURI, true);
-							if (parent.options.throwExceptions) throw _r; else res = parent.options.default;
+							parent.__stats(aBaseURI, true, __t);
+							if (_toptions.throwExceptions) throw _r; else res = _toptions.default;
 						} else {
-							parent.__stats(aBaseURI, false);
+							parent.__stats(aBaseURI, false, __t);
 						}
 					} else {
-						if (isDef(parent.options.preAction)) { 
-							var rres = parent.options.preAction(merge({aVerb: aVerb}, $a2m(fdef, [ aBaseURI, aIdxMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ])));
+						if (isDef(_toptions.preAction)) { 
+							var _a = $a2m(fdef, [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ]);
+							_a.aVerb = aVerb;
+							var rres = _toptions.preAction(_a);
 							var args;
 							if (isDef(rres) && rres != null) 
 								args = $m2a(fdef, rres);
 							else
-								args = [ aBaseURI, aIdxMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ];
+								args = [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ];
+							__t = now();
 							res = aFn[aSubFn].apply(aFn, args);
+							__t = now() - __t;
 						} else {
-							res = aFn[aSubFn](aBaseURI, aIdxMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.httpClient, retBytes);
+							__t = now();
+							res = aFn[aSubFn](aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.httpClient, retBytes);
+							__t = now() - __t;
 						}
-						parent.__stats(aBaseURI, false);
+						parent.__stats(aBaseURI, false, __t);
 					}
 				} catch(e) {
-					parent.__stats(aBaseURI, true);
+					parent.__stats(aBaseURI, true, __t);
 					error = e;
 					c--;
-					if (c > 0) sleep(parent.options.retryWait, true);
+					if (c > 0) sleep(_toptions.retryWait, true);
 				}
 			} while(isDef(error) && c > 0);
 
 			if (isDef(error)) {
-				if (parent.options.throwExceptions) {
+				if (_toptions.throwExceptions) {
 					throw error;
 				} else {
-					res = merge({ error: ow.obj.rest.exceptionParse(error) }, parent.options.default);
+					res = merge({ error: ow.obj.rest.exceptionParse(error) }, _toptions.default);
 				}
 			}
 		} else {
-			if (parent.options.throwExceptions) 
+			if (_toptions.throwExceptions) 
 				throw "Access to " + aBaseURI + " is currently internally disabled."; 
 			else 
-				res = parent.options.default;
+				res = _toptions.default;
 		}
 		return res;
 	};
 	_rest.prototype.__f2 = function(aFn, aSubFn, aBaseURI, aDataRowMap, aIdxMap, retBytes, aVerb) {
 		var res, parent = this;
 		aIdxMap = _$(aIdxMap).isMap().default({});
-		if (parent.options.uriQuery) {
+		if (_toptions.uriQuery) {
 			aBaseURI += "?" + $rest().query(aIdxMap);
 			aIdxMap = {};
 		}
-		var fdef = [ "aBaseURL", "aIdxMap", "aDataRowMap", "login", "pass", "conTimeout", "reqHeaders", "urlEncode", "httpClient", "retBytes" ];
+		var fdef = [ "aBaseURL", "aIdxMap", "aDataRowMap", "login", "pass", "conTimeout", "reqHeaders", "urlEncode", "httpClient", "retBytes", "aMethod" ];
 		if (parent.__check(aBaseURI)) {
-			var c = parent.options.retry, error;
+			var c = _toptions.retry, error;
 			do {
-				error = void 0;
+				error = __;
 				try {
-					if (isDef(parent.options.timeout) || isDef(parent.options.stopWhen)) {
+					if (isDef(_toptions.timeout) || isDef(_toptions.stopWhen)) {
 						var _r = $tb(() => {
-							if (isDef(parent.options.preAction)) { 
-								var rres = parent.options.preAction(merge({aVerb: aVerb}, $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ])));
+							if (isDef(_toptions.preAction)) { 
+								var _a = $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ]);
+								_a.aVerb = aVerb;
+								var rres = _toptions.preAction(_a);
 								var args;
 								if (isDef(rres) && rres != null) 
 									args = $m2a(fdef, rres);
 								else
-									args = [ aBaseURI, aIdxMap, aDataRowMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ];
+									args = [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ];
 								res = aFn[aSubFn].apply(aFn, args);
 							} else {
-								res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes);
+								res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb);
 							}
-						}).timeout(parent.options.timeout).stopWhen(parent.options.stopWhen).exec();
+						}).timeout(_toptions.timeout).stopWhen(_toptions.stopWhen).exec();
 						if (_r !== true) {
 							parent.__stats(aBaseURI, true);
-							if (parent.options.throwExceptions) throw _r; else res = parent.options.default;
+							if (_toptions.throwExceptions) throw _r; else res = _toptions.default;
 						} else {
 							parent.__stats(aBaseURI, false);
 						}
 					} else {
-						if (isDef(parent.options.preAction)) { 
-							var rres = parent.options.preAction(merge({aVerb: aVerb}, $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ])));
+						if (isDef(_toptions.preAction)) { 
+							var _a = $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ]);
+							_a.aVerb = aVerb;
+							var rres = _toptions.preAction(_a);
 							var args;
 							if (isDef(rres) && rres != null) 
 								args = $m2a(fdef, rres);
 							else
-								args = [ aBaseURI, aIdxMap, aDataRowMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes ];
+								args = [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ];
 							res = aFn[aSubFn].apply(aFn, args);
 						} else {
-							res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, parent.options.login, parent.options.pass, parent.options.connectionTimeout, parent.options.requestHeaders, parent.options.urlEncode, parent.options.httpClient, retBytes);
+							res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb);
 						}
 						parent.__stats(aBaseURI, false);
 					}
@@ -5039,22 +5548,22 @@ const $rest = function(ops) {
 					parent.__stats(aBaseURI, true);
 					error = e;
 					c--;
-					if (c > 0) sleep(parent.options.retryWait, true);
+					if (c > 0) sleep(_toptions.retryWait, true);
 				}
 			} while(isDef(error) && c > 0);
 			
 			if (isDef(error)) {
-				if (parent.options.throwExceptions) {
+				if (_toptions.throwExceptions) {
 					throw error;
 				} else {
-					res = merge({ error: ow.obj.rest.exceptionParse(error) }, parent.options.default);
+					res = merge({ error: ow.obj.rest.exceptionParse(error) }, _toptions.default);
 				}
 			}
 		} else {
-			if (parent.options.throwExceptions) 
+			if (_toptions.throwExceptions) 
 				throw "Access to " + aBaseURI + " is currently internally disabled."; 
 			else 
-				res = parent.options.default;
+				res = _toptions.default;
 		}			
 		return res;
 	};
@@ -5070,7 +5579,7 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.get = function(aBaseURI, aIdxMap) {
-		return this.__f1(ow.obj.rest, "jsonGet", aBaseURI, aIdxMap, void 0, "get");
+		return this.__f1(ow.obj.rest, "jsonGet", aBaseURI, aIdxMap, __, "get");
 	};
 	/**
 	 * <odoc>
@@ -5099,9 +5608,9 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.get2File = function(aFilePath, aBaseURI, aIdxMap) {
-		if (this.options.downloadResume && io.fileExists(aFilePath)) {
-			if (isUnDef(this.options.requestHeaders)) this.options.requestHeaders = {};
-			this.options.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
+		if (_toptions.downloadResume && io.fileExists(aFilePath)) {
+			if (isUnDef(_toptions.requestHeaders)) _toptions.requestHeaders = {};
+			_toptions.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
 			ioStreamCopy(io.writeFileStream(aFilePath, true), this.__f1(ow.obj.rest, "get", aBaseURI, aIdxMap, true, "get"));
 		} else {
 			ioStreamCopy(io.writeFileStream(aFilePath), this.__f1(ow.obj.rest, "get", aBaseURI, aIdxMap, true, "get"));
@@ -5119,7 +5628,7 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.post = function(aBaseURI, aDataRowMap, aIdxMap) {
-		return this.__f2(ow.obj.rest, "jsonCreate", aBaseURI, aDataRowMap, aIdxMap, void 0, "post");
+		return this.__f2(ow.obj.rest, "jsonCreate", aBaseURI, aDataRowMap, aIdxMap, __, "post");
 	};
 	/**
 	 * <odoc>
@@ -5137,6 +5646,34 @@ const $rest = function(ops) {
 	};
 	/**
 	 * <odoc>
+	 * <key>$rest.postUpload(aBaseURI, aDataRowMap, aIdxMap) : Map</key>
+	 * Shortcut for ow.obj.rest.upload (see help ow.obj.rest.upload with post) using aOptions ($rest(aOptions).): login (function or string),
+	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
+	 * default (map to return when there is an exception), throwExceptions (boolean defaulting to false controlling between
+	 * throwing exceptions on different from 2xx http codes or connection issues or returning a map (merge with default if available) 
+	 * and an error entry), collectAllStats (boolean with default false to store per uri or host:port statitics), preAction function that receives and
+	 * returns a map with changes (aBaseURL, aIdxMap, aDataRowMap, login, pass, conTimeout, reqHeaders, urlEncode and httpClient), retry (number) and retryWait (time in ms).
+	 * </odoc>
+	 */
+	_rest.prototype.postUpload = function(aBaseURI, aDataRowMap, aIdxMap) {
+		return this.__f2(ow.obj.rest, "upload", aBaseURI, aDataRowMap, aIdxMap, __, "post");
+	};
+	/**
+	 * <odoc>
+	 * <key>$rest.postUpload2Stream(aBaseURI, aDataRowMap, aIdxMap) : JavaStream</key>
+	 * Shortcut for ow.obj.rest.upload (see help ow.obj.rest.upload with post) using aOptions ($rest(aOptions).): login (function or string),
+	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
+	 * default (map to return when there is an exception), throwExceptions (boolean defaulting to false controlling between
+	 * throwing exceptions on different from 2xx http codes or connection issues or returning a map (merge with default if available) 
+	 * and an error entry), collectAllStats (boolean with default false to store per uri or host:port statitics), preAction function that receives and
+	 * returns a map with changes (aBaseURL, aIdxMap, aDataRowMap, login, pass, conTimeout, reqHeaders, urlEncode and httpClient), retry (number) and retryWait (time in ms).
+	 * </odoc>
+	 */
+	_rest.prototype.postUpload2Stream = function(aBaseURI, aDataRowMap, aIdxMap) {
+		return this.__f2(ow.obj.rest, "upload", aBaseURI, aDataRowMap, aIdxMap, true, "post");
+	};
+	/**
+	 * <odoc>
 	 * <key>$rest.post2File(aFilePath, aBaseURI, aDataRowMap, aIdxMap)</key>
 	 * Shortcut for ow.obj.rest.jsonCreate (see help ow.obj.rest.jsonCreate) using aOptions ($rest(aOptions).): login (function or string),
 	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
@@ -5148,9 +5685,9 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */	
 	_rest.prototype.post2File = function(aFilePath, aBaseURI, aDataRowMap, aIdxMap) {
-		if (this.options.downloadResume && io.fileExists(aFilePath)) {
-			if (isUnDef(this.options.requestHeaders)) this.options.requestHeaders = {};
-			this.options.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
+		if (_toptions.downloadResume && io.fileExists(aFilePath)) {
+			if (isUnDef(_toptions.requestHeaders)) _toptions.requestHeaders = {};
+			_toptions.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
 			ioStreamCopy(io.writeFileStream(aFilePath, true), this.__f2(ow.obj.rest, "create", aBaseURI, aDataRowMap, aIdxMap, true, "post"));
 		} else {
 			ioStreamCopy(io.writeFileStream(aFilePath), this.__f2(ow.obj.rest, "create", aBaseURI, aDataRowMap, aIdxMap, true, "post"));
@@ -5168,7 +5705,7 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.put = function(aBaseURI, aDataRowMap, aIdxMap) {
-		return this.__f2(ow.obj.rest, "jsonSet", aBaseURI, aDataRowMap, aIdxMap, void 0, "put");
+		return this.__f2(ow.obj.rest, "jsonSet", aBaseURI, aDataRowMap, aIdxMap, __, "put");
 	};
 	/**
 	 * <odoc>
@@ -5186,6 +5723,34 @@ const $rest = function(ops) {
 	};
 	/**
 	 * <odoc>
+	 * <key>$rest.putUpload(aBaseURI, aDataRowMap, aIdxMap) : Map</key>
+	 * Shortcut for ow.obj.rest.upload (see help ow.obj.rest.upload with put) using aOptions ($rest(aOptions).): login (function or string),
+	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
+	 * default (map to return when there is an exception), throwExceptions (boolean defaulting to false controlling between
+	 * throwing exceptions on different from 2xx http codes or connection issues or returning a map (merge with default if available) 
+	 * and an error entry), collectAllStats (boolean with default false to store per uri or host:port statitics), preAction function that receives and
+	 * returns a map with changes (aBaseURL, aIdxMap, aDataRowMap, login, pass, conTimeout, reqHeaders, urlEncode and httpClient), retry (number) and retryWait (time in ms).
+	 * </odoc>
+	 */
+	_rest.prototype.putUpload = function(aBaseURI, aDataRowMap, aIdxMap) {
+		return this.__f2(ow.obj.rest, "upload", aBaseURI, aDataRowMap, aIdxMap, __, "put");
+	};
+	/**
+	 * <odoc>
+	 * <key>$rest.putUpload2Stream(aBaseURI, aDataRowMap, aIdxMap) : JavaStream</key>
+	 * Shortcut for ow.obj.rest.upload (see help ow.obj.rest.upload with post) using aOptions ($rest(aOptions).): login (function or string),
+	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
+	 * default (map to return when there is an exception), throwExceptions (boolean defaulting to false controlling between
+	 * throwing exceptions on different from 2xx http codes or connection issues or returning a map (merge with default if available) 
+	 * and an error entry), collectAllStats (boolean with default false to store per uri or host:port statitics), preAction function that receives and
+	 * returns a map with changes (aBaseURL, aIdxMap, aDataRowMap, login, pass, conTimeout, reqHeaders, urlEncode and httpClient), retry (number) and retryWait (time in ms).
+	 * </odoc>
+	 */
+	_rest.prototype.putUpload2Stream = function(aBaseURI, aDataRowMap, aIdxMap) {
+		return this.__f2(ow.obj.rest, "upload", aBaseURI, aDataRowMap, aIdxMap, true, "put");
+	};
+	/**
+	 * <odoc>
 	 * <key>$rest.put2File(aFilePath, aBaseURI, aDataRowMap, aIdxMap)</key>
 	 * Shortcut for ow.obj.rest.jsonSet (see help ow.obj.rest.jsonSet) using aOptions ($rest(aOptions).): login (function or string),
 	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
@@ -5197,9 +5762,9 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.put2File = function(aFilePath, aBaseURI, aDataRowMap, aIdxMap) {
-		if (this.options.downloadResume && io.fileExists(aFilePath)) {
-			if (isUnDef(this.options.requestHeaders)) this.options.requestHeaders = {};
-			this.options.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
+		if (_toptions.downloadResume && io.fileExists(aFilePath)) {
+			if (isUnDef(_toptions.requestHeaders)) _toptions.requestHeaders = {};
+			_toptions.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
 			ioStreamCopy(io.writeFileStream(aFilePath, true), this.__f2(ow.obj.rest, "set", aBaseURI, aDataRowMap, aIdxMap, true, "put"));
 		} else {
 			ioStreamCopy(io.writeFileStream(aFilePath), this.__f2(ow.obj.rest, "set", aBaseURI, aDataRowMap, aIdxMap, true, "put"));
@@ -5217,7 +5782,7 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.delete = function(aBaseURI, aIdxMap) {
-		return this.__f1(ow.obj.rest, "jsonRemove", aBaseURI, aIdxMap, void 0, "delete");
+		return this.__f1(ow.obj.rest, "jsonRemove", aBaseURI, aIdxMap, __, "delete");
 	};
 	/**
 	 * <odoc>
@@ -5246,9 +5811,9 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.delete2File = function(aFilePath, aBaseURI, aIdxMap) {
-		if (this.options.downloadResume && io.fileExists(aFilePath)) {
-			if (isUnDef(this.options.requestHeaders)) this.options.requestHeaders = {};
-			this.options.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
+		if (_toptions.downloadResume && io.fileExists(aFilePath)) {
+			if (isUnDef(_toptions.requestHeaders)) _toptions.requestHeaders = {};
+			_toptions.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
 			ioStreamCopy(io.writeFileStream(aFilePath, true), this.__f1(ow.obj.rest, "remove", aBaseURI, aIdxMap, true, "delete"));
 		} else {
 			ioStreamCopy(io.writeFileStream(aFilePath), this.__f1(ow.obj.rest, "remove", aBaseURI, aIdxMap, true, "delete"));
@@ -5266,7 +5831,7 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.patch = function(aBaseURI, aDataRowMap, aIdxMap) {
-		return this.__f2(ow.obj.rest, "jsonPatch", aBaseURI, aDataRowMap, aIdxMap, void 0, "patch");
+		return this.__f2(ow.obj.rest, "jsonPatch", aBaseURI, aDataRowMap, aIdxMap, __, "patch");
 	};
 	/**
 	 * <odoc>
@@ -5284,6 +5849,34 @@ const $rest = function(ops) {
 	};
 	/**
 	 * <odoc>
+	 * <key>$rest.patchUpload(aBaseURI, aDataRowMap, aIdxMap) : Map</key>
+	 * Shortcut for ow.obj.rest.upload (see help ow.obj.rest.upload with patch) using aOptions ($rest(aOptions).): login (function or string),
+	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
+	 * default (map to return when there is an exception), throwExceptions (boolean defaulting to false controlling between
+	 * throwing exceptions on different from 2xx http codes or connection issues or returning a map (merge with default if available) 
+	 * and an error entry), collectAllStats (boolean with default false to store per uri or host:port statitics), preAction function that receives and
+	 * returns a map with changes (aBaseURL, aIdxMap, aDataRowMap, login, pass, conTimeout, reqHeaders, urlEncode and httpClient), retry (number) and retryWait (time in ms).
+	 * </odoc>
+	 */
+	_rest.prototype.patchUpload = function(aBaseURI, aDataRowMap, aIdxMap) {
+		return this.__f2(ow.obj.rest, "upload", aBaseURI, aDataRowMap, aIdxMap, __, "patch");
+	};
+	/**
+	 * <odoc>
+	 * <key>$rest.patchUpload2Stream(aBaseURI, aDataRowMap, aIdxMap) : JavaStream</key>
+	 * Shortcut for ow.obj.rest.upload (see help ow.obj.rest.upload with patch) using aOptions ($rest(aOptions).): login (function or string),
+	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
+	 * default (map to return when there is an exception), throwExceptions (boolean defaulting to false controlling between
+	 * throwing exceptions on different from 2xx http codes or connection issues or returning a map (merge with default if available) 
+	 * and an error entry), collectAllStats (boolean with default false to store per uri or host:port statitics), preAction function that receives and
+	 * returns a map with changes (aBaseURL, aIdxMap, aDataRowMap, login, pass, conTimeout, reqHeaders, urlEncode and httpClient), retry (number) and retryWait (time in ms).
+	 * </odoc>
+	 */
+	_rest.prototype.patchUpload2Stream = function(aBaseURI, aDataRowMap, aIdxMap) {
+		return this.__f2(ow.obj.rest, "upload", aBaseURI, aDataRowMap, aIdxMap, true, "patch");
+	};
+	/**
+	 * <odoc>
 	 * <key>$rest.patch2File(aFilePath, aBaseURI, aDataRowMap, aIdxMap)</key>
 	 * Shortcut for ow.obj.rest.jsonPatch (see help ow.obj.rest.jsonPatch) using aOptions ($rest(aOptions).): login (function or string),
 	 *  pass (word), connectionTimeout (in ms), requestHeaders (map), urlEncode (boolean), uriQuery (boolean), httpClient (ow.obj.http object),
@@ -5295,9 +5888,9 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.patch2File = function(aFilePath, aBaseURI, aDataRowMap, aIdxMap) {
-		if (this.options.downloadResume && io.fileExists(aFilePath)) {
-			if (isUnDef(this.options.requestHeaders)) this.options.requestHeaders = {};
-			this.options.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
+		if (_toptions.downloadResume && io.fileExists(aFilePath)) {
+			if (isUnDef(_toptions.requestHeaders)) _toptions.requestHeaders = {};
+			_toptions.requestHeaders.Range = "bytes=" + io.fileInfo(aFilePath).size + "-";
 			ioStreamCopy(io.writeFileStream(aFilePath, true), this.__f2(ow.obj.rest, "patch", aBaseURI, aDataRowMap, aIdxMap, true, "patch"));
 		} else {
 			ioStreamCopy(io.writeFileStream(aFilePath), this.__f2(ow.obj.rest, "patch", aBaseURI, aDataRowMap, aIdxMap, true, "patch"));
@@ -5315,7 +5908,7 @@ const $rest = function(ops) {
 	 * </odoc>
 	 */
 	_rest.prototype.head = function(aBaseURI, aIdxMap) {
-		return this.__f1(ow.obj.rest, "head", aBaseURI, aIdxMap, void 0, "head");
+		return this.__f1(ow.obj.rest, "head", aBaseURI, aIdxMap, __, "head");
 	};
 	/**
 	 * <odoc>
@@ -5339,11 +5932,38 @@ const $rest = function(ops) {
 	return new _rest(ops);
 };
  
-const $py = function(aPythonCode, aInput, aOutputArray) {
+/**
+ * <odoc>
+ * <key>$pyStart()</key>
+ * Start python process on the background. Should be stopped with $pyStop.
+ * </odoc>
+ */
+const $pyStart = function() {
 	ow.loadPython();
 	ow.python.startServer();
+};
+
+/**
+ * <odoc>
+ * <key>$py(aPythonCodeOrFile, aInput, aOutputArray) : Map</key>
+ * Executes aPythonCodeOrFile using a map aInput as variables in python and returns a map with python 
+ * variables in aOutputArray.
+ * </odoc>
+ */
+const $py = function(aPythonCode, aInput, aOutputArray) {
+	$pyStart();
 	if (aPythonCode.indexOf("\n") < 0 && aPythonCode.endsWith(".py") && io.fileExists(aPythonCode)) aPythonCode = io.readFileString(aPythonCode);
 	return ow.python.exec(aPythonCode, aInput, aOutputArray);
+};
+
+/**
+ * <odoc>
+ * <key>$pyStop()</key>
+ * Stops the background python process started by $pyStart.
+ * </odoc>
+ */
+const $pyStop = function() {
+	ow.python.stopServer(__, true);
 };
 
 /**
@@ -5373,7 +5993,10 @@ const $openaf = function(aScript, aPMIn, aOpenAF, extraJavaParamsArray) {
 			throw "Please provide a string or array for the aOpenAF parameter.";
 		}
 	}
-	aOpenAF = _$(aOpenAF).default([java.lang.System.getProperty("java.home") + java.io.File.separator + "bin" + java.io.File.separator + "java", "-jar", getOpenAFJar()]);
+	var arr = [java.lang.System.getProperty("java.home") + java.io.File.separator + "bin" + java.io.File.separator + "java"];
+	if (isArray(extraJavaParamsArray)) arr = arr.concat(extraJavaParamsArray)
+	
+	aOpenAF = _$(aOpenAF).default(arr.concat(["-jar", getOpenAFJar()]));
 	aPMIn   = _$(aPMIn).isObject().default({});
 	var cmd;
 	if (isArray(aOpenAF)) {
@@ -5386,10 +6009,92 @@ const $openaf = function(aScript, aPMIn, aOpenAF, extraJavaParamsArray) {
 	}
 
 	var separator = "-=?OpEnAf?=-";
-	var res = sh(cmd, "__pm = jsonParse(" + stringify(aPMIn, void 0, "") + "); load('" + aScript + "'); print('" + separator + "' + stringify(__pm, void 0, ''));");
-	res = res.substr(res.indexOf(separator) + separator.length, res.length);
+	var res = $sh().sh(cmd, "__pm = jsonParse(" + stringify(aPMIn, __, "") + "); load('" + aScript.replace(/\\/g, "/") + "'); print('" + separator + "' + stringify(__pm, __, ''));").get(0);
+	res = res.stdout.substr(res.stdout.indexOf(separator) + separator.length, res.stdout.length);
 	return jsonParse(res);
 };
+
+__$f = {
+	//locale: java.util.Locale.US
+}
+/**
+ * <odoc>
+ * <key>$f(aString, arg1, arg2, ...) : String</key>
+ * Formats aString with arg1, arg2 and any other arguments provided using java.util.Formatter. The format is composed
+ * of "%[argument_index$][flags][width][.precision]conversion". Do note that javascript numbers are converted to java.lang.Float. If you
+ * need it to convert to Integer, Long, Double, Float and BigDecimal please use $ft. The javascript Date type will be converted to java Calendar.
+ * So possible values:\
+ * \
+ *    argument_index: number\
+ *    flags         : '-' (left-justified); '#'; '+' (include sign); ' ' (leading space); '0' (zero-padded); ',' (separators); '(' (enclose negative values)\
+ *    conversion    : b/B (boolean), h/H (hash), s/S (string), "-" (left justify), c/C (character)\
+ * \
+ * Examples:\
+ * \
+ *    $f("Time %tT", new Date())\
+ *    $f("Date: %1$tm %1te, %1tY %1$tT", new Date())\
+ * \
+ *    $f("%.2f", 1.9)\
+ *    $f("%10.2f", 1.9)\
+ * \
+ * </odoc>
+ */
+const $f = function() {
+	var ff;
+	if (isDef(__$f.locale)) {
+		ff = new java.util.Formatter(__$f.locale);
+	} else {
+		ff = new java.util.Formatter();
+	}
+	var f = ff.format;
+
+	for (var k in arguments) {
+		if (isDate(arguments[k])) {
+			var sdf = new java.text.SimpleDateFormat();
+			sdf.format(arguments[k]);
+			arguments[k] = sdf.getCalendar()
+		}
+	}
+
+	return String(f.apply(ff, arguments));
+}
+
+/**
+ * <odoc>
+ * <key>$ft(aString, arg1, arg2, ...) : String</key>
+ * Equivalant to $f but number types are converted to Integer, Long, Double, Float and BigDecimal.
+ * </odoc>
+ */
+const $ft = function() {
+	var ff;
+	if (isDef(__$f.locale)) {
+		ff = new java.util.Formatter(__$f.locale);
+	} else {
+		ff = new java.util.Formatter();
+	}
+	var f = ff.format;
+
+	for (var k in arguments) {
+		if (isDate(arguments[k])) {
+			var sdf = new java.text.SimpleDateFormat();
+			sdf.format(arguments[k]);
+			arguments[k] = sdf.getCalendar()
+		}
+		if (isNumber(arguments[k]) && !isDecimal(arguments[k])) {
+			if (arguments[k] > java.lang.Integer.MAX_VALUE || arguments[k] < java.lang.Integer.MIN_VALUE) {
+				arguments[k] = new java.lang.Long(arguments[k]);
+			} else {
+				if (arguments[k] > java.lang.BigDecimal.MAX_VALUE || arguments[k] < java.lang.BigDecimal.MIN_VALUE) {
+					arguments[k] = new java.math.BigDecimal(arguments[k]);
+				} else {
+					arguments[k] = new java.lang.Integer(arguments[k]);
+				}
+			}
+		}
+	}
+
+	return String(f.apply(ff, arguments));
+}
 
 const $bottleneck = function(aName, aFn) {
 	if (isUnDef(global.__bottleneck)) global.__bottleneck = {};
@@ -5479,9 +6184,9 @@ const $cache = function(aName) {
         aN = _$(aN).default("cache");
         this.name  = aN;
         this.func  = k => k;
-        this.attl  = void 0;
-		this.ach   = void 0;
-		this.msize = void 0;
+        this.attl  = __;
+		this.ach   = __;
+		this.msize = __;
     };
 
 	/**
@@ -5530,7 +6235,7 @@ const $cache = function(aName) {
     __c.prototype.create = function() {
         _$(this.func).isFunction().$_("Please provide a function (fn).");
 
-		sync(() => {
+		syncFn(() => {
 			if ($ch().list().indexOf(this.name) < 0) {
 				$ch(this.name).create(1, "cache", {
 					func: this.func,
@@ -5635,7 +6340,7 @@ const $cache = function(aName) {
  * support ANSI if will default to false.
  * </odoc>
  */
-function threadBoxCtrlC() {
+const threadBoxCtrlC = function() {
 	if (isUnDef(__conStatus)) __initializeCon();
 	var c = new Console();
     if (__conAnsi) {
@@ -5651,19 +6356,19 @@ if (isUnDef(alert)) alert = function(msg) {
 };
 
 var __timeout = {};
-function setTimeout(aFunction, aPeriod) {
+const setTimeout = function(aFunction, aPeriod) {
 	sleep(aPeriod);
 	var args = [];
-	for(let i = 2; i <= arguments.length; i++) { args.push(arguments[i]); }
+	for(var i = 2; i <= arguments.length; i++) { args.push(arguments[i]); }
 	aFunction.apply(this, args);
 }
 
-function setInterval(aFunction, aPeriod) {
+const setInterval = function(aFunction, aPeriod) {
 	plugin("Threads");
 	var t = new Threads();
 
 	var args = [];
-	for(let i = 2; i <= arguments.length; i++) { args.push(arguments[i]); }
+	for(var i = 2; i <= arguments.length; i++) { args.push(arguments[i]); }
 	var pf = aFunction;
     var parent = this;
 
@@ -5677,10 +6382,24 @@ function setInterval(aFunction, aPeriod) {
 	return uuid;
 }
 
-function clearInterval(uuid) {
+const clearInterval = function(uuid) {
 	var t = __timeout[uuid];
 	t.stop();
 	delete __timeout[uuid];
+}
+
+/**
+ * <odoc>
+ * <key>range(aCount, aStart) : Array</key>
+ * Generates an array with aCount of numbers starting at 1. Optionally you can provide a different
+ * aStart number.
+ * </odoc>
+ */
+const range = (aCount, aStart) => {
+	aStart = _$(aStart, "aStart").isNumber().default(1)
+	aCount = _$(aCount, "aCount").isNumber().default(1)
+
+	return Array.from(Array(aCount).keys(), n => n + aStart)
 }
 
 /**
@@ -5689,35 +6408,62 @@ function clearInterval(uuid) {
  * Deletes the array element at anIndex from the provided anArray. Returns the new array with the element removed.
  * </odoc>
  */
-function deleteFromArray(anArray, anIndex) {
+const deleteFromArray = function(anArray, anIndex) {
 	anArray.splice(anIndex, 1);
 	return anArray;
 }
 
+// ****
+// oJob
+
+// List of authorized domains from which to run ojobs
+var OJOB_AUTHORIZEDDOMAINS = [ "ojob.io" ];
+
+// Hash list of oJob urls and filepaths (each key value is a the url/canonical filepath; value is [hash-alg]-[hash])
+// Do note that ojob.io urls need to be converted: ojob.io/echo -> https://ojob.io/echo.json
+var OJOB_INTEGRITY = {};
+// If OJOB_INTEGRITY_WARN is false oJob execution is halted if any integrity hash is found to be different
+var OJOB_INTEGRITY_WARN = true; 
+// If OJOB_INTEGRITY_STRICT is true no oJob will execute if it's integrity is not verified.
+var OJOB_INTEGRITY_STRICT = false;
+// If OJOB_SIGNATURE_STRICT is true no oJob will execute if it's signature is not valid.
+var OJOB_SIGNATURE_STRICT = false;
+// Use OJOB_SIGNATURE_KEY key java object to validate oJob signatures;
+var OJOB_SIGNATURE_KEY = __;
+// If OJOB_VALIDATION_STRICT = true no oJob will execute if the signature doesn't exist or is not valid or if it's integrity wasn't checked & passed.
+var OJOB_VALIDATION_STRICT = false;
+
 /**
  * <odoc>
- * <key>oJobRunFile(aFile, args, aId, aOptionsMap)</key>
+ * <key>oJobRunFile(aFile, args, aId, aOptionsMap, isSubJob)</key>
  * Runs a oJob aFile with the provided args (arguments).
  * Optionally you can provide aId to segment these specific jobs.
  * </odoc>
- */
-function oJobRunFile(aYAMLFile, args, aId, aOptionsMap) {
-	var oo = (isDef(aId) ? new OpenWrap.oJob() : ow.loadOJob());
-	oo.runFile(aYAMLFile, args, aId, void 0, aOptionsMap);
+ */ 
+const oJobRunFile = function(aYAMLFile, args, aId, aOptionsMap, isSubJob) {
+	var oo;
+	if (isDef(aId)) {
+		loadCompiledLib("owrap_oJob_js");
+		oo = new OpenWrap.oJob();
+	} else {
+		oo = ow.loadOJob();
+	}
+
+	oo.runFile(aYAMLFile, args, aId, isSubJob, aOptionsMap);
 }
 
 /**
  * <odoc>
- * <key>oJobRunFileAsync(aFile, args, aId, aOptionsMap) : oPromise</key>
+ * <key>oJobRunFileAsync(aFile, args, aId, aOptionsMap, isSubJob) : oPromise</key>
  * Runs a oJob aFile async with the provided args (arguments).
  * Optionally you can provide aId to segment these specific jobs.
  * Returns the corresponding promise.
  * </odoc>
  */
-function oJobRunFileAsync(aYAMLFile, args, aId, aOptionsMap) {
+const oJobRunFileAsync = function(aYAMLFile, args, aId, aOptionsMap, isSubJob) {
 	return $do(() => {
 		var oo = (isDef(aId) ? new OpenWrap.oJob() : ow.loadOJob());
-		return oo.runFile(aYAMLFile, args, aId, void 0, aOptionsMap);
+		return oo.runFile(aYAMLFile, args, aId, isSubJob, aOptionsMap);
 	});
 }
 
@@ -5728,8 +6474,15 @@ function oJobRunFileAsync(aYAMLFile, args, aId, aOptionsMap) {
  * Optionally you can provide aId to segment these specific jobs.
  * </odoc>
  */
-function oJobRun(aJson, args, aId) {
-	var oo = (isDef(aId) ? new OpenWrap.oJob() : ow.loadOJob());
+const oJobRun = function(aJson, args, aId) {
+	var oo;
+	if (isDef(aId)) {
+		loadCompiledLib("owrap_oJob_js");
+		oo = new OpenWrap.oJob();
+	} else {
+		oo = ow.loadOJob();
+	}
+
 	var s = oo.loadJSON(aJson);
 	oo.load(s.jobs, s.todo, s.ojob, args, aId, s.init);
 	oo.start(args, true, aId);
@@ -5737,19 +6490,26 @@ function oJobRun(aJson, args, aId) {
 
 /**
  * <odoc>
- * <key>oJobRunJob(aJob, args, aId) : boolean</key>
+ * <key>oJobRunJob(aJob, args, aId, waitForFinish) : boolean</key>
  * Shortcut for ow.oJob.runJob. Please see help for ow.oJob.runJob.
  * Optionally you can provide aId to segment this specific job. If aJob is a string it will try to retrieve the job
  * from the jobs channel. Returns true if the job executed or false otherwise (e.g. failed deps).
  * </odoc>
  */
-function oJobRunJob(aJob, args, aId) {
-	var oo = (isDef(aId) ? new OpenWrap.oJob() : ow.loadOJob());
+const oJobRunJob = function(aJob, args, aId, rArgs) {
+	var oo;
+	if (isDef(aId)) {
+		loadCompiledLib("owrap_oJob_js");
+		oo = new OpenWrap.oJob();
+		oo.__ojob = clone(ow.oJob.__ojob)
+	} else {
+		oo = ow.loadOJob();
+	}
 	if (isString(aJob)) {
 		if (isUnDef(aId)) aId = "";
 		var job = oo.getJobsCh().get({ name: aJob });
 		if (isDef(job)) {
-			return oo.runJob(job, args, aId);
+			return oo.runJob(job, args, aId, rArgs, rArgs);
 		} else {
 			throw "Job '" + aJob + "' not found.";
 		}
@@ -5760,14 +6520,27 @@ function oJobRunJob(aJob, args, aId) {
 
 /**
  * <odoc>
+ * <key>$job(aJob, args, aId) : Object</key>
+ * Shortcut to oJobRunJob and ow.oJob.runJob to execute aJob with args and returned the changed arguments.
+ * Optionally aId can be also provided.
+ * </odoc>
+ */
+const $job = function(aJob, args, aId) {
+	if (isUnDef(aId)) aId = "|" + genUUID();
+	return oJobRunJob(aJob, args, aId, true);
+}
+
+/**
+ * <odoc>
  * <key>oJobRunJobAsync(aJob, args, aId) : oPromise</key>
  * Creates an oPromise to run the same arguments for oJobRunJob thus executing the job async. Returns
  * the generate oPromise.
  * </odoc>
  */
-function oJobRunJobAsync(aJob, args, aId) {
+const oJobRunJobAsync = function(aJob, args, aId) {
 	return $do(() => {
-		return oJobRunJob(aJob, args, aId);
+		oJobRunJob(aJob, args, aId);
+		return true
 	});
 }
 
@@ -5777,8 +6550,10 @@ function oJobRunJobAsync(aJob, args, aId) {
  * Returns the current value of the operating system anEnvironmentVariable.
  * </odoc>
  */
-function getEnv(anEnvironmentVariable) {
-	return String(java.lang.System.getenv().get(anEnvironmentVariable)); 
+const getEnv = function(anEnvironmentVariable) {
+	var r = java.lang.System.getenv().get(anEnvironmentVariable);
+	if (isNull(r)) return __;
+	return String(r); 
 }
 
 /**
@@ -5787,7 +6562,7 @@ function getEnv(anEnvironmentVariable) {
  * Returns a map of key and values with the operating system environment variables.
  * </odoc>
  */
-function getEnvs() {
+const getEnvs = function() {
 	return af.fromJavaMap(java.lang.System.getenv());
 }
 
@@ -5797,11 +6572,40 @@ function getEnvs() {
  * Loads the JS-YAML library.
  * </odoc>
  */
-function loadJSYAML() {
+const loadJSYAML = function() {
 	loadCompiledLib("js-yaml_js");
 }
 
 loadCompiledLib("openafsigil_js");
+
+var __flags = _$(__flags).isMap().default({
+	OJOB_SEQUENTIAL  : true,
+	OJOB_HELPSIMPLEUI: false,
+	OAF_CLOSED       : false
+})
+
+/**
+ * <odoc>
+ * <key>_i$(aValue, aPrefixMessage) : Object</key>
+ * Same as _$ but if aValue is not defined and aPrefixMessage if defined it will use ask() or askEncrypt() to 
+ * interactively ask the user for the value with the prompt "[aPrefixMessage]: ". Should only be
+ * used if user interaction is expected but to force not be interactiv you can set __i$interactive to false). Note: askEncrypt will be used if aPrefixMessage has any reference to "secret" or "pass".
+ * </odoc>
+ */
+var __i$interactive = true;
+const _i$ = (aValue, aPrefixMessage) => {
+	if (__i$interactive && isUnDef(aValue) && isString(aPrefixMessage)) {
+		if (aPrefixMessage.toLowerCase().indexOf("secret") >= 0 || 
+		    aPrefixMessage.toLowerCase().indexOf("pass") >= 0
+		   ) {
+			aValue = askEncrypt(aPrefixMessage + ": ");
+		} else {
+			aValue = ask(aPrefixMessage + ": ");
+		}
+		if (aValue == "") aValue = __;
+	}
+	return _$(aValue, aPrefixMessage);
+}
 
 var __correctYAML = false;
 
@@ -5878,20 +6682,63 @@ AF.prototype.getEncoding = function(aBytesOrString) {
 
 	return res;
 };
+
+__YAMLformat = {
+  indent: 2,
+  arrayIndent: false,
+  lineWidth: -1,
+  unsafe: true
+};
 /**
  * <odoc>
- * <key>AF.toYAML(aJson) : String</key>
- * Tries to dump aJson into a YAML string.
+ * <key>AF.toYAML(aJson, multiDoc) : String</key>
+ * Tries to dump aJson into a YAML string. If multiDoc = true and aJson is an array the output will be multi-document.
  * </odoc>
  */
-AF.prototype.toYAML = function(aJson) { loadJSYAML(); return jsyaml.dump(aJson); }
+AF.prototype.toYAML = function(aJson, multiDoc) { 
+	loadJSYAML(); 
+        var o = { indent: __YAMLformat.indent, noArrayIndent: !__YAMLformat.arrayIndent, lineWidth: __YAMLformat.lineWidth };
+	if (isArray(aJson) && multiDoc) {
+		return aJson.map(y => jsyaml.dump(y, o)).join("\n---\n\n");
+	} else {
+		return jsyaml.dump(aJson, o); 
+	}
+}
+
 /**
  * <odoc>
  * <key>AF.fromYAML(aYaml) : Object</key>
  * Tries to parse aYaml into a javascript map.
  * </odoc>
  */
-AF.prototype.fromYAML = function(aYAML) { loadJSYAML(); if (__correctYAML) aYAML = aYAML.replace(/^(\t+)/mg, (m) => { if (isDef(m)) return repeat(m.length, "  "); }); return jsyaml.load(aYAML); };
+AF.prototype.fromYAML = function(aYAML, unsafe) { 
+	loadJSYAML(); 
+	//if (__correctYAML) aYAML = aYAML.replace(/^(\t+)/mg, (m) => { if (isDef(m)) return repeat(m.length, "  "); }); 
+        var res;
+        if (__YAMLformat.unsafe && unsafe) {
+                var t = new jsyaml.Type('tag:yaml.org,2002:js/eval', { kind: 'scalar', resolve: function() { return true }, construct: function(d){ return eval(d) }, predicate: isString, represent: function(o) { return o } });
+                var s = jsyaml.DEFAULT_SCHEMA.extend([t]); 
+      		res = jsyaml.loadAll(aYAML, { schema: s }); 
+        } else {
+ 		res = jsyaml.loadAll(aYAML); 
+        }
+	if (isArray(res) && res.length == 1) {
+		return res[0];
+	} else {
+		return res;
+	}
+};
+
+/**
+ * <odoc>
+ * <key>AF.toSLON(aObject, aTheme) : String</key>
+ * Converts aObject map/array into SLON representation (see more in help for ow.format.toSLON)
+ * </odoc>
+ */
+AF.prototype.toSLON = function(aObject, aTheme) {
+	ow.loadFormat();
+	return ow.format.toSLON(aObject, aTheme);
+}
 
 /**
  * <odoc>
@@ -5900,8 +6747,10 @@ AF.prototype.fromYAML = function(aYAML) { loadJSYAML(); if (__correctYAML) aYAML
  * on the ignored array and attributes will be added to the corresponding map with a prefix "_".
  * </odoc>
  */
-AF.prototype.fromXML2Obj = function (xml, ignored) {
-	ignored = _$(ignored).isArray().default(void 0);
+AF.prototype.fromXML2Obj = function (xml, ignored, aPrefix) {
+	ignored = _$(ignored).isArray().default(__);
+	aPrefix = _$(aPrefix).isString().default("_");
+
 	if (typeof xml != "xml") {
 		if (isString(xml)) {
 			xml = xml.replace(/^<\?xml[^?]*\?>/, "");
@@ -5920,12 +6769,12 @@ AF.prototype.fromXML2Obj = function (xml, ignored) {
 			r = text;
 		}
 	}
-	if (r == void 0) {
+	if (r == __) {
 		r = {};
 		for (var ichild in children) {
 			var child = children[ichild];
 			var name = child.localName();
-			var json = af.fromXML2Obj(child, ignored);
+			var json = af.fromXML2Obj(child, ignored, aPrefix);
 			var value = r[name];
 			if (isDef(value)) {
 				if (isString(value)) {
@@ -5949,12 +6798,12 @@ AF.prototype.fromXML2Obj = function (xml, ignored) {
 			var attribute = attributes[iattribute];
 			var name = attribute.localName();
 			if (ignored && ignored.indexOf(name) == -1) {
-				a["_" + name] = attribute.toString();
+				a[aPrefix + name] = attribute.toString();
 				c++;
 			}
 		}
-		if (c) {
-			if (r) a._ = r;
+		if (c > 0) {
+			if (isMap(r)) a = merge(a, r); else a[aPrefix] = r;
 			return a;
 		}
 	}
@@ -6026,28 +6875,36 @@ AF.prototype.protectSystemExit = function(shouldProtect, aMessage) {
  * Tries to read aYAMLFile into a javascript object. 
  * </odoc>
  */
-IO.prototype.readFileYAML = function(aYAMLFile) { return af.fromYAML(io.readFileString(aYAMLFile)); }
+IO.prototype.readFileYAML = function(aYAMLFile, unsafe) { 
+	var r = io.readFileString(aYAMLFile); 
+	if (__YAMLformat.unsafe && !unsafe) {
+		r = r.replace(/(\!\!js\/eval .+)/g, "\"$1\"");
+	}
+	return af.fromYAML(r, unsafe); 
+}
 /**
  * <odoc>
  * <key>io.readFileJSON(aJSONFile) : Object</key>
  * Tries to read aJSONFile into a javascript object. 
  * </odoc>
  */
-IO.prototype.readFileJSON = function(aJSONFile) { return jsonParse(io.readFileString(aJSONFile), true); }
+IO.prototype.readFileJSON = function(aJSONFile, unsafe) { 
+	return jsonParse(io.readFileString(aJSONFile), true, unsafe); 
+}
 /**
  * <odoc>
- * <key>io.writeFileYAML(aYAMLFile, aObj)</key>
- * Tries to write a javascript aObj into a aYAMLFile.
+ * <key>io.writeFileYAML(aYAMLFile, aObj, multidoc)</key>
+ * Tries to write a javascript aObj into a aYAMLFile. If multiDoc = true and aJson is an array the output will be multi-document.
  * </odoc>
  */
-IO.prototype.writeFileYAML = function(aYAMLFile, aObj) { return io.writeFileString(aYAMLFile, af.toYAML(aObj)); };
+IO.prototype.writeFileYAML = function(aYAMLFile, aObj, multidoc) { return io.writeFileString(aYAMLFile, af.toYAML(aObj, multidoc)); };
 /**
  * <odoc>
  * <key>io.writeFileJSON(aJSONFile, aObj, aSpace)</key>
  * Tries to write a javascript aObj into a aJSONFile with an optional aSpace.
  * </odoc>
  */
-IO.prototype.writeFileJSON = function(aJSONFile, aObj, aSpace) { return io.writeFileString(aJSONFile, stringify(aObj, void 0, aSpace)) };
+IO.prototype.writeFileJSON = function(aJSONFile, aObj, aSpace) { return io.writeFileString(aJSONFile, stringify(aObj, __, aSpace)) };
 
 /**
  * <odoc>
@@ -6057,7 +6914,7 @@ IO.prototype.writeFileJSON = function(aJSONFile, aObj, aSpace) { return io.write
  * </odoc>
  */
 IO.prototype.writeLineNDJSON = function(aNDJSONFile, aObj, aEncode) {
-	io.writeFileString(aNDJSONFile, stringify(aObj, void 0, "")+__separator, aEncode, true);
+	io.writeFileString(aNDJSONFile, stringify(aObj, __, "")+__separator, aEncode, true);
 };
 
 /**
@@ -6173,6 +7030,7 @@ CSV.prototype.fromArray2File = function(anArray, aFile, withHeadersOrStreamForma
 		if (isArray(withHeadersOrStreamFormat)) {
 			csv.setStreamFormat({ withHeaders: withHeadersOrStreamFormat });
 		} else {
+			if (isMap(withHeadersOrStreamFormat) && isUnDef(withHeadersOrStreamFormat.withHeaders)) withHeadersOrStreamFormat.withHeaders = Object.keys(anArray[0]);
 			csv.setStreamFormat(withHeadersOrStreamFormat);
 		}
 	} else {
@@ -6342,6 +7200,93 @@ const $fnM = (aFnName, aMap) => {
 	}
 }
 
+// var $sec = function() { 
+// 	ow.loadSec(); 
+// 	return $sec.apply(this, arguments);
+// }
+ow.loadSec();
+
+/**
+ * <odoc>
+ * <key>ask(aPrompt, aMask) : String</key>
+ * Stops for user interaction prompting aPrompt waiting for an entire line of characters and, optionally, masking the user input with aMask (e.g. "*").
+ * Returns the user input.
+ * </odoc>
+ */
+const ask = (aPrompt, aMask, _con) => {
+    aPrompt = _$(aPrompt, "aPrompt").isString().default("> ");
+ 	if (isUnDef(_con)) { plugin("Console"); _con = new Console(); }
+	return _con.readLinePrompt(aPrompt, aMask);
+}
+
+/**
+ * <odoc>
+ * <key>askEncrypt(aPrompt) : String</key>
+ * Similar to ask but the return user input will be encrypted.
+ * If an empty string is entered by the user the function will return undefined.
+ * </odoc>
+ */
+const askEncrypt = (aPrompt, _con) => {
+	aPrompt = _$(aPrompt).isString().default(": ");
+	var v = ask(aPrompt, String.fromCharCode(0), _con);
+	if (isString(v) && v == "") return __;
+    return af.encrypt(v);
+}
+
+/**
+ * <odoc>
+ * <key>ask1(aPrompt, allowed) : String</key>
+ * Stops for user interaction prompting aPrompt waiting for a single character within the allowed string (a set of characters).
+ * Returns the user input.
+ * </odoc>
+ */
+const ask1 = (aPrompt, allowed, _con) => {
+	if (isDef(aPrompt)) printnl(aPrompt);
+	if (isUnDef(_con)) { plugin("Console"); _con = new Console(); }
+	return _con.readChar(allowed);
+}
+
+/**
+ * <odoc>
+ * <key>askN(aPromptFn, aStopFn) : String</key>
+ * Stops for a multi-line user interaction prompting, for each line, the result of calling aPromptFn that receives the current user input 
+ * (if a string is provided it will default to a function that returns that string). The interaction will stop when aStopFn function, that receives the current
+ * user input as an argument, returns true (if the function is not provided it will default to 3 new lines).
+ * </odoc>
+ */
+const askN = (aPromptFn, aStopFn, _con) => {
+	aStopFn = _$(aStopFn, "aStopFn").isFunction().default(text => {
+		return text.match(/\n\n\n$/);
+	});
+	if (isString(aPromptFn)) aPromptFn = new Function("return " + aPromptFn);
+	if (isUnDef(_con)) { plugin("Console"); _con = new Console(); }
+	var r = "";
+	do {
+		var l = _con.readLinePrompt(aPromptFn(r));
+		r += l + "\n";
+	} while (!aStopFn(r));
+	return r;
+}
+
+/**
+ * <odoc>
+ * <key>askDef(aInit, aQuestion, isSecret, isVoidable) : String</key>
+ * If aInit is not defined will ask aQuestion (if isSecret = true it will askEncrypt) and return
+ * the value. If isVoidable = true and no answer is provided it will return undefined.
+ * </odoc>
+ */
+const askDef = (aInit, aQuestion, isSecret, isVoidable) => {
+	aQuestion = _$(aQuestion, "aQuestion").isString().default("Question: ");
+	if (isUnDef(aInit)) {
+		var r;
+		if (isSecret) r = askEncrypt(aQuestion); else r = ask(aQuestion);
+		if (isVoidable && isString(r) && r.length == 0) r = __;
+		return r; 
+	} else {
+		return aInit;
+	}
+}
+
 /**
  * <odoc>
  * <key>$channels(aChannel)</key>
@@ -6385,7 +7330,7 @@ const $fnM = (aFnName, aMap) => {
  * - createRemote(aURL, aTimeout, aLogin, aPass)
  * </odoc>
  */
-$channels = function(a) {
+const $channels = function(a) {
 	ow.loadCh();
 	
 	return {
@@ -6491,18 +7436,18 @@ $channels = function(a) {
  * - createRemote(aURL, aTimeout)
  * </odoc>
  */
-$ch = $channels;
+const $ch = $channels;
 
 var __threadPool;
 var __threadPoolFactor = 1;
 
-function __resetThreadPool(poolFactor) {
+const __resetThreadPool = function(poolFactor) {
 	__threadPoolFactor = poolFactor;
-	__threadPool = void 0;
+	__threadPool = __;
 	__getThreadPool();
 }
 
-function __getThreadPool() {
+const __getThreadPool = function() {
 	if (isUnDef(__threadPool)) {
 		if (isUnDef(__cpucores)) __cpucores = getNumberOfCores();
 		__threadPool = new java.util.concurrent.ForkJoinPool(__cpucores * __threadPoolFactor, java.util.concurrent.ForkJoinPool.defaultForkJoinWorkerThreadFactory, null, true);
@@ -6524,15 +7469,15 @@ function __getThreadPool() {
  * method as previously described.
  * </odoc>
  */
-const oPromise = function(aFunction, aRejFunction) {
+ const oPromise = function(aFunction, aRejFunction) {
 	this.states = {
 		NEW: 0, FULFILLED: 1, PREFAILED: 2, FAILED: 3
 	};
 
-	this.state = this.states.NEW;
-	this.executing = false;
+	this.state = $atomic(this.states.NEW, "int");
+	this.executing = $atomic(false, "boolean");
 	this.executors = new java.util.concurrent.ConcurrentLinkedQueue();
-
+	
 	this.then(aFunction, aRejFunction);
 };
 
@@ -6576,7 +7521,7 @@ oPromise.prototype.catch = function(onReject) {
  * </odoc>
  */
 oPromise.prototype.all = function(anArray) {
-	if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
+	if (this.state.get() != this.states.NEW || this.executing.get() == true) throw "oPromise is already executing.";
 
 	var parent = this;
 
@@ -6589,8 +7534,8 @@ oPromise.prototype.all = function(anArray) {
 				for(var iii in anArray) {
 					if (anArray[iii] != null) {
 						if (anArray[iii] instanceof oPromise) {
-							if (!anArray[iii].executing) {
-								switch(anArray[iii].state) {
+							if (!anArray[iii].executing.get()) {
+								switch(anArray[iii].state.get()) {
 								case anArray[iii].states.NEW:
 									shouldStop = false;
 									break;
@@ -6637,7 +7582,7 @@ oPromise.prototype.all = function(anArray) {
  * </odoc>
  */
 oPromise.prototype.race = function(anArray) {
-	if (this.state != this.states.NEW || this.executing == true) throw "oPromise is already executing.";
+	if (this.state.get() != this.states.NEW || this.executing.get() == true) throw "oPromise is already executing.";
 	
 	var parent = this;
 
@@ -6647,11 +7592,11 @@ oPromise.prototype.race = function(anArray) {
 		
 		try {
 			while(!shouldStop) {
-				for(let i in anArray) {
+				for(var i in anArray) {
 					if (anArray[i] != null) {
 						if (anArray[i] instanceof oPromise) {
-							if (!anArray[i].executing) {
-								switch(anArray[i].state) {
+							if (!anArray[i].executing.get()) {
+								switch(anArray[i].state.get()) {
 								case anArray[i].states.NEW:
 									shouldStop = false;				
 									break;
@@ -6690,13 +7635,14 @@ oPromise.prototype.race = function(anArray) {
 
 oPromise.prototype.reject = function(aReason) {
 	this.reason = aReason;
-	this.state = this.states.PREFAILED;
+	this.state.set(this.states.PREFAILED);
 
 	return this;
 };
 
 oPromise.prototype.resolve = function(aValue) {
-	if (this.state == this.states.FULFILLED) this.state = this.states.NEW;
+	//if (this.state == this.states.FULFILLED) this.state = this.states.NEW;
+	this.state.setIf(this.states.FULFILLED, this.states.NEW)
 	this.value = (!isJavaObject(aValue) && isUnDef(aValue)) ? null : aValue;
 	return this;
 };
@@ -6714,67 +7660,76 @@ oPromise.prototype.__exec = function() {
 		try {
 			this.__f = __getThreadPool().submit(new java.lang.Runnable({
 				run: () => {
-					var ignore = false;
-					sync(() => { if (thisOP.executing) ignore = true; else thisOP.executing = true; }, thisOP.executing);
-					if (ignore) return;
-
-					while (thisOP.executors.size() > 0) {
-						var f = thisOP.executors.poll();
-						// Exec
-						if (thisOP.state != thisOP.states.PREFAILED && thisOP.state != thisOP.states.FAILED && f != null && isDef(f) && f.type == "exec" && isDef(f.func) && isFunction(f.func)) {
-							var res, done = false;
-							try {
-								var checkResult = true;
-								if (isDef(thisOP.value)) {
-									res = f.func(thisOP.value);
-								} else {
-									res = f.func(function (v) { checkResult = false; thisOP.resolve(v); },
-												function (r) { checkResult = false; thisOP.reject(r); });
-								}
-
-								if (checkResult &&
-									(isJavaObject(res) || isDef(res)) &&
-									res != null &&
-									(thisOP.state == thisOP.states.NEW || thisOP.state == thisOP.states.FULFILLED)) {
-									res = thisOP.resolve(res);
-								}
-							} catch (e) {
-								thisOP.reject(e);
-							}
-						}
-						// Reject
-						if (thisOP.state == thisOP.states.PREFAILED || thisOP.state == thisOP.states.FAILED) {
-							while (f != null && isDef(f) && f.type != "reject" && isDef(f.func) && isFunction(f.func)) {
-								f = thisOP.executors.poll();
-							}
-
-							if (f != null && isDef(f) && isDef(f.func) && isFunction(f.func)) {
+					//var ignore = false;
+					//syncFn(() => { if (thisOP.executing.get()) ignore = true; else thisOP.executing.set(true); }, thisOP.executing.get());
+					if (!thisOP.executing.setIf(false, true)) return
+                    //if (ignore) return;
+                    
+                    try {
+                        while (thisOP.executors.size() > 0) {
+							var f = thisOP.executors.poll();
+							// Exec
+							if (thisOP.state.get() != thisOP.states.PREFAILED && 
+								thisOP.state.get() != thisOP.states.FAILED && 
+								f != null && isDef(f) && f.type == "exec" && isDef(f.func) && isFunction(f.func)) {
+								var res, done = false;
 								try {
-									f.func(thisOP.reason);
-									thisOP.state = thisOP.states.FULFILLED;
+									var checkResult = $atomic(true, "boolean");
+									if (isDef(thisOP.value)) {
+										res = f.func(thisOP.value);
+									} else {
+										res = f.func(function (v) { checkResult.set(false); thisOP.resolve(v); },
+													function (r) { checkResult.set(false); thisOP.reject(r); });
+									}
+
+									if (checkResult.get() &&
+										(isJavaObject(res) || isDef(res)) &&
+										res != null &&
+										(thisOP.state.get() == thisOP.states.NEW || thisOP.state.get() == thisOP.states.FULFILLED)) {
+										res = thisOP.resolve(res);
+									}
 								} catch (e) {
-									thisOP.state = thisOP.states.FAILED;
-									throw e;
+									thisOP.reject(e);
 								}
-							} else {
-								if (isUnDef(f) || f == null) thisOP.state = thisOP.states.FAILED;
 							}
+							// Reject
+							if (thisOP.state.get() == thisOP.states.PREFAILED || thisOP.state.get() == thisOP.states.FAILED) {
+								while (f != null && isDef(f) && f.type != "reject" && isDef(f.func) && isFunction(f.func)) {
+									f = thisOP.executors.poll();
+								}
+
+								if (f != null && isDef(f) && isDef(f.func) && isFunction(f.func)) {
+									try {
+										f.func(thisOP.reason);
+										thisOP.state.set(thisOP.states.FULFILLED);
+									} catch (e) {
+										thisOP.state.set(thisOP.states.FAILED);
+										throw e;
+									}
+								} else {
+									if (isUnDef(f) || f == null) thisOP.state.set(thisOP.states.FAILED);
+								}
+							}
+                        }
+                    } catch(ee) {
+                        throw ee;
+                    } finally {
+					    //syncFn(() => { thisOP.executing.set(false); }, thisOP.executing.get());
+						thisOP.executing.set(false)
+
+						if (thisOP.executors.isEmpty()) {
+							thisOP.state.setIf(thisOP.states.NEW, thisOP.states.FULFILLED);
+							thisOP.state.setIf(thisOP.states.PREFAILED, thisOP.states.FAILED);
 						}
-					}
+                    }
 
-					sync(() => { thisOP.executing = false; }, thisOP.executing);
-
-					if (thisOP.state == thisOP.states.NEW && thisOP.executors.isEmpty()) {
-						thisOP.state = thisOP.states.FULFILLED;
-					}
-
-					if (thisOP.state == thisOP.states.PREFAILED && thisOP.executors.isEmpty()) {
+					/*if (thisOP.state == thisOP.states.PREFAILED && thisOP.executors.isEmpty()) {
 						thisOP.state = thisOP.states.FAILED;
-					}
+					}*/
 				}
 			}));
 		} catch(e) {
-			if (!String(e).match(/RejectedExecutionException/)) throw e;
+			if (String(e).indexOf("RejectedExecutionException") < 0) throw e;
 		}
 		// Try again if null
 	} while(isUnDef(this.__f) || this.__f == null);
@@ -6948,6 +7903,19 @@ const includeOPack = function(aOPackName, aMinVersion) {
 		}
 		return true;
 	}
+	if (io.fileExists(aOPackName) && io.fileInfo(aOPackName).isDirectory) {
+		// Check if it already exists
+		if (isDef(getOPackPath(aOPackName))) {
+			var version = $from(getOPackLocalDB()).equals("name", aOPackName).at(0).version
+			// Check version
+			if (version < aMinVersion) {
+				oPack("add2db " + oPackName)
+			}
+		} else {
+			// add it if it's on the same directory
+			oPack("add2db " + aOPackName)
+		}
+	}
 	if (isUnDef(getOPackPath(aOPackName))) {
         oPack("install " + aOPackName);
         if (isUnDef(getOPackPath(aOPackName))) throw "Couldn't install opack '" + aOPackName + "'.";
@@ -6957,7 +7925,7 @@ const includeOPack = function(aOPackName, aMinVersion) {
         if (version < aMinVersion) {
             oPack("update " + aOPackName);
             version = $path(getOPackLocalDB(), "to_array(*)[?name==`" + aOPackName + "`] | [0].version");
-            if (version < aMinVersion) throw "Couldn't update opack " + aOPackName + " from version " + version + "to >=" + aMinVersion;
+            if (version < aMinVersion) throw "Couldn't update opack " + aOPackName + " from version " + version + " to >=" + aMinVersion;
         }
     }    
     return true;
@@ -6969,41 +7937,49 @@ const includeOPack = function(aOPackName, aMinVersion) {
  * Creates an atomic object of aType (defaults to long) to be get/set atomically on a multithreading script initialized with aInitValue.
  * aType can be "int", "long" and "boolean". Each with different methods:\
  * \
- *    int.dec       - Decrement an integer\
- *    int.inc       - Increment an integer\
- *    int.get       - Get the current integer\
- *    int.getSet(n) - Get and Set the current integer\
- *    int.getAdd(n) - Get and Add to the current integer\
+ *    int.dec          - Decrement an integer\
+ *    int.inc          - Increment an integer\
+ *    int.get          - Get the current integer\
+ *    int.getSet(n)    - Get and Set the current integer\
+ *    int.getAdd(n)    - Get and Add to the current integer\
+ *    int.setIf(t, n)  - Set the current integer to n if current value is t\
+ *    int.set          - Set the current integer\
  * \
- *    long.dec       - Decrement an long\
- *    long.inc       - Increment an long\
- *    long.get       - Get the current long\
- *    long.getSet(n) - Get and Set the current long\
- *    long.getAdd(n) - Get and Add to the current long\
+ *    long.dec         - Decrement an long\
+ *    long.inc         - Increment an long\
+ *    long.get         - Get the current long\
+ *    long.getSet(n)   - Get and Set the current long\
+ *    long.getAdd(n)   - Get and Add to the current long\
+ *    long.setIf(t, n) - Set the current long to n if current value is t\
+ *    long.set         - Set the current long\
  * \
- *    boolean.get    - Get the current boolean\
- *    boolean.set    - Set the current boolean\
- *    boolean.getSet - Get and Set the current boolean\
+ *    boolean.get         - Get the current boolean\
+ *    boolean.set         - Set the current boolean\
+ *    boolean.getSet      - Get and Set the current boolean\
+ *    boolean.setIf(t, n) - Set the current boolean to n if current value is t\\
  * \
  * </odoc>
  */
-const $atomic = function(aInit, aType) {
+ const $atomic = function(aInit, aType) {
 	aInit = _$(aInit).default(0);
 	aType = _$(aType).isString().oneOf([ "int", "long", "boolean" ]).default("long");
 
 	var _fNum = function(obj) { this.v = obj; };
-	_fNum.prototype.getObj = function()  { return this.v; };
-	_fNum.prototype.dec    = function()  { return this.v.decrementAndGet(); };
-	_fNum.prototype.inc    = function()  { return this.v.incrementAndGet(); };
-	_fNum.prototype.get    = function()  { return this.v.get(); };
-	_fNum.prototype.getSet = function(n) { return this.v.getAndSet(n); };
-	_fNum.prototype.getAdd = function(n) { return this.v.getAndAdd(n); };
+	_fNum.prototype.getObj        = function()  { return this.v; };
+	_fNum.prototype.dec           = function()  { return this.v.decrementAndGet(); };
+	_fNum.prototype.inc           = function()  { return this.v.incrementAndGet(); };
+	_fNum.prototype.get           = function()  { return this.v.get(); };
+	_fNum.prototype.getSet        = function(n) { return this.v.getAndSet(n); };
+	_fNum.prototype.getAdd        = function(n) { return this.v.getAndAdd(n); };
+	_fNum.prototype.set           = function(n) { return this.v.set(n); };
+	_fNum.prototype.setIf         = function(t, n) { return this.v.compareAndSet(t, n); }
 
 	var _fBol = function() { this.v = new java.util.concurrent.atomic.AtomicBoolean(aInit); };
-	_fBol.prototype.getObj = function()  { return this.v; };
-	_fBol.prototype.get    = function()  { return this.v.get(); };
-	_fBol.prototype.getSet = function(n) { return this.v.getAndSet(n); };
-	_fBol.prototype.set    = function(n) { return this.v.set(n); };
+	_fBol.prototype.getObj        = function()  { return this.v; };
+	_fBol.prototype.get           = function()  { return this.v.get(); };
+	_fBol.prototype.getSet        = function(n) { return this.v.getAndSet(n); };
+	_fBol.prototype.set           = function(n) { return this.v.set(n); };
+	_fBol.prototype.setIf         = function(t, n) { return this.v.compareAndSet(t, n) };
 
 	switch(aType) {
 	case "boolean": return new _fBol();
@@ -7012,7 +7988,7 @@ const $atomic = function(aInit, aType) {
 	}
 };
 
-var __clogErr = $atomic(), __clogWarn = $atomic();
+var __clogErr = $atomic(), __clogWarn = $atomic(), __clogInfo = $atomic();
 
 /**
  * <odoc>
@@ -7059,7 +8035,7 @@ const $retry = function(aFunc, aNumTries) {
     do {
         try {
             res = aFunc();
-            error = void 0;
+            error = __;
             return res;
         } catch(e) {
             error = e;
@@ -7068,6 +8044,253 @@ const $retry = function(aFunc, aNumTries) {
 
     return error;
 };
+
+var __flock = {};
+const $flock = function(aLockFile, aTimeout, aWaitPerCall) {
+	aTimeout     = _$(aTimeout, "aTimeout").isNumber().default(60000); 
+	aWaitPerCall = _$(aWaitPerCall, "aWaitPerCall").isNumber().default(2500);
+
+	if (isUnDef(__flock[aLockFile])) {
+		$lock("__flock::" + aLockFile).lock();
+		if (isUnDef(__flock[aLockFile])) {
+			__flock[aLockFile] = { i: $atomic(0) };
+			var t = now();
+			$retry(() => { __flock[aLockFile].f = io.randomAccessFile(aLockFile, "rw") }, () => {
+				if (now() - t > aTimeout) {
+					return false;
+				} else {	
+					sleep(aWaitPerCall, true);
+				}
+				return true;
+			});
+			if (!isJavaObject(__flock[aLockFile].f) || isNull(__flock[aLockFile].f)) throw "Can't access '" + aLockFile + "'";
+			
+			__flock[aLockFile].c = __flock[aLockFile].f.getChannel();
+		}
+		$lock("__flock::" + aLockFile).unlock();
+	}
+	var r = {
+		getObject: () => __flock[aLockFile].f,
+		/**
+		 * <odoc>
+		 * <key>$flock.lock()</key>
+		 * Given aLockFile will use the file to filesystem lock until unlock is called.\
+		 * \
+		 *    $flock(aLockFile).lock()\
+		 * \
+		 * </odoc>
+		 */
+                getMainObject: () => __flock[aLockFile],
+		lock : () => {
+			try {
+				if (isUnDef(__flock[aLockFile].l)) __flock[aLockFile].l = __flock[aLockFile].c.lock();
+                                __flock[aLockFile].i.inc();
+				return true;
+			} catch(e) {
+				r.destroy();
+				return false;
+			}
+		},
+		/**
+		 * <odoc>
+		 * <key>$flock.unlock()</key>
+		 * Given aLockFile will unlock freeing any previous calls to lock.\
+		 * \
+		 *    $flock(aLockFile).unlock()\
+		 * \
+		 * </odoc>
+		 */
+		unlock: () => {
+			if (isDef(__flock[aLockFile].i)) {
+                           if (__flock[aLockFile].i.get() > 0) __flock[aLockFile].i.dec();
+                           if (__flock[aLockFile].i.get() <= 0) {
+                             if (isDef(__flock[aLockFile]) && isDef(__flock[aLockFile].l) && !isNull(__flock[aLockFile].l)) {
+				// warning on some newer JVMs: https://github.com/mozilla/rhino/issues/462
+				__flock[aLockFile].l.release();
+                             }
+                           }
+			   return __flock[aLockFile].i.get();
+                        }
+		},
+		/**
+		 * <odoc>
+		 * <key>$flock.isLocalLocked() : Boolean</key>
+		 * Given aLockFile will return true if locked in the current OpenAF instance otherwise false (see also isLocked).\
+		 * \
+		 *    $flock(aLockFile).isLocalLocked()\
+		 * \
+		 * </odoc>
+		 */
+		isLocalLocked: () => {
+			if (isDef(__flock[aLockFile]) && isDef(__flock[aLockFile].l) && !isNull(__flock[aLockFile].l) && __flock[aLockFile].l.isValid()) {
+				return true;
+			} else {
+				return false;
+			}
+		},
+		/**
+		 * <odoc>
+		 * <key>$flock.isLocked() : Boolean</key>
+		 * Given aLockFile will return true if locked in the current OpenAF instance or on the filesystem (by using $flock.tryLock) otherwise false (see also isLocalLocked).\
+		 * \
+		 *    $flock(aLockFile).isLocked()\
+		 * \
+		 * </odoc>
+		 */
+		isLocked: () => {
+			return !r.tryLock(() => {});
+		},
+		/**
+		 * <odoc>
+		 * <key>$flock.destroy()</key>
+		 * Given aLockFile will destroy the provided lock entry.\
+		 * \
+		 *    $flock(aLockFile).destroy()\
+		 * \
+		 * </odoc>
+		 */
+		destroy: () => {
+			if (r.isLocalLocked()) r.unlock();
+			//if (isDef(__flock[aLockFile].l)) __flock[aLockFile].l.close();
+			try {
+				if (isJavaObject(__flock[aLockFile].f)) __flock[aLockFile].f.close();
+				if (isJavaObject(__flock[aLockFile].c)) __flock[aLockFile].c.close();
+			} catch(e) {
+			}
+			$lock("__flock::" + aLockFile).lock();
+			delete __flock[aLockFile];
+			$lock("__flock::" + aLockFile).unlock();
+			$lock("__flock::" + aLockFile).destroy();
+		},
+		/**
+		 * <odoc>
+		 * <key>$flock.tryLock(aFunction) : Boolean</key>
+		 * Given aLockFile only execute aFunction if it's unlocked. If it
+		 * executed aFunction it will return true otherwise false.\
+		 * \
+		 *    $flock(aLockFile).tryLock(() => { ... })\
+		 * \
+		 * </odoc>
+		 */
+		tryLock: f => {
+			if (r.isLocalLocked()) return false;
+			try {
+				__flock[aLockFile].l = __flock[aLockFile].c.tryLock();
+				if (isNull(__flock[aLockFile].l)) return false;
+ 				try {
+					f();
+					return true;
+				} finally {
+					r.unlock();
+				}
+			} catch(e) {
+				r.destroy();
+			}
+			return false;
+		}
+	};
+
+	return r;
+};
+
+var __lock = {};
+const $lock = function(aName) {
+	if (isUnDef(__lock[aName])) {
+		sync(() => {
+			__lock[aName] = new java.util.concurrent.locks.ReentrantLock();
+		}, __lock);
+	}
+
+	return {
+		getObject: () => __lock[aName],
+		/**
+		 * <odoc>
+		 * <key>$lock.lock()</key>
+		 * Given aLockName will lock until unlock is called.\
+		 * \
+		 *    $lock(aLockName).lock()\
+		 * \
+		 * </odoc>
+		 */
+		lock     : () => __lock[aName].lockInterruptibly(),
+		/**
+		 * <odoc>
+		 * <key>$lock.unlock()</key>
+		 * Given aLockName will unlock freeing any previous calls to lock.\
+		 * \
+		 *    $lock(aLockName).unlock()\
+		 * \
+		 * </odoc>
+		 */
+		unlock   : () => __lock[aName].unlock(),
+		/**
+		 * <odoc>
+		 * <key>$lock.isLocked() : Boolean</key>
+		 * Given aLockName will return true if locked otherwise false.\
+		 * \
+		 *    $lock(aLockName).isLocked()\
+		 * \
+		 * </odoc>
+		 */
+		isLocked : () => __lock[aName].isLocked(),
+		/**
+		 * <odoc>
+		 * <key>$lock.destroy()</key>
+		 * Given aLockName will destroy the provided lock entry.\
+		 * \
+		 *    $lock(aLockName).destroy()\
+		 * \
+		 * </odoc>
+		 */
+		destroy  : () => {
+			sync(() => {
+				delete __lock[aName];
+			}, __lock);
+		},
+		/**
+		 * <odoc>
+		 * <key>$lock.tryLock(aFunction, aTimeoutMS) : Boolean</key>
+		 * Given aLockName only execute aFunction when it's able to lock or after aTimeoutMS. If it
+		 * executed aFunction it will return true otherwise false.\
+		 * \
+		 *    $lock(aLockName).tryLock(() => { ... })\
+		 * \
+		 * </odoc>
+		 */
+		tryLock  : (f, t) => {
+			_$(f, "function").isFunction().$_();
+			t = _$(t, "timeout").isNumber().default(__);
+
+			if (isDef(t)) {
+				if (__lock[aName].tryLock(t, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+					try {
+						f();
+					} catch(e) {
+						throw e;
+					} finally {
+						__lock[aName].unlock();
+					}
+					return true;
+				} else {
+					return false;
+				}
+			} else {
+				if (__lock[aName].tryLock()) {
+					try {
+						f();
+					} catch(e) {
+						throw e;
+					} finally {
+						__lock[aName].unlock();
+					}
+					return true;
+				} else {
+					return false;
+				}
+			}
+		}
+	}
+}
 
 /**
  * <odoc>
@@ -7083,7 +8306,7 @@ const $await = function(aName) {
 
     var _f = function(n) { this.n = n; };
     _f.prototype.wait = function(aTimeout) {
-        sync(() => {
+        syncFn(() => {
 			if (isDef(aTimeout)) 
 				global.__await[this.n].wait(aTimeout); 
 			else
@@ -7091,7 +8314,7 @@ const $await = function(aName) {
         }, global.__await[this.n]);
     };
     _f.prototype.notify = function() {
-        sync(() => {
+        syncFn(() => {
             global.__await[this.n].notify();
         }, global.__await[this.n]);
     };
@@ -7105,12 +8328,12 @@ const $await = function(aName) {
 
 /**
  * <odoc>
- * <key>$doA2B(aAFunction, aBFunction, numberOfDoPromises, defaultTimeout)</key>
+ * <key>$doA2B(aAFunction, aBFunction, numberOfDoPromises, defaultTimeout, aErrorFunction)</key>
  * Will call aAFunction with a function as argument that should be used to "send" values to aBFunction. aBFunction will be call asynchronously in individual
- * $do up to the numberOfDoPromises limit. The defaultTimeout it 2500ms.
+ * $do up to the numberOfDoPromises limit. The defaultTimeout it 2500ms. If aErrorFunction is defined it will received any exceptions thrown from aBFunction with the corresponding arguments array.
  * </odoc>
  */
-const $doA2B = function(aAFn, aBFn, noc, defaultTimeout) {
+const $doA2B = function(aAFn, aBFn, noc, defaultTimeout, aErrorFunction) {
     var recs = $atomic(), srecs = $atomic(), trecs = $atomic();
     var noc  = _$(noc).isNumber().default(getNumberOfCores());
 	var id   = md5(aAFn.toString() + aBFn.toString()) + (Math.random()*100000000000000000);
@@ -7121,14 +8344,17 @@ const $doA2B = function(aAFn, aBFn, noc, defaultTimeout) {
         srecs.inc();
         while(cc > noc) { $await(id).wait(defaultTimeout); cc = recs.get(); }
         $do(() => {
-            aBFn(aObj);
+			//aBFn(aObj);
+			aBFn.apply(this, arguments);
             recs.dec();
             trecs.inc();
             $await(id).notify();
         }).catch((e) => {
             recs.dec();
             trecs.inc();
-            $await(id).notify();
+			$await(id).notify();
+			//aErrorFunction(e, aObj);
+			aErrorFunction(e, arguments);
 		});
 		$await(id).notify();
     }
@@ -7187,25 +8413,31 @@ const $doFirst = function(anArray) {
  * </odoc>
  */
 const $doWait = function(aPromise, aWaitTimeout) {
+	_$(aPromise, "aPromise").check(v => { return v instanceof oPromise }).$_()
+
+	var __sfn = aP => { try { return aP.state.get() } catch(e) { sleep(25); return __ } }
+	var __efn = aP => { try { return aP.executing.get() } catch(e) { sleep(25); return __ } }
+	var __ffn = aP => { try { return aP.__f.get() } catch(e) { sleep(25); return __ } }
+
 	if (isDef(aWaitTimeout)) {
 		var init = now();
-		while(aPromise.state != aPromise.states.FULFILLED && 
-			  aPromise.state != aPromise.states.FAILED &&
-			  (isUnDef(aPromise.__f) || aPromise.executing || !aPromise.executors.isEmpty()) &&
-		      ((now() - init) < aWaitTimeout)) {
-			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
+		while(__sfn(aPromise) != aPromise.states.FULFILLED && 
+				__sfn(aPromise) != aPromise.states.FAILED &&
+				(__efn(aPromise) || !aPromise.executors.isEmpty()) &&
+				((now() - init) < aWaitTimeout)) {
+			__ffn(aPromise)
 		}
-		while(aPromise.executing && ((now() - init) < aWaitTimeout) && !aPromise.executors.isEmpty()) {
-			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
+		while(((now() - init) < aWaitTimeout) && (__efn(aPromise) || !aPromise.executors.isEmpty())) {
+			__ffn(aPromise)
 		}
 	} else {
-		while(aPromise.state != aPromise.states.FULFILLED && 
-			  aPromise.state != aPromise.states.FAILED &&
-			  (isUnDef(aPromise.__f) || aPromise.executing || !aPromise.executors.isEmpty())) {
-			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
+		while(__sfn(aPromise) != aPromise.states.FULFILLED && 
+			  __sfn(aPromise) != aPromise.states.FAILED &&
+			  (isUnDef(aPromise.__f) || __efn(aPromise) || !aPromise.executors.isEmpty())) {
+			__ffn(aPromise)
 		}
-		while(aPromise.executing && !aPromise.executors.isEmpty()) {
-			if (isDef(aPromise.__f)) aPromise.__f.get(); else sleep(25);
+		while((isUnDef(aPromise.__f) || __efn(aPromise) || !aPromise.executors.isEmpty())) {
+			__ffn(aPromise)
 		}
 	}
 
@@ -7215,11 +8447,12 @@ const $doWait = function(aPromise, aWaitTimeout) {
 const $sh = function(aString) {
     var __sh = function(aCmd, aIn) {
         this.q = [];
-        this.wd = void 0;
-        this.fcb = void 0;
-		this.t = void 0;
+        this.wd = __;
+        this.fcb = __;
+		this.t = __;
+		this.dw = __;
 		ow.loadFormat();
-		if (ow.format.isWindows()) this.encoding = "cp850"; else this.encoding = void 0;
+		if (ow.format.isWindows()) this.encoding = "cp850"; else this.encoding = __;
         if (isDef(aCmd)) this.q.push({ cmd: aCmd, in: aIn });
     };
 
@@ -7231,6 +8464,31 @@ const $sh = function(aString) {
 	 */
 	__sh.prototype.useEncoding = function(aEncoding) {
 		this.encoding = aEncoding;
+		return this;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>$sh.dontWait(aBooleanValue) : $sh</key>
+	 * If aBooleanValue = true the execution won't wait for output (default: false).
+	 * </odoc>
+	 */
+    __sh.prototype.dontWait = function(aFlag) {
+		_$(aFlag, "dontWait flag").isBoolean().$_();
+		this.dw = aFlag;
+		return this;
+	};
+
+	/**
+	 * <odoc>
+	 * <key>$sh.envs(aMap, includeExisting) : $sh</key>
+	 * Uses aMap of strings as the environment variables map. If includeExisting = true it will include the current environment variables also.
+	 * </odoc>
+	 */
+	__sh.prototype.envs = function(aMap, includeExisting) {
+		aMap = _$(aMap, "envs map").isMap().default({});
+		if (includeExisting) aMap = merge(aMap, getEnvs());
+		this.envs = aMap;
 		return this;
 	};
 
@@ -7269,13 +8527,13 @@ const $sh = function(aString) {
 
 	/**
 	 * <odoc>
-	 * <key>$sh.prefix(aPrefix) : $sh</key>
-	 * When executing aCmd (with .get) it will use ow.format.streamSHPrefix with aPrefix.
+	 * <key>$sh.prefix(aPrefix, aTemplate) : $sh</key>
+	 * When executing aCmd (with .get) it will use ow.format.streamSHPrefix with aPrefix and optionally aTemplate.
 	 * </odoc>
 	 */
-	__sh.prototype.prefix = function(aPrefix) {
+	__sh.prototype.prefix = function(aPrefix, aTemplate) {
 		aPrefix = _$(aPrefix, "prefix").isString().default("sh");
-		this.fcb = () => { return ow.format.streamSHPrefix(aPrefix, this.encoding) };
+		this.fcb = () => { return ow.format.streamSHPrefix(aPrefix, this.encoding, __, aTemplate) };
 		return this;
 	};
 
@@ -7356,7 +8614,7 @@ const $sh = function(aString) {
         var res = [];
         for(var ii in this.q) {
             if (isDef(this.q[ii].cmd)) {
-				var _res = merge(sh(this.q[ii].cmd, this.q[ii].in, this.t, false, this.wd, true, (isDef(this.fcb) ? this.fcb() : void 0), this.encoding), this.q[ii]);
+				var _res = merge(sh(this.q[ii].cmd, this.q[ii].in, this.t, false, this.wd, true, (isDef(this.fcb) ? this.fcb() : __), this.encoding, this.dw, this.envs), this.q[ii]);
                 res.push(_res);
                 if (isDef(this.fe)) {
                     var rfe = this.fe(_res);
@@ -7381,7 +8639,7 @@ const $sh = function(aString) {
 		var res = this.get(aIdx);
 
 		if (isArray(res)) {
-			for(let ii in res) {
+			for(var ii in res) {
 				res[ii].stdout = jsonParse(res[ii].stdout);
 				res[ii].stderr = jsonParse(res[ii].stderr);
 			}
@@ -7404,7 +8662,7 @@ const $sh = function(aString) {
         var res = [];
         for(var ii in this.q) {
             if (isDef(this.q[ii].cmd)) {
-                var _res = merge(sh(this.q[ii].cmd, this.q[ii].in, this.t, true, this.wd, true, (isDef(this.fcb) ? this.fcb() : void 0), this.encoding), this.q[ii]);
+                var _res = merge(sh(this.q[ii].cmd, this.q[ii].in, this.t, true, this.wd, true, (isDef(this.fcb) ? this.fcb() : __), this.encoding, this.dw, this.envs), this.q[ii]);
                 res.push(_res);
                 if (isDef(this.fe)) {
                     var rfe = this.fe(_res);
@@ -7433,11 +8691,18 @@ const $sh = function(aString) {
 };
 
 const $ssh = function(aMap) {
+	/**
+	 * <odoc>
+	 * <key>$ssh.$ssh(aMap) : $ssh</key>
+	 * Builds an object to allow access through ssh. aMap should be a ssh string with the format: ssh://user:pass@host:port/identificationKey?timeout=1234&amp;compression=true or
+	 * a map with the keys: host, port, login, pass, id/key, compress and timeout. See "help SSH.SSH" for more info.
+	 * </odoc>
+	 */
     var __ssh = function(aMap) {
         this.q = [];
-        this.fcb = void 0;
-        this.t = void 0;
-        this.ppty = void 0;
+        this.fcb = __;
+        this.t = __;
+        this.ppty = __;
 
         plugin("SSH");
 		aMap = _$(aMap).$_("Please provide a ssh map or an URL");
@@ -7464,6 +8729,11 @@ const $ssh = function(aMap) {
             if (isDef(aMap.url)) aMap.host = aMap.url;
         }
         if (!(aMap instanceof SSH)) {
+			if (isString(aMap.key)) {
+				this.__f = io.createTempFile("__oaf_ssh_", ".oaf");
+				io.writeFileString(this.__f, aMap.key);
+				aMap.id = this.__f;
+			}
             s = new SSH((isString(aMap) ? aMap : aMap.host), aMap.port, aMap.login, aMap.pass, aMap.id, aMap.compress, aMap.timeout);
         } else {
             s = aMap;
@@ -7514,6 +8784,19 @@ const $ssh = function(aMap) {
         this.fcb = () => { return aCallback; };
         return this;
     };
+
+	/**
+	 * <odoc>
+	 * <key>$ssh.prefix(aPrefix, aTemplate) : $ssh</key>
+	 * When executing aCmd (with .get) it will use ow.format.streamSHPrefix with aPrefix and optionally aTemplate.
+	 * </odoc>
+	 */
+	__ssh.prototype.prefix = function(aPrefix, aTemplate) {
+		aPrefix = _$(aPrefix, "prefix").isString().default("sh");
+		ow.loadFormat();
+		this.fcb = () => { return ow.format.streamSHPrefix(aPrefix, this.encoding, "\n", aTemplate) };
+		return this;
+	};
 
 	/**
 	 * <odoc>
@@ -7596,13 +8879,24 @@ const $ssh = function(aMap) {
 	/**
 	 * <odoc>
 	 * <key>$ssh.pty(aFlag) : $ssh</key>
-	 * Sets the flag to use or not a pty term allocation on the ssh conneciton to a remote host defined by aMap (host, port, login, pass, id, compress and timeout).
+	 * Sets the flag to use or not a pty term allocation on the ssh connection to a remote host defined by aMap (host, port, login, pass, id, key, compress and timeout).
 	 * </odoc>
 	 */
     __ssh.prototype.pty = function(aFlag) {
         this.ppty = aFlag;
         return this;
     };
+
+	/**
+	 * <odoc<
+	 * <key>$ssh.key(aKeyString) : $ssh</key>
+	 * Sets the key aKeyString to be used in replacement to id.
+	 * </odoc>
+	 */
+	__ssh.prototype.key = function(aKey) {
+		this.key = aKey;
+		return this;
+	};
 
 	/**
 	 * <odoc>
@@ -7613,6 +8907,7 @@ const $ssh = function(aMap) {
     __ssh.prototype.close = function() {
 		if (isDef(this.ssh)) this.ssh.close();
 		if (isDef(this.sftp)) this.sftp.close();
+		if (isDef(this.__f)) io.rm(this.__f);
         return this;
     };
 
@@ -7672,10 +8967,10 @@ const $ssh = function(aMap) {
         if (isDef(this.t)) this.__getssh().setTimeout(this.t);
         for(var ii in this.q) {
             if (isDef(this.q[ii].cmd)) {
-                var _res = merge(this.__getssh().exec(this.q[ii].cmd, this.q[ii].in, false, this.ppty, true, (isDef(this.fcb) ? this.fcb() : void 0)), this.q[ii]);
+                var _res = merge(this.__getssh().exec(this.q[ii].cmd, this.q[ii].in, false, this.ppty, true, (isDef(this.fcb) ? this.fcb() : __)), this.q[ii]);
                 res.push(_res);
                 if (isDef(this.fe)) {
-                    var rfe = this.fe(_res);
+                    var rfe = this.fe(_res, this);
                     if (isDef(rfe) && rfe == false) {
                         if (isNumber(aIdx) && isDef(res[aIdx])) return res[aIdx]; else return res;
                     }
@@ -7699,7 +8994,7 @@ const $ssh = function(aMap) {
 		var res = this.get(aIdx);
 
 		if (isArray(res)) {
-			for(let ii in res) {
+			for(var ii in res) {
 				res[ii].stdout = jsonParse(res[ii].stdout);
 				res[ii].stderr = jsonParse(res[ii].stderr);
 			}
@@ -7723,10 +9018,10 @@ const $ssh = function(aMap) {
         if (isDef(this.t)) this.__getssh().setTimeout(this.t);
         for(var ii in this.q) {
             if (isDef(this.q[ii].cmd)) {
-                var _res = merge(this.__getssh().exec(this.q[ii].cmd, this.q[ii].in, true, this.ppty, true, (isDef(this.fcb) ? this.fcb() : void 0)), this.q[ii]);
+                var _res = merge(this.__getssh().exec(this.q[ii].cmd, this.q[ii].in, true, this.ppty, true, (isDef(this.fcb) ? this.fcb() : __)), this.q[ii]);
                 res.push(_res);
                 if (isDef(this.fe)) {
-                    var rfe = this.fe(_res);
+                    var rfe = this.fe(_res, this);
                     if (isDef(rfe) && rfe == false) {
                         if (isNumber(aIdx) && isDef(res[aIdx])) return res[aIdx]; else return res;
                     }
@@ -7752,8 +9047,59 @@ const $ssh = function(aMap) {
     return new __ssh(aMap);
 };
 
+/**
+ * <odoc>
+ * <key>$set(aKey, aValue)</key>
+ * Sets aValue with aKey so it can be retrieved with $get later.
+ * </odoc>
+ */
+const $set = function(aK, aV) {
+    _$(aK, "aK").isString().$_();
+    _$(aV, "aV").$_();
+
+    if ($ch().list().indexOf("oaf::global") < 0) {
+        $ch("oaf::global").create();
+    }
+
+    $ch("oaf::global").set({ k: aK }, { k: aK, v: aV });
+}
+
+/**
+ * <odoc>
+ * <key>$get(aKey) : Object</key>
+ * Returns a value previously set with $set with aKey.
+ * </odoc>
+ */
+const $get = function(aK) {
+    _$(aK, "aK").isString().$_();
+
+    if ($ch().list().indexOf("oaf::global") < 0) {
+        $ch("oaf::global").create();
+    }
+
+    var res = $ch("oaf::global").get({ k: aK });
+    
+    if (isDef(res) && isDef(res.v)) return res.v; else return __;
+}
+
+/**
+ * <odoc>
+ * <key>$unset(aKey)</key>
+ * Unset a previously set value with aKey.
+ * </odoc>
+ */
+const $unset = function(aK) {
+	_$(aK, "aK").isString().$_();
+
+    if ($ch().list().indexOf("oaf::global") < 0) {
+        $ch("oaf::global").create();
+    }
+
+    $ch("oaf::global").unset({ k: aK });
+}
+
 var __OpenAFUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)";
-function __setUserAgent(aNewAgent) {
+const __setUserAgent = function(aNewAgent) {
 	__OpenAFUserAgent = _$(aNewAgent).isString().default(__OpenAFUserAgent);
 	java.lang.System.setProperty("http.agent", __OpenAFUserAgent);
 }
@@ -7767,7 +9113,7 @@ var console = { log: log, warn: logWarn, error: logErr };
 //__initializeCon();
 
 // Set logging to ERROR 
-{
+/*{
 	// Issue 34
 	if (java.lang.System.getProperty("java.util.logging.config.file") == null) {
 		java.lang.System.setProperty("java.util.logging.config.file", "");
@@ -7775,25 +9121,30 @@ var console = { log: log, warn: logWarn, error: logErr };
 
 	if (__noSLF4JErrorOnly) {
 		try {
-			let i = Packages.org.slf4j.LoggerFactory.getLogger(Packages.ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).getLoggerContext().getLoggerList().iterator();
+			var i = Packages.org.slf4j.LoggerFactory.getLogger(Packages.ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME).getLoggerContext().getLoggerList().iterator();
 			while (i.hasNext()) {
 				Packages.org.slf4j.LoggerFactory.getLogger(i.next().getName()).setLevel(Packages.ch.qos.logback.classic.Level.ERROR);
 			}
 		} catch (e) {}
 	}
-};
+};*/
 
 // Set user agent
-{
+//{
 	__setUserAgent();
-}
+//}
+
+// Set network DNS TTL
+//(function() {
+	java.security.Security.setProperty("networkaddress.cache.ttl", 60);
+//})();
 
 // Set __pm
 var __pm = __pmIn;
 __pmOut = __pm;
 
-// ---------------
-// Profile support
+// -------------------------------------
+// Profile support (must be always last)
 
 var OPENAFPROFILE;
 if (isUnDef(OPENAFPROFILE)) OPENAFPROFILE = ".openaf_profile";
@@ -7803,20 +9154,27 @@ if (isUnDef(OPENAFPROFILE)) OPENAFPROFILE = ".openaf_profile";
 	try {
 		var fprof = java.lang.System.getProperty("user.home") + "/" + OPENAFPROFILE;
 		if (io.fileExists(fprof)) {
-			prof = io.readFileString(fprof);
-			af.compile(prof);
+			loadCompiled(fprof);
 		}
 	} catch(e) {
 		if (!e.message.match(/java\.io\.FileNotFoundException/)) throw e;
 	}
-	
-	prof ="";
+
 	try {
-		var fprof = getOpenAFJar() + "::" + OPENAFPROFILE;
-		prof = io.readFileString(fprof);
-		af.compile(prof);
+		if (af.getClass("openaf.OAFRepack").getResourceAsStream("/" + OPENAFPROFILE) != null) {
+			var fprof = getOpenAFJar() + "::" + OPENAFPROFILE;
+			prof = io.readFileString(fprof);
+			af.compile(prof);
+		}
 	} catch(e) {
 		if (!e.message.match(/java\.io\.FileNotFoundException/) &&
+		    !e.message.match(/java\.io\.IOException/) &&
 		    !e.message.match(/java\.lang\.NullPointerException: entry/)) throw e;
 	}
 })();
+
+// OAF Code Integrity for script files
+var __scriptfile
+if (isString(__scriptfile)) {
+	__codeVerify(io.readFileString(__scriptfile), __scriptfile)
+}

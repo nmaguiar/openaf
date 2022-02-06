@@ -11,6 +11,64 @@ OpenWrap.ai = function() {
 
 /**
  * <odoc>
+ * <key>ow.ai.regression() : Regression</key>
+ * Returns a Regression with the following functions:\
+ * \
+ *    linear(data, options) : Map\
+ *    power(data, options) : Map\
+ *    exponential(data, options) : Map\
+ *    logarithmic(data, options) : Map\
+ *    polynomial(data, options) : Map\
+ * \
+ *    data - an array of arrays of x, y values ([[0,1],[1,3],[2,5]])\
+ *    options - map to determine the order and precision ({ order: 2, precision: 5})\
+ * \
+ * </odoc>
+ */
+OpenWrap.ai.prototype.regression = function() {
+    return loadCompiledRequire("regression_js");
+}
+
+OpenWrap.ai.prototype.valuesArray = function(entriesspan) {
+    entriesspan = _$(entriesspan, "entriesspan").isNumber().default(3);
+    ow.loadObj();
+
+    var _values = new ow.obj.syncArray();
+
+    return {
+        getValues: () => _values,
+        push     : value => {
+            _$(value, "value").isNumber().$_();
+
+            _values.add(value);
+            while (_values.length() > entriesspan) _values.remove(0);
+        },
+        deviation: () => {
+            if (_values.length() == 0) return 0;
+
+            var m = _values.toArray().reduce((a, v) => a + v, 0) / _values.length();
+            var r = _values.toArray().map(v => Math.pow(v - m, 2));
+            var sum = r.reduce((a, v) => a + v, 0);
+            return Math.sqrt(sum /_values.length());
+        },
+        variance: () => {
+            if (_values.length() == 0) return 0;
+
+            var m = _values.toArray().reduce((a, v) => a + v, 0) / _values.length();
+            var r = _values.toArray().map(v => Math.pow(v - m, 2));
+            var sum = r.reduce((a, v) => a + v, 0);
+            return sum /_values.length();
+        },
+        movingAverage: () => {
+            if (_values.length() == 0) return 0;
+
+            return _values.toArray().reduce((a, v) => a + v, 0) / _values.length();
+        }
+    }
+}
+
+/**
+ * <odoc>
  * <key>ow.ai.network(aMap) : ow.ai.network</key>
  * Creates a neural network given the parameters in aMap. aMap should contain a "type" parameter to indicate
  * the type of network (perceptron, lstm, liquid or hopfield). Then aMap should contain a "args" parameter to
@@ -849,13 +907,13 @@ OpenWrap.ai.prototype.decisionTree.ID3 = function() {
 OpenWrap.ai.prototype.decisionTree.C45 = function() {
     this.features = [];
     this.targets = [];
-    this.data = void 0;
-    this.target = void 0;
-    this.features = void 0;
-    this.featureTypes = void 0;
-    this.targets = void 0;
-    this.model = void 0;
-    this.error = void 0;
+    this.data = __;
+    this.target = __;
+    this.features = __;
+    this.featureTypes = __;
+    this.targets = __;
+    this.model = __;
+    this.error = __;
 };
   
 OpenWrap.ai.prototype.decisionTree.C45.prototype = {

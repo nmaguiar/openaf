@@ -100,7 +100,7 @@ var ODocs = function(aPath, aODocs, anArrayURLs, offline) {
 
 ODocs.prototype.loadFile = function(aPath) {
 	try { 
-		this.load(void 0, aPath); 
+		this.load(__, aPath); 
 		if(!this.offline && isUnDef(aPath)) {
 			this.backgroundLoadWeb(); 
 		}
@@ -265,16 +265,17 @@ ODocs.prototype.search = function(aTerm, anArrayOfIds) {
 
 	for(var id in this.aodocskeys) {
 		if (ids.indexOf(id) >= 0) {
-			var temp = $from(this.aodocskeys[id]).equals(aTerm);
-			if (temp.any()) {
-				var tempCase = $from(this.aodocskeys[id]).useCase().equals(aTerm);
-				if (tempCase.count() == 1) 
-					return tempCase.select(function(r) { return { "id": id, "key": r};});
-				else
-					return temp.select(function(r) { return {"id": id, "key": r};});
+			var temp = uniqArray($from(this.aodocskeys[id]).useCase(false).equals(aTerm).select(function(r) { return { "id": id, "key": r};}));
+			if (temp.length > 0) {
+				var tempCase = uniqArray($from(this.aodocskeys[id]).useCase(true).equals(aTerm).select(function(r) { return {"id": id, "key": r};}));
+				if (tempCase.length == 1) {
+					return tempCase;
+				} else {
+					return temp;
+				}
 				//return [{"id": id, "key": aTerm}];
 			} else {
-				var res = $from(this.aodocskeys[id]).contains(aTerm).select(function(r) { return {"id": id, "key": r};});
+				var res = $from(this.aodocskeys[id]).useCase(false).contains(aTerm).select(function(r) { return {"id": id, "key": r};});
 				resArray = resArray.concat(res);
 			}
 		}

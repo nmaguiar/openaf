@@ -163,31 +163,33 @@
     };
 
     exports.testScheduler = function() {
-        var a = 0, b = 0, c = 0;
+        sync(() => {
+            var a = $atomic(), b = $atomic(), c = $atomic();
 
-        var sch = new ow.loadServer().scheduler();
-
-        sch.addEntry("*/5 * * * * *", function() {
-            if (c > 0 && c <= 10) a++;
-            //log("A = " + a);
+            var sch = new ow.loadServer().scheduler();
+    
+            sch.addEntry("*/5 * * * * *", function() {
+                if (c.get() > 0 && c.get() <= 10) a.inc()
+                //log("A = " + a);
+            });
+    
+            sch.addEntry("*/2 * * * * *", function() {
+                if (c.get() > 0 && c.get() <= 10) b.inc()
+                //log("B = " + b);
+            });
+    
+            sch.addEntry("*/1 * * * * *", function() {
+                c.inc(); 
+                //log("C = " + c);
+            });
+    
+            sleep(15000, true);
+            sch.stop();
+    
+            ow.test.assert(c.get() >= 10, true, "Problem scheduling an every second function.");
+            ow.test.assert(a.get(), 2, "Problem scheduling an every 5 seconds function.");
+            ow.test.assert(4 <= b.get() <= 6, true, "Problem scheduling an every 2 seconds function.");
         });
-
-        sch.addEntry("*/2 * * * * *", function() {
-            if (c > 0 && c <= 10) b++;
-            //log("B = " + b);
-        });
-
-        sch.addEntry("*/1 * * * * *", function() {
-            c++; 
-            //log("C = " + c);
-        });
-
-        sleep(15000);
-        sch.stop();
-
-        ow.test.assert(c >= 10, true, "Problem scheduling an every second function.");
-        ow.test.assert(a, 2, "Problem scheduling an every 2 seconds function.");
-        ow.test.assert(b, 5, "Problem scheduling an every 5 seconds function.");
     };
 
     exports.testLocks = function() {

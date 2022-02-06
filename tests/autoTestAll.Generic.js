@@ -21,6 +21,23 @@
         logErr("Bye World!"); logWarn("?");
         lognl("no"); log(" line");
     };
+ 
+    exports.testRange = function() {
+        ow.test.assert(range(5).length, 5, "Problem with range size")
+        ow.test.assert(range(1, 5)[0], 5, "Problem with range start")
+        ow.test.assert(range(5, -10)[0], -10, "Problem with negative range start")
+        ow.test.assert((function() { try { range(-5); return 1 } catch(e) { return String(e) } })(), "RangeError: Inappropriate array length.", "Problem with negative range count")
+    }
+
+    exports.testDBPG = function() {
+        var db = new DB("jdbc:postgresql://hh-pgsql-public.ebi.ac.uk:5432/pfmegrnargs", "reader", "NWDMCE5xdipIjRrp");
+
+        var res = db.q("select 2+2 a");
+        ow.test.assert(isArray(res.results), true, "Problem with DB result (1)");
+        ow.test.assert(res.results[0].a, 4, "Problem with DB result (2)"); 
+
+        db.close();
+    };
 
     exports.testSHA1 = function() {
         var test = "This is a nice test";
@@ -34,6 +51,13 @@
         if (sha256(test) != "05692badaa2233bd7b5839940ab75f44fe82470eeaf8f9c24c54f25ead80b09c") {
             throw("value returned different from expected");
         }        
+    };
+  
+    exports.testSHA384 = function() {
+        var test = "This is a nice test";
+        if (sha384(test) != "2067005e336676ed8aa0445b7593dea7fb3ecb77453353e84105c229e0878fc721fe63d56ca0f82a9111fc1aa5fdf656") {
+            throw("value returned different from expected");
+        }
     };
 
     exports.testSHA512 = function() {
@@ -221,7 +245,7 @@
         var res = $rest({ 
             timeout: 1,
             default: { no: "way" }
-        }).get("https://dns.google.com/resolve?" + $rest().query({ type: "a", name: "openaf.io" }));
+        }).get("https://dns.google.com/resolv?" + $rest().query({ type: "a", name: "openaf.io" }));
 
         ow.test.assert(res, { no: "way" }, "Problem with rest timeout.");
 
@@ -241,7 +265,7 @@
 
         res = $rest({
             preAction: (m) => {
-                m.reqHeaders = {
+                m.reqHeaders = {
                     openaf: "true"
                 };
                 return m;
@@ -255,6 +279,10 @@
     };
 
     exports.testRest2File = function() {
+        // TODO: 
+    };
+
+    exports.testRestUpload = function() {
         // TODO: 
     };
 
@@ -278,23 +306,32 @@
     };
 
     exports.testAwait = function() {
-        var state = 0, err;
-        $do(() => {
+        var state = 0, err1, err2;
+        var p1 = $do(() => {
+            $await("testF").wait(5000);
+            ow.test.assert(state, 1, "Problem with await (1)");
+            //sleep(150, true);
+            $await("test1").notify();
+            $await("testF2").wait(5000);
+            ow.test.assert(state, 2, "Problem with await (2)");
+        }).catch(e => {
+            err1 = e;
+        })
+        var p2 = $do(() => {
             state = 1;
+            while(p1 == 0 && !p1.executing) sleep(50, true);
             $await("testF").notify();
-            $await("test1").wait(3500);
+            $await("test1").wait(5000);
             state = 2;
             $await("testF2").notify();
         }).catch(e => {
-            err = e;
+            err2 = e;
         });
 
-        $await("testF").wait(3500);
-        ow.test.assert(state, 1, "Problem with await (1)");
-        sleep(150, true);
-        $await("test1").notify();
-        $await("testF2").wait(2500);
-        ow.test.assert(state, 2, "Problem with await (2)");
+
+        $doWait($doAll([p1, p2]));
+        if (isDef(err1)) throw err1;
+        if (isDef(err2)) throw err2;
     };
 
     exports.testRetry = function() {
@@ -369,7 +406,7 @@
             }
         });
 
-        if (isDef(err)) throw err;
+        if (isDef(err) && err.message.indexOf("sleep interrupted") < 0) throw err;
         ow.test.assert(__state, 2, "Problem with threadBox timeout (2).");
 
         __state = 0;
@@ -387,7 +424,7 @@
             }
         });
 
-        if (isDef(err)) throw err;
+        if (isDef(err) && err.message.indexOf("sleep interrupted") < 0) throw err;
         ow.test.assert(__state, 1, "Problem with stopWhen.");
     };
 
@@ -469,7 +506,7 @@
 
         ow.test.assert(res, false, "Problem with multiple $do().then().catch()");
     };
-
+    
     exports.testDoAll = function() {
         var success = [];
 
@@ -584,7 +621,7 @@
                 var sum = 0;
                 while(arr.length > 0) {
                     var val;
-                    sync(() => { val = arr.pop(); }, arr);
+                    syncFn(() => { val = arr.pop(); }, arr);
                     sum += (isDefined(val) ? val : 0);
                 }
                 log("Thread: " + uuid + "; " + sum);
@@ -665,13 +702,13 @@
             }
         };
 
-        ow.test.assert(af.toYAML(r), "a: 1\nb: '123'\nc: true\nd:\n  - 1\n  - 2\n  - 3\ne:\n  a: 1\n  b: '123'\n  c: true\n", "Problem converting to yaml.");
-        ow.test.assert(af.fromYAML("a: 1\nb: '123'\nc: true\nd:\n  - 1\n  - 2\n  - 3\ne:\n  a: 1\n  b: '123'\n  c: true\n"), r, "Problem converting from yaml.");
+        ow.test.assert(af.toYAML(r), "a: 1\nb: '123'\nc: true\nd:\n- 1\n- 2\n- 3\ne:\n  a: 1\n  b: '123'\n  c: true\n", "Problem converting to yaml.");
+        ow.test.assert(af.fromYAML("a: 1\nb: '123'\nc: true\nd:\n- 1\n- 2\n- 3\ne:\n  a: 1\n  b: '123'\n  c: true\n"), r, "Problem converting from yaml.");
     };
 
     exports.testXML2And4Obj = function() {
         var orig = { 
-            something: { 
+            something: { 
                 a: "abc123", 
                 b: [ 
                     { 
@@ -712,6 +749,19 @@
 
         res = $fnM("ow.obj.rest.jsonGet", { aBaseURI: "https://httpbin.org/get" });
         ow.test.assert(res.url, "https://httpbin.org/get", "Problem with $fnM.");
+    };
+
+    exports.testVoidShortcut = function() {
+        ow.test.assert(__, void 0, "Problem with shortcut __");
+    };
+
+    exports.testEnvs = function() {
+        var envsList = getEnvs();
+        var testEnv = Object.keys(envsList)[0];
+        var testVal = envsList[testEnv];
+
+        ow.test.assert(testVal, getEnv(testEnv), "Problem with getEnvs/getEnv.");
+        ow.test.assert(getEnv(genUUID()), __, "Problem with getEnv not defined.");
     };
 
     exports.testGetPath = function() {
@@ -819,75 +869,94 @@
     exports.testSigil = function() {
         var res;
 
-        try { res = false; var aaabbb; _$(aaabbb).$_(); } catch(e) { res = true; }
+        try { res = false; var aaabbb; _$(aaabbb).$_(); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with mandatory.");
-        try { res = false; var aaabbb; res = _$(aaabbb).default(true); } catch(e) { res = true; }
+        try { res = false; var aaabbb; res = _$(aaabbb).default(true); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with default.");
 
-        try { res = false; _$("123").isTNumber(); } catch(e) { res = true; }
+        try { res = false; _$("123").isTNumber(); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with isTNumber (1).");
 
-        try { res = false; _$(123).isTNumber(); } catch(e) { res = true; }
+        try { res = false; _$(123).isTNumber(); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with isTNumber (2).");
 
-        try { res = false; _$("a").Number(); } catch(e) { res = true; }
+        try { res = false; _$("a").Number(); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with Number (1).");
 
-        try { res = false; _$(123).Number(); } catch(e) { res = true; }
+        try { res = false; _$(123).Number(); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with Number (2).");
 
-        try { res = false; _$(123).isString(); } catch(e) { res = true; }
+        try { res = false; _$(123).isString(); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with isString (1).");
 
-        try { res = false; _$("123").isString(); } catch(e) { res = true; }
+        try { res = false; _$("123").isString(); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with isString (2).");
 
-        try { res = false; _$(3).between(1, 3); } catch(e) { res = true; }
+        try { res = false; _$(3).between(1, 3); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with between (1).");
 
-        try { res = false; _$(2).between(1, 3); } catch(e) { res = true; }
+        try { res = false; _$(2).between(1, 3); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with between (2).");
 
-        try { res = false; _$(3).betweenEquals(1, 3); } catch(e) { res = true; }
+        try { res = false; _$(3).betweenEquals(1, 3); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with betweenEquals (1).");
 
-        try { res = false; _$(4).betweenEquals(1, 3); } catch(e) { res = true; }
+        try { res = false; _$(4).betweenEquals(1, 3); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with betweenEquals (2).");
 
-        try { res = false; _$(3).oneOf([1, 2, 3]); } catch(e) { res = true; }
+        try { res = false; _$(3).oneOf([1, 2, 3]); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with oneOf (1).");
 
-        try { res = false; _$(4).oneOf([1, 2, 3]); } catch(e) { res = true; }
+        try { res = false; _$(4).oneOf([1, 2, 3]); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with oneOf (2).");
 
-        try { res = false; _$([1, 2]).anyOf([1, 2, 3]); } catch(e) { res = true; }
+        try { res = false; _$([1, 2]).anyOf([1, 2, 3]); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with anyOf (1).");
 
-        try { res = false; _$([1, 4]).anyOf([1, 2, 3]); } catch(e) { res = true; }
+        try { res = false; _$([1, 4]).anyOf([1, 2, 3]); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with anyOf (2).");
 
-        try { res = false; _$([1, 2]).isArray(); } catch(e) { res = true; }
+        try { res = false; _$([1, 2]).isArray(); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with isArray (1).");
 
-        try { res = false; _$(4).isArray(); } catch(e) { res = true; }
+        try { res = false; _$(4).isArray(); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with isArray (2).");
 
-        try { res = false; _$(genUUID()).isUUID(); } catch(e) { res = true; }
+        try { res = false; _$(genUUID()).isUUID(); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with isUUID (1).");
 
-        try { res = false; _$("1" + genUUID()).isUUID(); } catch(e) { res = true; }
+        try { res = false; _$("1" + genUUID()).isUUID(); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with isUUID (2).");
 
-        try { res = false; _$(4).expr("{{v}} > 0 && {{v}} < 5 && {{v}} != 3"); } catch(e) { res = true; }
+        try { res = false; _$(4).expr("{{v}} > 0 && {{v}} < 5 && {{v}} != 3"); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with expr (1).");
 
-        try { res = false; _$(3).expr("{{v}} > 0 && {{v}} < 5 && {{v}} != 3"); } catch(e) { res = true; }
+        try { res = false; _$(3).expr("{{v}} > 0 && {{v}} < 5 && {{v}} != 3"); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with expr (2).");
 
-        try { res = false; _$(4).check(v => { return v - 4 == 0; }); } catch(e) { res = true; }
+        try { res = false; _$(4).check(v => { return v - 4 == 0; }); } catch(e) { res = true; }
         ow.test.assert(res, false, "Problem with check (1).");
 
-        try { res = false; _$(3).check(v => { return v - 4 == 0; }); } catch(e) { res = true; }
+        try { res = false; _$(3).check(v => { return v - 4 == 0; }); } catch(e) { res = true; }
         ow.test.assert(res, true, "Problem with check (2).");
+
+        // Conversion
+        try { res = _$("123 ").toNumber().isNumber().$_() } catch(e) { res = __ }
+        ow.test.assert(res, 123, "Problem with toNumber (1)")
+
+        try { res = _$("1o3").toNumber().isNumber().$_() } catch(e) { res = __ }
+        ow.test.assert(res, __, "Problem with toNumber (2)")
+
+        try { res = _$(12.34).toString().isString().$_() } catch(e) { res = __ }
+        ow.test.assert(res, "12.34", "Problem with toString (1)")
+
+        try { res = _$(" trUe ").toBoolean().isBoolean().$_() } catch(e) { res = __ }
+        ow.test.assert(res, true, "Problem with toBoolean (1)")
+
+        try { res = _$(" 45, 32, , 1a2 ").toArray().isArray().$_() } catch(e) { res = __ }
+        ow.test.assert(res, ["45","32","","1a2"], "Problem with toArray (1)")
+
+        try { res = _$(" { a: 12, b: true, c: 'abc' }").toMap().isMap().$_() } catch(e) { res = __ }
+        ow.test.assert(res, {a:12,b:true,c:'abc'}, "Problem with toMap (1)")
     };
 })();

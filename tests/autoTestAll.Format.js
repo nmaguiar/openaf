@@ -41,7 +41,7 @@
     };
 
     exports.testWordWrap = function() {
-        ow.test.assert(ow.format.string.wordWrap("a long text to serve as an example", 10, "-"), "a long-text to-serve as-an-example", "Problem with word wrap.");        
+        ow.test.assert(ow.format.string.wordWrap("a long text to serve as an example", 10, "-"), "a long-text to-serve as-an example", "Problem with word wrap.");        
     };
 
     exports.testPad = function() {
@@ -82,6 +82,13 @@
         ow.test.assert(ow.format.fromBase36(ow.format.toBase36(12345)), 12345, "Problem with conversion to base36");
     };
 
+    exports.testBytesAbbreviation = function() {
+        ow.test.assert(ow.format.fromBytesAbbreviation(ow.format.toBytesAbbreviation(123)), 123, "Problem with simple bytes abbreviation (1)");
+        ow.test.assert(ow.format.fromBytesAbbreviation(ow.format.toBytesAbbreviation(128 * 1024)), 128 * 1024, "Problem with simple bytes abbreviation (2)");
+        ow.test.assert(ow.format.fromBytesAbbreviation(ow.format.toBytesAbbreviation(128 * 1024 * 1024)), 128 * 1024 * 1024, "Problem with simple bytes abbreviation (3)");
+        ow.test.assert(ow.format.fromBytesAbbreviation(ow.format.toBytesAbbreviation(128 * 1024 * 1024 * 1024)), 128 * 1024 * 1024 * 1024, "Problem with simple bytes abbreviation (4)");
+    };
+
     exports.testHTML4 = function() {
         var testString = "This is áàç test with ã ê";
 
@@ -116,5 +123,12 @@
             Math.floor(Number(d.getTime())/1000), 
             "Problem with LDAP date conversions."
         );
+    };
+
+    exports.testSLON = function() {
+        var orig   = { s: "abc", num: -1.23456, bol: true, subMap: { x: 1, y: -1 }, subArr: [ 1, 2, 3 ], dt: ow.format.toDate("2020-01-01 12:34:56", "yyyy-MM-dd HH:mm:ss"), subArr2: [ { n: 1, b: true, s: "abc", p: { x: 1, y: -1} }, { n: 2, b: false, s: "xyz", a: [ 4,5,6 ] }, { n: 3, b: false, s: "axZ" } ] };
+        var target = "(s: 'abc', num: -1.23456, bol: true, subMap: (x: 1, y: -1), subArr: [1 | 2 | 3], dt: 2020-01-01/12:34:56.000, subArr2: [(n: 1, b: true, s: 'abc', p: (x: 1, y: -1)) | (n: 2, b: false, s: 'xyz', a: [4 | 5 | 6]) | (n: 3, b: false, s: 'axZ')])";
+
+        ow.test.assert(ow.format.toSLON(orig), target, "Problem with toSLON.");
     };
 })();

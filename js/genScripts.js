@@ -6,16 +6,23 @@
 var requirements = {
   "javaversion": [ "^1.7" ]
 };
-var extraArgsForJava9 = "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=java.management/com.sun.jmx.mbeanserver=ALL-UNNAMED --add-exports=jdk.internal.jvmstat/sun.jvmstat.monitor=ALL-UNNAMED --add-exports=java.base/sun.reflect.generics.reflectiveObjects=ALL-UNNAMED --illegal-access=permit";
+var extraArgsForJava9 = " --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=java.management/com.sun.jmx.mbeanserver=ALL-UNNAMED --add-exports=jdk.internal.jvmstat/sun.jvmstat.monitor=ALL-UNNAMED --add-exports=java.base/sun.reflect.generics.reflectiveObjects=ALL-UNNAMED --illegal-access=permit";
 var extraArgsForJava10 = extraArgsForJava9 + " ";
-var extraArgsForJava11 = "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=java.management/com.sun.jmx.mbeanserver=ALL-UNNAMED --add-exports=java.base/sun.reflect.generics.reflectiveObjects=ALL-UNNAMED --illegal-access=permit";
-var extraArgsForJava12 = extraArgsForJava11 + "-Xshare:off";
+var extraArgsForJava11 = " --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=java.management/com.sun.jmx.mbeanserver=ALL-UNNAMED --add-exports=java.base/sun.reflect.generics.reflectiveObjects=ALL-UNNAMED --add-exports java.management/sun.management=ALL-UNNAMED --illegal-access=permit";
+var extraArgsForJava12 = extraArgsForJava11 + " -Xshare:off";
+var extraArgsForJava17 = " --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=java.management/com.sun.jmx.mbeanserver=ALL-UNNAMED --add-exports=java.base/sun.reflect.generics.reflectiveObjects=ALL-UNNAMED --add-exports java.management/sun.management=ALL-UNNAMED  -Xshare:off";
 var DEFAULT_SH = "/bin/sh";
 var noopacks = false;
 
+var __genScriptsUpdate;
+if (isUnDef(__genScriptsUpdate)) __genScriptsUpdate = [];
+
 var javaargs = "";
 for(var i in __args) {
-	if (__args[i].match(/^args=/i)) javaargs = __args[i].replaceAll("^args=", "");
+	if (__args[i].match(/^args=/i)) {
+ 		javaargs = __args[i].replaceAll("^args=", "");
+		__expr = __expr.replace(String(__args[i]), "");
+  	}
 }
 if (javaargs != "") log("Java arguments to use = '" + javaargs + "'");
 
@@ -39,11 +46,14 @@ function generateWinBat() {
   var s;
 
   s = "@echo off\n\n";
+  s = s + "set thispath=%~dp0\n"
+  s = s + "set DIR=%thispath:~0,-1%\n"
   s = s + "rem if not %JAVA_HOME% == \"\" set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set OPENAF_DIR=\"" + classPath + "\"\n";
   s = s + "\n";
-  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% %*";
+  s = s + "chcp 65001 > NUL\n";
+  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"file.encoding=UTF-8\" -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% %*";
   return s;
 }
 
@@ -51,11 +61,14 @@ function generateWinPackBat() {
   var s;
 
   s = "@echo off\n\n";
+  s = s + "set thispath=%~dp0\n"
+  s = s + "set DIR=%thispath:~0,-1%\n"
   s = s + "rem if not %JAVA_HOME% == \"\" set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set OPENAF_DIR=\"" + classPath + "\"\n";
   s = s + "\n";
-  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --opack -e \"%*\"";
+  s = s + "chcp 65001 > NUL\n";
+  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"file.encoding=UTF-8\" -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --opack -e \"%*\"";
   return s;
 }
 
@@ -63,25 +76,31 @@ function generateWinJobBat() {
   var s;
 
   s = "@echo off\n\n";
+  s = s + "set thispath=%~dp0\n"
+  s = s + "set DIR=%thispath:~0,-1%\n"
   s = s + "rem if not %JAVA_HOME% == \"\" set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set OPENAF_DIR=\"" + classPath + "\"\n";
   s = s + "\n";
-  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --ojob -e \"%*\"";
+  s = s + "chcp 65001 > NUL\n";
+  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"file.encoding=UTF-8\" -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --ojob -e \"%*\"";
   return s;
 }
 
 function generateWinUpdateBat() {
   var s;
   s = "@echo off\n\n";
+  s += "set thispath=%~dp0\n"
+  s += "set DIR=%thispath:~0,-1%\n"
   s += "rem if not %JAVA_HOME% == \"\" set JAVA_HOME=\"" + javaHome + "\"\n";
   s += "set JAVA_HOME=\"" + javaHome + "\"\n";
   s += "set OPENAF_DIR=\"" + classPath + "\"\n";
   s += "\n";
-  s += "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --update\n";
+  s = s + "chcp 65001 > NUL\n";
+  s += "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"file.encoding=UTF-8\" -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --update\n";
   if (isDef(__genScriptsUpdate) && isArray(__genScriptsUpdate)) {
     __genScriptsUpdate.map(r => {
-      s += "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% " + r + "\n";
+      s += "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"file.encoding=UTF-8\" -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% " + r + "\n";
     });
   }
   return s;
@@ -91,11 +110,14 @@ function generateWinConsoleBat() {
   var s;
 
   s = "@echo off\n\n";
+  s = s + "set thispath=%~dp0\n"
+  s = s + "set DIR=%thispath:~0,-1%\n"
   s = s + "rem if not %JAVA_HOME% == \"\" set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set JAVA_HOME=\"" + javaHome + "\"\n";
   s = s + "set OPENAF_DIR=\"" + classPath + "\"\n";
   s = s + "\n";
-  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --console %*";
+  s = s + "chcp 65001 > NUL\n";
+  s = s + "%JAVA_HOME%\\bin\\java " + javaargs + " -D\"file.encoding=UTF-8\" -D\"java.system.class.loader=openaf.OAFdCL\" -jar %OPENAF_DIR% --console %*";
   return s;
 }
 
@@ -133,21 +155,25 @@ function generateUnixScript(options, shouldSep, extraOptions) {
     log("sh located in "+ shLocation);
   }
 
-  s = "#!" + shLocation + "\n\n";
+  s = "#!" + shLocation + "\n";
+  s += "CDIR=`pwd`\n"
+  s += "cd `dirname $0`\n"
+  s += "DIR=`pwd`\n"
+  s += "cd $CDIR\n"
   s += "stty -icanon min 1 -echo 2>/dev/null\n";
   s += "#if [ -z \"${JAVA_HOME}\" ]; then \nJAVA_HOME=\"" + javaHome + "\"\n#fi\n";
   s += "OPENAF_DIR=\"" + classPath + "\"\n";
-  s += "export LANG=\"${LANG:-C.UTF-8}\"\n";
+  if (io.getDefaultEncoding() != "UTF-8") s += "export LANG=\"${LANG:-C.UTF-8}\"\n";
   if (shouldSep) {
     s += "SCRIPT=$1\n";
     s += "shift\n";
     s += "ARGS=$@\n";
   }
   s += "\n";
-  s += "\"$JAVA_HOME\"/bin/java " + javaargs + " -Djava.system.class.loader=openaf.OAFdCL -Djline.terminal=jline.UnixTerminal -jar $OPENAF_DIR " + options + "\n";
+  s += "\"$JAVA_HOME\"/bin/java " + javaargs + " -D\"file.encoding=UTF-8\" -Djava.system.class.loader=openaf.OAFdCL -Djline.terminal=jline.UnixTerminal -jar $OPENAF_DIR " + options + "\n";
   if (isDef(extraOptions) && isArray(extraOptions)) {
     extraOptions.map(r => {
-      s += "\"$JAVA_HOME\"/bin/java " + javaargs + " -Djava.system.class.loader=openaf.OAFdCL -Djline.terminal=jline.UnixTerminal -jar $OPENAF_DIR " + r + "\n";
+      s += "\"$JAVA_HOME\"/bin/java " + javaargs + " -D\"file.encoding=UTF-8\" -Djava.system.class.loader=openaf.OAFdCL -Djline.terminal=jline.UnixTerminal -jar $OPENAF_DIR " + r + "\n";
     });
   }
   s += "EXITCODE=$?\n";
@@ -167,22 +193,28 @@ var curDir    = "";
 var javaVer   = "";
 var javaHome  = "";
 var classPath = "";
+var inSameDir = false
 
 var windows = 0;
 var shLocation;
 
 try {
   var os        = String(java.lang.System.getProperty("os.name"));
-  var curDir    = String(java.lang.System.getProperty("user.dir"));;
+  var curDir    = String(java.lang.System.getProperty("user.dir"));
   var javaVer   = String(java.lang.System.getProperty("java.version")).replace(/^1\./, "").replace(/(\d+).*/, "$1");
   var javaHome  = String(java.lang.System.getProperty("java.home"));
-  var classPath = String(java.lang.System.getProperty("java.class.path"));
-  
-  classPath = (new java.io.File(classPath)).getAbsoluteFile();
+  var classPath = getOpenAFJar();
 } catch (e) {
   logErr("Couldn't retrieve system properties: " + e.message);
   java.lang.System.exit(0);
 }
+
+var jh = javaHome.replace(/\\/g, "/");
+if (jh.substring(0, getOpenAFPath().lastIndexOf("/")+1) == getOpenAFPath()) {
+  inSameDir = true
+  javaHome = (os.match(/Windows/) ? "%DIR%" : "$DIR") + "/" + jh.substring(getOpenAFPath().lastIndexOf("/")+1)
+}
+classPath = (os.match(/Windows/) ? "%DIR%" : "$DIR") + "/" + classPath.substring(getOpenAFJar().lastIndexOf("/") + 1)
 
 if(os.match(/Windows/)) {
 	log("Identified system as Windows = '" + os + "'");
@@ -201,24 +233,25 @@ log("Checking requirements");
 if (Number(javaVer) != null && Number(javaVer) == 9) javaargs += " " + extraArgsForJava9;  
 if (Number(javaVer) != null && Number(javaVer) == 10) javaargs += " " + extraArgsForJava10;
 if (Number(javaVer) != null && Number(javaVer) == 11) javaargs += " " + extraArgsForJava11;
-if (Number(javaVer) != null && Number(javaVer) > 11) javaargs += " " + extraArgsForJava12;
+if (Number(javaVer) != null && Number(javaVer) > 11 && Number(javaVer) < 17) javaargs += " " + extraArgsForJava12;
+if (Number(javaVer) != null && Number(javaVer) >= 17) javaargs += " " + extraArgsForJava17;
 
 var winBat = generateWinBat();
 var winPackBat = generateWinPackBat();
 var winJobBat = generateWinJobBat();
 var winConsoleBat = generateWinConsoleBat();
-var winConsolePSBat = generateWinConsolePSBat();
+//var winConsolePSBat = generateWinConsolePSBat();
 
 var unixScript, unixSB, unixPackScript, unixJobScript, unixConsoleScript, unixUpdateScript;
 
-if (windows == 0) {
+//if (windows == 0) {
   unixScript = generateUnixScript("\"$@\"");
   unixSB = generateUnixScript("-f \"$SCRIPT\" -e \"$ARGS\"", true);
   unixPackScript = generateUnixScript("--opack -e \"$*\"");
   unixJobScript = generateUnixScript("--ojob -e \"$*\"");
   unixConsoleScript = generateUnixScript("--console \"$@\"");
   unixUpdateScript = generateUnixScript("--update", void 0, __genScriptsUpdate);
-}
+//}
 
 try {
   if (windows == 1) io.writeFileString(curDir + "\\openaf.bat", winBat);
@@ -227,7 +260,7 @@ try {
   if (windows == 1) io.writeFileString(curDir + "\\ojob.bat", winJobBat);
   if (windows == 1) io.writeFileString(curDir + "\\openaf-console.bat", winConsoleBat);
   if (windows == 1) io.writeFileString(curDir + "\\oafc.bat", winConsoleBat);
-  if (windows == 1) io.writeFileString(curDir + "\\openaf-console-ps.bat", winConsolePSBat);
+  //if (windows == 1) io.writeFileString(curDir + "\\openaf-console-ps.bat", winConsolePSBat);
   if (windows == 1) {
     io.writeFileBytes(curDir + "\\openaf.ico", io.readFileBytes(getOpenAFJar() + "::fonts/openaf.ico"));
     sh("powershell \"$sh=New-Object -COM WScript.Shell;$s=$sh.CreateShortcut('" + curDir + "\\OpenAF CONSOLE.lnk');$s.TargetPath='" + curDir + "\\openaf-console-ps.bat';$s.Description='OpenAF-console';$s.IconLocation='" + curDir + "\\openaf.ico';$s.WorkingDirectory='" + curDir + "';$s.save()\"", undefined, undefined, true);
@@ -294,6 +327,7 @@ var zip = new ZIP();
 zip.streamPutFile(getOpenAFPath() + "/.opack.db", "packages.json", af.fromString2Bytes(stringify(p)));
 
 // Checking if reinstall script can be built
+/*ow.loadFormat();
 var jh = ow.format.getJavaHome().replace(/\\/g, "/");
 if (jh.substring(0, jh.lastIndexOf("/")+1) == getOpenAFPath()) {
   if (windows == 1) {
@@ -304,7 +338,7 @@ if (jh.substring(0, jh.lastIndexOf("/")+1) == getOpenAFPath()) {
     io.writeFileString(curDir + "/reinstall.sh", "#!" + shLocation + "\n\n" +  jh.substring(jh.lastIndexOf("/")+1) + "/bin/java -jar openaf.jar --install\n");
     sh("chmod u+x " + curDir + "/reinstall.sh", "", null, false);
   }
-}
+}*/
 
 if (!noHomeComms) {
   if (windows == 1) {
@@ -319,4 +353,4 @@ if (!noHomeComms) {
 
 log("Done installing scripts");
 
-af.load(classPath + "::js/repack.js");
+af.load(getOpenAFJar() + "::js/repack.js");

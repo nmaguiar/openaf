@@ -14,13 +14,25 @@ OpenWrap.metrics.prototype.__m = {
             free: Number(java.lang.Runtime.getRuntime().freeMemory())
         };
         res.used = res.total - res.free;
+        res.nonHeapUsed = Number(java.lang.management.ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage().getUsed());
+        res.nonHeapCommitted = Number(java.lang.management.ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage().getCommitted());
+        res.nonHeapInit = Number(java.lang.management.ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage().getInit());
+        for(var ii in java.lang.management.ManagementFactory.getGarbageCollectorMXBeans()) {
+            var obj = java.lang.management.ManagementFactory.getGarbageCollectorMXBeans()[ii];
+            var name = obj.name;
+            res[name] = {
+                gcCount: obj.collectionCount,
+                gcTime: obj.collectionTime
+            }
+        }
         return res;
     },
     cpu: () => ({
         load1 : java.lang.System.getProperty("os.name").indexOf("Windows") < 0 ? getCPULoad() : "n/a",
         load2 : java.lang.System.getProperty("os.name").indexOf("Windows") < 0 ? getCPULoad(true) : "n/a",
         cores : getNumberOfCores(),
-        _cores: __cpucores
+        _cores: __cpucores,
+        arch  : String(java.lang.System.getProperty("os.arch"))
     }),
     oaf: () => {
         var res = {
@@ -29,11 +41,14 @@ OpenWrap.metrics.prototype.__m = {
             nscopes: af.getScopeIds().length,
             preCompileLevel: __preCompileLevel,
             version: getVersion(),
+            dist   : getDistribution(),
             path   : getOpenAFPath(),
             java   : String(java.lang.System.getProperty("java.version")),
             javapath: String(java.lang.System.getProperty("java.home")),
             init   : __oafInit,
             now    : now(),
+            uptime : Number(java.lang.management.ManagementFactory.getRuntimeMXBean().uptime),
+            logInfo: __clogInfo.get(),
             logErr : __clogErr.get(),
             logWarn: __clogWarn.get(),
             cpuCores: __cpucores,
@@ -59,22 +74,35 @@ OpenWrap.metrics.prototype.__m = {
                 ttl : global.__$cache[r].attl,
                 maxSize: global.__$cache[r].msize,
                 size: global.__$cache[r].size(),
-                hits: ow.ch.__types.cache.__cacheStats[global.__$cache[r].name].hits,
-                miss: ow.ch.__types.cache.__cacheStats[global.__$cache[r].name].miss,
-                avgExecTime: ow.ch.__types.cache.__cacheStats[global.__$cache[r].name].avg,
+                hits: isUnDef(ow.ch.__types.cache.__cacheStats[global.__$cache[r].name]) ? __ : ow.ch.__types.cache.__cacheStats[global.__$cache[r].name].hits,
+                miss: isUnDef(ow.ch.__types.cache.__cacheStats[global.__$cache[r].name]) ? __ : ow.ch.__types.cache.__cacheStats[global.__$cache[r].name].miss,
+                avgExecTime: isUnDef(ow.ch.__types.cache.__cacheStats[global.__$cache[r].name]) ? __ : ow.ch.__types.cache.__cacheStats[global.__$cache[r].name].avg,
             })) : "n/a"),
             rest: (isDef(global.__openaf_rest) ? Object.keys(global.__openaf_rest.urls).map(r => ({
-                url: r,
-                hits: _$(global.__openaf_rest.urls[r].c).default(0),
-                miss: _$(global.__openaf_rest.urls[r].f).default(0)
+                url          : r,
+                hits         : _$(global.__openaf_rest.urls[r].c).default(0),
+                miss         : _$(global.__openaf_rest.urls[r].f).default(0),
+                totalTime    : _$(global.__openaf_rest.urls[r].t).default(-1),
+                avgTimePerHit: (isNumber(global.__openaf_rest.urls[r].t) && global.__openaf_rest.urls[r].c > 0) ? global.__openaf_rest.urls[r].t / (global.__openaf_rest.urls[r].c - _$(global.__openaf_rest.urls[r].f).default(0)) : -1
             })) : "n/a"),
-            fns    : ow.metrics.__fnMetrics
+            fns    : (isDef(ow.metrics.__fnMetrics) ? ow.metrics.__fnMetrics : {} )
         };
         if (isDef(res.fns)) {
             Object.keys(res.fns).map(r => {
                 res.fns[r].avg = res.fns[r].sum / (res.fns[r].err + res.fns[r].end);
             });
         }
+        return res;
+    },
+    java: () => {
+        var res = {};
+        res.name = java.lang.management.ManagementFactory.getRuntimeMXBean().vmName;
+        res.vendor = java.lang.management.ManagementFactory.getRuntimeMXBean().vmName;
+        res.version = java.lang.management.ManagementFactory.getRuntimeMXBean().vmVersion;
+        res.loadedClasses   = java.lang.management.ManagementFactory.getClassLoadingMXBean().loadedClassCount;
+        res.unLoadedClasses = java.lang.management.ManagementFactory.getClassLoadingMXBean().unloadedClassCount;
+        res.totalLoadedClasses = java.lang.management.ManagementFactory.getClassLoadingMXBean().totalLoadedClassCount;
+        
         return res;
     },
     ojob: () => {
@@ -95,8 +123,14 @@ OpenWrap.metrics.prototype.__m = {
     os: () => ({
         pid    : getPid(),
         name   : String(java.lang.System.getProperty("os.name")),
+        version: String(java.lang.System.getProperty("os.version")),
         host   : String(java.net.InetAddress.getLocalHost().getHostName()),
-        ip     : String(java.net.InetAddress.getLocalHost().getHostAddress())
+        ip     : String(java.net.InetAddress.getLocalHost().getHostAddress()),
+        virtualMem: Number(java.lang.management.ManagementFactory.getOperatingSystemMXBean().committedVirtualMemorySize),
+        totalSwap: Number(java.lang.management.ManagementFactory.getOperatingSystemMXBean().totalSwapSpaceSize),
+        freeSwap: Number(java.lang.management.ManagementFactory.getOperatingSystemMXBean().freeSwapSpaceSize),
+        totalPhysicalMem: Number(java.lang.management.ManagementFactory.getOperatingSystemMXBean().totalPhysicalMemorySize),
+        freePhysicalMem: Number(java.lang.management.ManagementFactory.getOperatingSystemMXBean().freePhysicalMemorySize)
     }),
     threads: () => {
         var res = {
@@ -108,7 +142,9 @@ OpenWrap.metrics.prototype.__m = {
                 state   : String(t.getState())
             })),
             active: Number(java.lang.Thread.activeCount()),
-            total : Number(java.lang.Thread.getAllStackTraces().size())
+            total : Number(java.lang.Thread.getAllStackTraces().size()),
+            peak  : Number(java.lang.management.ManagementFactory.getThreadMXBean().peakThreadCount),
+            daemon: Number(java.lang.management.ManagementFactory.getThreadMXBean().daemonThreadCount)
         };
         res.states = {};
         res.list.map(r => {
@@ -132,6 +168,16 @@ OpenWrap.metrics.prototype.add = function(aName, aFn) {
         ow.metrics.__m[aName] = aFn;
     }
 };
+
+/**
+ * <odoc>
+ * <key>ow.metrics.exists(aName) : Boolean</key>
+ * Determines if metric aName is currenly assigned.
+ * </odoc>
+ */
+OpenWrap.metrics.prototype.exists = function(aName) { 
+    return isFunction(ow.metrics.__m[aName])
+}
 
 /**
  * <odoc>
@@ -164,11 +210,12 @@ OpenWrap.metrics.prototype.getAll = function() {
 
 /**
  * <odoc>
- * <key>ow.metrics.startCollecting(aChName, aPeriod, some)</key>
+ * <key>ow.metrics.startCollecting(aChName, aPeriod, some, noDate)</key>
  * Starts collecting metrics on aChName (defaults to '__metrics') every aPeriod ms (defaults to 1000ms) optionally just some (array) metrics.
  * </odoc>
  */
-OpenWrap.metrics.prototype.startCollecting = function(aChName, aPeriod, aSome) {
+OpenWrap.metrics.prototype.startCollecting = function(aChName, aPeriod, aSome, noDate) {
+    noDate = _$(noDate, "noDate").isBoolean().default(false);
     var createCh = isUnDef(aChName) || $ch().list().indexOf(aChName) < 0;
 
     if (isUnDef(ow.metrics.__fnMetrics)) ow.metrics.__fnMetrics = {};
@@ -185,12 +232,13 @@ OpenWrap.metrics.prototype.startCollecting = function(aChName, aPeriod, aSome) {
         plugin("Threads");
         ow.metrics.__t = new Threads();
         ow.metrics.__t.addScheduleThreadWithFixedDelay(function() {
-            var k = { t: now() };
+            var dd = now();
+            var k = { t: dd, d: noDate ? __ : new Date(dd) };
             var v;
-            if(isArray(aSome))
-               v = merge(k, ow.metrics.getSome(aSome)); 
+            if (isArray(aSome))
+                v = merge(k, ow.metrics.getSome(aSome)); 
             else
-	       v = merge(k, ow.metrics.getAll());
+	            v = merge(k, ow.metrics.getAll());
     
             ow.metrics.__ch.map(ch => {
                 $ch(ch).set(k, v);
@@ -207,13 +255,18 @@ OpenWrap.metrics.prototype.startCollecting = function(aChName, aPeriod, aSome) {
  * </odoc>
  */
 OpenWrap.metrics.prototype.stopCollecting = function(aChName) {
-    aChName = _$(aChName).isString().default("__metrics");
-    if (ow.metrics.__ch.indexOf(aChName) < 0) throw "Not collecting into " + aChName;
+    aChName = _$(aChName).isString().default(__);
+    if (isDef(aChName) && ow.metrics.__ch.indexOf(aChName) < 0) throw "Not collecting into " + aChName;
 
-    ow.metrics.__ch = deleteFromArray(ow.metrics.__ch, ow.metrics.__ch.indexOf(aChName));
+    if (isDef(aChName)) {
+        ow.metrics.__ch = deleteFromArray(ow.metrics.__ch, ow.metrics.__ch.indexOf(aChName));
+    } else {
+        ow.metrics.__ch = [];
+    }
+
     if (isDef(ow.metrics.__t) && ow.metrics.__ch.length <= 0) {
         ow.metrics.__t.stop(true);
-        ow.metrics.__t = void 0;
+        ow.metrics.__t = __;
     }
 };
 
@@ -290,6 +343,74 @@ OpenWrap.metrics.prototype.collectMetrics = function(aName, aFunction) {
 
 /**
  * <odoc>
+ * <key>ow.metrics.fromOpenMetrics2Array(aLines) : Array</key>
+ * Given an array or string newline delimited string following the OpenMetrics format 
+ * will try to return an array with each metric, value, labels, timestamp and perceived prefix.
+ * </odoc>
+ */
+OpenWrap.metrics.prototype.fromOpenMetrics2Array = function(lines) {
+    if (isString(lines)) lines = lines.split("\n");
+
+    if (!isArray(lines)) throw "Input can't be converted to an array of lines";
+
+    // Turn into a map of entries
+    var dr = {};
+    var d = lines.filter(line => !line.startsWith("#") && line.length > 0).map(line => {
+        var res = line.match(/^([^\{]+?)({[^\}]+})? ([^ ]+?)( [^ ]+?)?$/);
+        var data = {
+            metric: res[1],
+            labels: (isNull(res[2]) ? {} : jsonParse(res[2].replace(/([^=,\{\}]+)=([^=,\{\}]+)/g, "\"$1\":$2"), true)),
+            value: Number(res[3]),
+            timestamp: (isNumber(res[4]) ? Number(res[4]) : __)
+        }
+
+        if (isUnDef(dr[data.metric])) {
+            var back = ""
+            var sattr = data.metric.split("_")
+            sattr.forEach(part => {
+                if (isUnDef(dr[back + part])) dr[back + part] = 0;
+                dr[back + part] += 1;
+                back += part + "_"
+            });
+        }
+
+        return data;
+    });
+
+    // Get metric entries entry count
+    var entries = {};
+    $from(d)
+    .sort("metric")
+    .select(r => {
+        var back = "";
+        r.metric.split("_").forEach(rr => {
+            var n = back + "_" + rr;
+            back = n;
+            entries[n] = isUnDef(entries[n]) ? 0 : entries[n] + 1;
+        })
+    })
+
+    // Add the prefix to each entry
+    var dd = d.map((r, ii) => {
+        var prefix, lastp = __, tent;
+
+        do {
+            tent = r.metric.substring(0, lastp).substring(0, r.metric.lastIndexOf("_"));
+            if (isDef(entries["_" + tent]) && entries["_" + tent] > 0) {
+                prefix = tent;
+            }
+            lastp = tent.lastIndexOf("_");
+        } while (isUnDef(prefix) && tent.indexOf("_") > 0)
+
+        r.prefix = prefix
+        return r
+    });
+
+    return dd;
+}
+
+/**
+ * <odoc>
  * <key>ow.metrics.fromObj2OpenMetrics(aObj, aPrefix, aTimestamp, aHelpMap) : String</key>
  * Given aObj will return a string of open metric (prometheus) metric strings. Optionally you can provide a prefix (defaults to "metric") 
  * and/or aTimestamp (that will be used for all aObj values).
@@ -298,6 +419,7 @@ OpenWrap.metrics.prototype.collectMetrics = function(aName, aFunction) {
 OpenWrap.metrics.prototype.fromObj2OpenMetrics = function(aObj, aPrefix, aTimestamp, aHelpMap) {
     var handled = false;
     aPrefix = _$(aPrefix, "prefix").isString().default("metric");
+    aPrefix = aPrefix.replace(/[^a-zA-Z0-9]/g, "_");
 
     var _map = (obj, prefix, lbs) => { 
         var ar = [];
@@ -312,10 +434,11 @@ OpenWrap.metrics.prototype.fromObj2OpenMetrics = function(aObj, aPrefix, aTimest
             var lprefix = (lbs.length > 0 ? "{" + lbs.join(",") + "}" : "");
             keys.map(key => {
                 if (isDef(obj[key])) {
-                    if (isBoolean(obj[key])) ar.push(prefix + "_" + key + lprefix + " " + (obj[key] ? "1" : "0") + " " + (isDef(aTimestamp) ? Number(aTimestamp) : ""));
-                    if (isNumber(obj[key])) ar.push(prefix + "_" + key + lprefix + " " + Number(obj[key]) + " " + (isDef(aTimestamp) ? Number(aTimestamp) : ""));
-                    if (isMap(obj[key])) ar = ar.concat(_map(obj[key], prefix + "_" + key, clone(lbs)));
-                    if (isArray(obj[key])) ar = ar.concat(_arr(obj[key], prefix + "_" + key, clone(lbs)));
+                    var k = key.replace(/[^a-zA-Z0-9]/g, "_");
+                    if (isBoolean(obj[key])) ar.push(prefix + "_" + k + lprefix + " " + (obj[key] ? "1" : "0") + " " + (isDef(aTimestamp) ? Number(aTimestamp) : ""));
+                    if (isNumber(obj[key])) ar.push(prefix + "_" + k + lprefix + " " + Number(obj[key]) + " " + (isDef(aTimestamp) ? Number(aTimestamp) : ""));
+                    if (isMap(obj[key])) ar = ar.concat(_map(obj[key], prefix + "_" + k, clone(lbs)));
+                    if (isArray(obj[key])) ar = ar.concat(_arr(obj[key], prefix + "_" + k, clone(lbs)));
                 }
             });
             lbs = origLbs;
@@ -379,5 +502,5 @@ OpenWrap.metrics.prototype.fromObj2OpenMetrics = function(aObj, aPrefix, aTimest
         ar = far;
     }
 
-    return ar.join("\n") + "\n";
+    return ar.map(r => r.replace(/\\{1}/g, "/").trim()).join("\n") + "\n";
 };

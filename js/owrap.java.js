@@ -155,7 +155,7 @@ OpenWrap.java.prototype.maven.prototype.getFileVersion = function(artifactId, aF
         version: version
     });
 
-    var h = new ow.obj.http(this._getURL() + "/" + aURI + "/" + version + "/" + filename, "GET", "", void 0, true, void 0, true);
+    var h = new ow.obj.http(this._getURL() + "/" + aURI + "/" + version + "/" + filename, "GET", "", __, true, __, true);
 
     io.mkdir(aOutputDir);
     var rstream = h.responseStream();
@@ -189,7 +189,7 @@ OpenWrap.java.prototype.maven.prototype.getDependencies = function(artifactId, a
                     if (isUnDef(v.optional) || !v.optional) {
                         if (isDef(x.project.properties)) props = merge(props, x.project.properties);
 
-                        var pversion = void 0;
+                        var pversion = __;
                         if (isDef(v.version)) {
                             var pversion = String(v.version);
                             if (pversion == "${project.version}") pversion = String(x.project.parent.version);
@@ -202,12 +202,12 @@ OpenWrap.java.prototype.maven.prototype.getDependencies = function(artifactId, a
                             info.add({
                                 groupId: pgroupId,
                                 artifactId: String(v.artifactId),
-                                version: (isDef(pversion) ? pversion : void 0),
-                                scope: (isDef(v.scope) ? String(v.scope) : void 0)
+                                version: (isDef(pversion) ? pversion : __),
+                                scope: (isDef(v.scope) ? String(v.scope) : __)
                             });
                             
                             if (aList.indexOf(pgroupId + "." + v.artifactId) < 0) {
-                                var rinfo = this.getDependencies(pgroupId + "." + v.artifactId, pversion, void 0, aScope, aList, props);
+                                var rinfo = this.getDependencies(pgroupId + "." + v.artifactId, pversion, __, aScope, aList, props);
                                 aList.add(pgroupId + "." + v.artifactId);
                                 info.addAll(rinfo);
                             }
@@ -274,7 +274,7 @@ OpenWrap.java.prototype.maven.prototype.processMavenFile = function(aDirectory, 
             } else {
                 aLogFunc("Downloading latest " + arts.id + " jar file...");
                 maven.getFile(arts.group + "." + arts.id, filenameTemplate, outputDir);
-                try { maven.getLicenseByVersion(arts.group + "." + arts.id, filenameTemplate, void 0, outputDir); } catch(e) {}
+                try { maven.getLicenseByVersion(arts.group + "." + arts.id, filenameTemplate, __, outputDir); } catch(e) {}
                 if (deleteOld) maven.removeOldVersions(arts.id, filenameTemplate, outputDir, testfunc);
             }
         });
@@ -353,7 +353,7 @@ OpenWrap.java.prototype.IMAP = function(aServer, aUser, aPassword, isSSL, aPort,
     this.user   = _$(aUser, "user").isString().$_();
     this.pass   = _$(aPassword, "password").isString().$_();
     this.isSSL  = _$(isSSL, "isSSL").isBoolean().default(false);
-    this.port   = _$(aPort, "port").isNumber().default(void 0);
+    this.port   = _$(aPort, "port").isNumber().default(__);
     this.ro     = _$(isReadOnly, "isReadOnly").isBoolean().default(false);
 
     var props = new java.util.Properties();
@@ -591,8 +591,95 @@ OpenWrap.java.prototype.IMAP.prototype.getUnreadMessageCount = function(aFolder)
  * Creates an ow.java.cipher to use anAlgorithm (defaults to RSA/ECB/OAEPWITHSHA-512ANDMGF1PADDING).
  * </odoc>
  */
-OpenWrap.java.prototype.cipher = function(anAlgorithm) {
+OpenWrap.java.prototype.cipher = function(anAlgorithm, anSymAlgorithm, anSymSize) {
     this.alg = _$(anAlgorithm).isString().default("RSA/ECB/OAEPWITHSHA-512ANDMGF1PADDING");
+    this.aalg = _$(anSymAlgorithm).isString().default("AES");
+    this.aalgsize = _$(anSymSize).isNumber().default(128);
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.symGenKey(aSize) : ArrayBytes</key>
+ * Returns a generated symmetric key with aSize (defaults to aSize)
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.symGenKey = function(aSize) {
+    aSize = _$(aSize).isNumber().default(this.aalgsize);
+    var generator = javax.crypto.KeyGenerator.getInstance(this.aalg);
+    generator.init(aSize);
+    return generator.generateKey().getEncoded();
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.symEncrypt(aMessage, aKey) : ArrayBytes</key>
+ * Returns a symmetric encrypted aMessage using a previously generated aKey (using ow.java.cipher.symGenKey).
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.symEncrypt = function(plainText, aKey) {
+    _$(plainText).$_();
+    _$(aKey).$_();
+
+    if (isString(plainText)) plainText = af.fromString2Bytes(plainText);
+    if (isString(aKey)) aKey = af.fromString2Bytes(aKey);
+
+    var sks = new javax.crypto.spec.SecretKeySpec(aKey, 0, aKey.length, this.aalg);
+    var cipher = javax.crypto.Cipher.getInstance(this.aalg);
+    cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, sks);
+    return cipher.doFinal(plainText);
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.symDecrypt(anEncryptedMessage, aKey) : ArrayBytes</key>
+ * Returns the decrypted anEncryptedMessage using aKey (used to encrypt with symEncrypt)
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.symDecrypt = function(encryptedMsg, aKey) {
+    var sks = new javax.crypto.spec.SecretKeySpec(aKey, 0, aKey.length, this.aalg);
+    var cipher = javax.crypto.Cipher.getInstance(this.aalg);
+    cipher.init(javax.crypto.Cipher.DECRYPT_MODE, sks);
+    return cipher.doFinal(encryptedMsg);
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.aSymEncrypt(aMessage, aPublicKey) : Map</key>
+ * Given aMessage and previously generated aPublicKey will encrypt aMessage with a random symmetric key,
+ * encrypt that symmetric key with aPublicKey and return a map with eSymKey (encrypted symmetric key) and eMessage (encrypted message)
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.aSymEncrypt = function(aMessage, aPublicKey) {
+    _$(aMessage).$_("Please provide a message to encrypt.");
+    _$(aPublicKey).$_("Please provide a public key.");
+
+    var k = this.symGenKey();
+    var msg = this.symEncrypt(aMessage, k);
+    var ck = this.encrypt(k, aPublicKey);
+    k = __;
+
+    return {
+        eSymKey : ck,
+        eMessage: msg
+    };
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.prototype.aSymDecrypt(eMessage, eSymKey, privateKey) : ArrayBytes</key>
+ * Given a previously encrypted eMessage with an encrypted symmetric key, will use the provided privateKey to decrypt
+ * eSymKey and use it to decrypt eMessage returning the corresponding decrypted contents.
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.aSymDecrypt = function(eMessage, eSymKey, privateKey) {
+    _$(eMessage).$_("Please provide an encrypted message to decrypt.");
+    _$(eSymKey).$_("Please provide an encrypted sym key.");
+    _$(privateKey).$_("Please provide a private key.");
+
+    var dk = this.decrypt(eSymKey, privateKey, __, true);
+    var out = this.symDecrypt(eMessage, dk);
+    dk = __;
+    return out;
 };
 
 /**
@@ -608,7 +695,8 @@ OpenWrap.java.prototype.cipher.prototype.encrypt = function(plainText, publicKey
 
    var cipher = javax.crypto.Cipher.getInstance(this.alg);
    cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, publicKey);
-   var cipherText = cipher.doFinal(af.fromString2Bytes(plainText));
+   if (isString(plainText)) plainText = af.fromString2Bytes(plainText);
+   var cipherText = cipher.doFinal(plainText);
    return cipherText;
 };
 
@@ -662,30 +750,56 @@ OpenWrap.java.prototype.cipher.prototype.decrypt4Text = function(cipherText, pri
  * </odoc>
  */
 OpenWrap.java.prototype.cipher.prototype.saveKey2File = function(filename, key, isPrivate, anAlgorithm) {
-   _$(filename).isString().$_("Please provide a filename.");
-   _$(key).$_("Please provide the key to save.");
-   _$(isPrivate).isBoolean().$_("Please indicate if it's a private or public key.");
-   anAlgorithm = _$(anAlgorithm).isString().default("RSA");
-
-   var keyFactory = java.security.KeyFactory.getInstance(anAlgorithm);
-   var spec;
-   if (isPrivate) {
-      spec = keyFactory.getKeySpec(key, af.getClass("java.security.spec." + anAlgorithm + "PrivateKeySpec"));
-   } else {
-      spec = keyFactory.getKeySpec(key, af.getClass("java.security.spec." + anAlgorithm + "PublicKeySpec"));
-   }
-   var modulus = spec.getModulus();
-   var exponent = (isPrivate ? spec.getPrivateExponent() : spec.getPublicExponent() );
-   var ostream = new java.io.ObjectOutputStream(new java.io.BufferedOutputStream(new Packages.org.apache.commons.codec.binary.Base64OutputStream(new java.io.FileOutputStream(filename))));
-   try {
-      ostream.writeObject(modulus);
-      ostream.writeObject(exponent);
-   } catch(e) {
-      sprintErr(e);
-   } finally {
-      ostream.close();
-   }
+    _$(filename).isString().$_("Please provide a filename.");
+    this.saveKey2Stream(new java.io.FileOutputStream(filename), key, isPrivate, anAlgorithm);
 };
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.saveKey2String(aKey, isPrivate, anAlgorithm) : String</key>
+ * Given a public or private aKey (from ow.java.cipher.readKey4File or genKeyPair) tries to return a string representation. If
+ * the aKey is private isPrivate must be true, if public is must be false.
+ * Optionally a key anAlgorithm can be provided (defaults to RSA).
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.saveKey2String = function(key, isPrivate, anAlgorithm) {
+    var os = af.fromString2OutputStream("");
+    this.saveKey2Stream(os, key, isPrivate, anAlgorithm);
+    return String(os.toString());
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.saveKey2Stream(aOutputStream, isPrivate, anAlgorithm) : String</key>
+ * Given a public or private aKey (from ow.java.cipher.readKey4File or genKeyPair) tries to return output to aOutputStream. If
+ * the aKey is private isPrivate must be true, if public is must be false.
+ * Optionally a key anAlgorithm can be provided (defaults to RSA).
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.saveKey2Stream = function(aOutputStream, key, isPrivate, anAlgorithm) {
+    _$(key).$_("Please provide the key to save.");
+    _$(isPrivate).isBoolean().$_("Please indicate if it's a private or public key.");
+    anAlgorithm = _$(anAlgorithm).isString().default("RSA");
+ 
+    var keyFactory = java.security.KeyFactory.getInstance(anAlgorithm);
+    var spec;
+    if (isPrivate) {
+       spec = keyFactory.getKeySpec(key, af.getClass("java.security.spec." + anAlgorithm + "PrivateKeySpec"));
+    } else {
+       spec = keyFactory.getKeySpec(key, af.getClass("java.security.spec." + anAlgorithm + "PublicKeySpec"));
+    }
+    var modulus = spec.getModulus();
+    var exponent = (isPrivate ? spec.getPrivateExponent() : spec.getPublicExponent() );
+    var ostream = new java.io.ObjectOutputStream(new java.io.BufferedOutputStream(new Packages.org.apache.commons.codec.binary.Base64OutputStream(aOutputStream)));
+    try {
+       ostream.writeObject(modulus);
+       ostream.writeObject(exponent);
+    } catch(e) {
+       sprintErr(e);
+    } finally {
+       ostream.close();
+    }
+ };
 
 /**
  * <odoc>
@@ -697,27 +811,52 @@ OpenWrap.java.prototype.cipher.prototype.saveKey2File = function(filename, key, 
  */
 OpenWrap.java.prototype.cipher.prototype.readKey4File = function(filename, isPrivate, anAlgorithm) {
    _$(filename).isString().$_("Please provide a filename.");
-   _$(isPrivate).isBoolean().$_("Please indicate if it's a private or public key.");
-   anAlgorithm = _$(anAlgorithm).isString().default("RSA");
 
-   var istream = new java.io.FileInputStream(filename);
-   var oistream = new java.io.ObjectInputStream(new java.io.BufferedInputStream(new Packages.org.apache.commons.codec.binary.Base64InputStream(istream)));
-   var key;
-   try {
-      var modulus = oistream.readObject();
-      var exponent = oistream.readObject();
-      var keyFactory = java.security.KeyFactory.getInstance(anAlgorithm);
-      if (!isPrivate) {
-         key = keyFactory.generatePublic(new java.security.spec[anAlgorithm + "PublicKeySpec"](modulus, exponent));
-      } else {
-         key = keyFactory.generatePrivate(new java.security.spec[anAlgorithm + "PrivateKeySpec"](modulus, exponent));
-      }
-   } catch(e) {
-      sprintErr(e);
-   } finally {
-      oistream.close();
-   }
-   return key;
+   return this.readKey4Stream(new java.io.FileInputStream(filename), isPrivate, anAlgorithm);
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.readKey4String(aString, isPrivate, anAlgorithm) : Key</key>
+ * Given a key on aString previously saved with ow.java.cipher.saveKey2String returns the Key object to use with other functions.
+ * If the aKey is private isPrivate must be true, if public is must be false.
+ * Optionally a key anAlgorithm can be provided (defaults to RSA).
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.readKey4String = function(key, isPrivate, anAlgorithm) {
+    var is = af.fromString2InputStream(key);
+    return this.readKey4Stream(is, isPrivate, anAlgorithm);
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.readKey4Stream(aInputStream, isPrivate, anAlgorithm) : Key</key>
+ * Given a key on aInputStream previously saved with ow.java.cipher.saveKey2Stream returns the Key object to use with other functions.
+ * If the aKey is private isPrivate must be true, if public is must be false.
+ * Optionally a key anAlgorithm can be provided (defaults to RSA).
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.readKey4Stream = function(istream, isPrivate, anAlgorithm) {
+    _$(isPrivate).isBoolean().$_("Please indicate if it's a private or public key.");
+    anAlgorithm = _$(anAlgorithm).isString().default("RSA");
+
+    var oistream = new java.io.ObjectInputStream(new java.io.BufferedInputStream(new Packages.org.apache.commons.codec.binary.Base64InputStream(istream)));
+    var key;
+    try {
+       var modulus = oistream.readObject();
+       var exponent = oistream.readObject();
+       var keyFactory = java.security.KeyFactory.getInstance(anAlgorithm);
+       if (!isPrivate) {
+          key = keyFactory.generatePublic(new java.security.spec[anAlgorithm + "PublicKeySpec"](modulus, exponent));
+       } else {
+          key = keyFactory.generatePrivate(new java.security.spec[anAlgorithm + "PrivateKeySpec"](modulus, exponent));
+       }
+    } catch(e) {
+       sprintErr(e);
+    } finally {
+       oistream.close();
+    }
+    return key;
 };
 
 /**
@@ -786,7 +925,7 @@ OpenWrap.java.prototype.cipher.prototype.decode2key = function(key, isPrivate, a
  * Optionally a key anAlgorithm can be provided (defaults to RSA).
  * </odoc>
  */
-OpenWrap.java.prototype.cipher.prototype.decrypt = function(cipherText, privateKey, anAlgorithm) {
+OpenWrap.java.prototype.cipher.prototype.decrypt = function(cipherText, privateKey, anAlgorithm, noConversion) {
    _$(cipherText).$_("Please provide an encrypted message to decrypt.");
    _$(privateKey).$_("Please provide a private key.");
    anAlgorithm = _$(anAlgorithm).isString().default(this.alg);
@@ -794,7 +933,7 @@ OpenWrap.java.prototype.cipher.prototype.decrypt = function(cipherText, privateK
    var cipher = javax.crypto.Cipher.getInstance(anAlgorithm);
    cipher.init(javax.crypto.Cipher.DECRYPT_MODE, privateKey);
    var decryptedText = cipher.doFinal(cipherText);
-   return af.fromBytes2String(decryptedText);
+   return (noConversion ? decryptedText : af.fromBytes2String(decryptedText));
 };
 
 // af.fromInputStream2String(t.decryptStream(af.fromBytes2InputStream(t.encrypt("ola", pub)), priv))
@@ -877,15 +1016,16 @@ OpenWrap.java.prototype.cipher.prototype.verify = function(sigToVerify, aPublicK
 
 /**
  * <odoc>
- * <key>ow.java.cipher.genCert(aDn, aPublicKey, aPrivateKey, aValidity, aSigAlgName, aKeyStore, aPassword) : JavaSignature</key>
+ * <key>ow.java.cipher.genCert(aDn, aPublicKey, aPrivateKey, aValidity, aSigAlgName, aKeyStore, aPassword, aKeyStoreType) : JavaSignature</key>
  * Generates a certificate with aDn (defaults to "cn=openaf"), using aPublicKey and aPrivateKey, for aValidity date (defaults to a date 
  * one year from now). Optionally you can specify aSigAlgName (defaults to SHA256withRSA), a file based aKeyStore and the corresponding
  * aPassword (defaults to "changeit").
  * </odoc>
  */
-OpenWrap.java.prototype.cipher.prototype.genCert = function(aDn, aPubKey, aPrivKey, aValidity, aSigAlgName, aKeyStore, aPassword) {
+OpenWrap.java.prototype.cipher.prototype.genCert = function(aDn, aPubKey, aPrivKey, aValidity, aSigAlgName, aKeyStore, aPassword, aKeyStoreType) {
     aDn = _$(aDn, "dn").regexp(/^cn\=/i).isString().default("cn=openaf");
     aSigAlgName = _$(aSigAlgName, "signature alg name").isString().default("SHA256withRSA");
+    aKeyStoreType = _$(aKeyStoreType, "key store type").isString().default(java.security.KeyStore.getDefaultType());
     _$(aPubKey, "public key").$_();
     _$(aPrivKey, "private key").$_();
     aValidity = _$(aValidity, "validity").isDate().default(new Date(now() + (1000 * 60 * 60 * 24 * 365)));
@@ -899,7 +1039,7 @@ OpenWrap.java.prototype.cipher.prototype.genCert = function(aDn, aPubKey, aPrivK
     var serialNumber = new java.math.BigInteger(64, new java.security.SecureRandom());
     
     var owner = new Packages.sun.security.x509.X500Name(aDn);
-    var sigAlgId = new Packages.sun.security.x509.AlgorithmId(Packages.sun.security.x509.AlgorithmId.md5WithRSAEncryption_oid);
+    var sigAlgId = Packages.sun.security.x509.AlgorithmId.get(aSigAlgName);
 
     info.set(Packages.sun.security.x509.X509CertInfo.VALIDITY, interval);
     info.set(Packages.sun.security.x509.X509CertInfo.SERIAL_NUMBER, new Packages.sun.security.x509.CertificateSerialNumber(serialNumber));
@@ -920,7 +1060,7 @@ OpenWrap.java.prototype.cipher.prototype.genCert = function(aDn, aPubKey, aPrivK
     if (isDef(aKeyStore)) {
         aPassword = _$(aPassword).isString().default("changeit");
 
-        var ks = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType());
+        var ks = java.security.KeyStore.getInstance(aKeyStoreType);
         ks.load(null, null);    
         ks.setKeyEntry("main", aPrivKey, (new java.lang.String(aPassword)).toCharArray(), [ certificate ]);
         var fos = io.writeFileStream(aKeyStore);
@@ -975,12 +1115,54 @@ OpenWrap.java.prototype.gc = function() {
 
 /**
  * <odoc>
+ * <key>ow.java.getSystemProperties() : Map</key>
+ * Retrieves the current list of system properties.
+ * </odoc>
+ */
+OpenWrap.java.prototype.getSystemProperties = function() {
+    return af.fromJavaMap( java.lang.management.ManagementFactory.getRuntimeMXBean().getSystemProperties() );
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.getClassPath() : String</key>
+ * Retrieves the initial java classpath.
+ * </odoc>
+ */
+OpenWrap.java.prototype.getClassPath = function() {
+    return String(java.lang.management.ManagementFactory.getRuntimeMXBean().getClassPath());
+}; 
+
+/**
+ * <odoc>
+ * <key>ow.java.getInputArguments() : Array</key>
+ * List of Java virtual machine input arguments
+ * </odoc>
+ */
+OpenWrap.java.prototype.getInputArguments = function() {
+    return af.fromJavaArray( java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments() );
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.getLibraryPath() : String</key>
+ * Retrieves the initial OS library path.
+ * </odoc>
+ */
+OpenWrap.java.prototype.getLibraryPath = function() {
+    return String( java.lang.management.ManagementFactory.getRuntimeMXBean().getLibraryPath() );
+}
+
+/**
+ * <odoc>
  * <key>ow.java.getAddressType(aAddress) : Map</key>
  * Given aAddress tries to return a map with the following flags: isValidAddress, hostname, ipv4, ipv6 and privateAddress
  * </odoc>
  */
 OpenWrap.java.prototype.getAddressType = function(aTxt) {
-    var res ={
+    ow.loadNet();
+    return ow.net.getAddressType(aTxt);
+    /*var res ={
         isValidAddress: true,
         hostname: true,
         ipv4: false,
@@ -1013,7 +1195,7 @@ OpenWrap.java.prototype.getAddressType = function(aTxt) {
        res.hostname = false;
     }
  
-    return res;
+    return res;*/
 };
 
 /**
@@ -1023,7 +1205,9 @@ OpenWrap.java.prototype.getAddressType = function(aTxt) {
  * </odoc>
  */
 OpenWrap.java.prototype.getHost2IP = function(aName) {
-    return String(java.net.InetAddress.getByName(aName).getHostAddress());
+    ow.loadNet();
+    return ow.net.getHost2IP(aName);
+    //return String(java.net.InetAddress.getByName(aName).getHostAddress());
 };
 
 /**
@@ -1033,7 +1217,62 @@ OpenWrap.java.prototype.getHost2IP = function(aName) {
  * </odoc>
  */
 OpenWrap.java.prototype.getIP2Host = function(aIP) {
-    return String(java.net.InetAddress.getByName(aIP).getCanonicalHostName());
+    ow.loadNet();
+    return ow.net.getIP2Host(aIP);
+    //return String(java.net.InetAddress.getByName(aIP).getCanonicalHostName());
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.getJarVersion(aJarFile) : Array</key>
+ * Given aJarFile will return an array of JVM versions used in java classes contained.
+ * </odoc>
+ */
+OpenWrap.java.prototype.getJarVersion = function(aJarFile) {
+    var vers = [];
+
+    plugin("ZIP");
+    var zip = new ZIP();
+
+    Object.keys( zip.list(aJarFile) ).map(r => {
+        var v = ow.java.getClassVersion(aJarFile + "::" + r);
+        if (vers.indexOf(v) < 0 && isDef(v)) {
+            vers.push(v);
+        }
+    });
+
+    return vers;
+};
+
+/**
+ * <odoc>
+ * <key>ow.java.getClassVersion(aClassBytes) : String</key>
+ * Given the class array of bytes (aClassBytes), or a string from which the corresponding bytes will be read, tries to determine the minimum JVM version required to load the class.
+ * </odoc>
+ */
+OpenWrap.java.prototype.getClassVersion = function(aClassBytes) {
+    var ver;
+
+    if (isString(aClassBytes)) aClassBytes = io.readFileBytes(aClassBytes);
+
+    switch(aClassBytes[7]) {
+    case 45: ver = "1.1"; break;
+    case 46: ver = "1.2"; break;
+    case 47: ver = "1.3"; break;
+    case 48: ver = "1.4"; break;
+    case 49: ver = "5"; break;
+    case 50: ver = "6"; break;
+    case 51: ver = "7"; break;
+    case 52: ver = "8"; break;
+    case 53: ver = "9"; break;
+    case 54: ver = "10"; break;
+    case 55: ver = "11"; break;
+    case 56: ver = "12"; break;
+    case 57: ver = "13"; break;
+    case 58: ver = "14"; break;
+    }
+
+    return ver;
 };
 
 /**
@@ -1043,7 +1282,9 @@ OpenWrap.java.prototype.getIP2Host = function(aIP) {
  * </odoc>
  */
 OpenWrap.java.prototype.getWhoIs = function(aQuery, server) {
-    var ws = new Packages.org.apache.commons.net.whois.WhoisClient();
+    ow.loadNet();
+    return ow.net.getWhoIs(aQuery, server);
+    /*var ws = new Packages.org.apache.commons.net.whois.WhoisClient();
     server = _$(server).isString().default("whois.iana.org");
 
     ws.connect(server);
@@ -1080,9 +1321,9 @@ OpenWrap.java.prototype.getWhoIs = function(aQuery, server) {
                 capture = false;
             }
             if (key == "remarks") capture = false;
-            if (key.indexOf(">>>") >= 0 && value.indexOf("<<<") >= 0) {
-                key = key.replace(/>>>\s*/, "");
-                value = value.replace(/\s*<<</, "");
+            if (key.indexOf(">>>") >= 0 && value.indexOf("<<<") >= 0) {*/
+                //key = key.replace(/>>>\s*/, "");
+                /*value = value.replace(/\s*<<</, "");
                 preend = true;
             }
 
@@ -1097,7 +1338,7 @@ OpenWrap.java.prototype.getWhoIs = function(aQuery, server) {
 
     if (isDef(result.whois) && result.whois != server) result = ow.java.getWhoIs(aQuery, result.whois);
 
-    return result;
+    return result;*/
 };
 
 /**
@@ -1177,7 +1418,7 @@ OpenWrap.java.prototype.memComm = function(aFile, aSize) {
 
     this.file = aFile;
     this.fsize = _$(aSize).isNumber().default(4096);
-    this.lck = void 0;
+    this.lck = __;
 
     this.setup();
 };
@@ -1197,7 +1438,7 @@ OpenWrap.java.prototype.memComm.prototype.lock = function() {
 
 OpenWrap.java.prototype.memComm.prototype.unlock = function() {
     if (isDef(this.lck)) this.lck.release();
-    this.lck = void 0;
+    this.lck = __;
 }
 
 OpenWrap.java.prototype.memComm.prototype.send = function(aMsg) {
@@ -1251,7 +1492,7 @@ OpenWrap.java.prototype.jsonMemComm.prototype.send = function(aObj) {
     try {
         var index = jsonParse(this.idx.receive(), true);
 
-        var s = stringify(aObj, void 0, "");
+        var s = stringify(aObj, __, "");
         t = nowNano();
         var n = t + ".mem";
         index[t] = n;
@@ -1259,7 +1500,7 @@ OpenWrap.java.prototype.jsonMemComm.prototype.send = function(aObj) {
         tmp.send(s);
     
         this.idx.rewind();
-        this.idx.send(stringify(index, void 0, ""));
+        this.idx.send(stringify(index, __, ""));
         this.idx.unlock();
     } catch(e) {
         this.idx.unlock();
@@ -1288,7 +1529,7 @@ OpenWrap.java.prototype.jsonMemComm.prototype.receive = function() {
                 delete entries[r];
 
                 this.idx.rewind();
-                this.idx.send(stringify(entries, void 0, ""));
+                this.idx.send(stringify(entries, __, ""));
             });
             this.idx.unlock();
         } catch(e) {

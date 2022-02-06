@@ -6,6 +6,7 @@ import java.nio.file.StandardCopyOption;
 import java.io.File;
 import java.io.IOException;
 import java.lang.String;
+import java.io.InputStream;
 
 /**
  * 
@@ -20,7 +21,9 @@ public class _AFCmdOS {
         if (checkedRepack) return;
 
         // Check repack
-        if (OAFRepack.class.getResourceAsStream("/js.jar") != null) {
+        InputStream stream = OAFRepack.class.getResourceAsStream("/js.jar");
+        if (stream != null) {
+            try { stream.close(); } catch(IOException e) { }
             System.err.println("Repacking OpenAF...");
             File currentJar;
             try {
@@ -50,7 +53,7 @@ public class _AFCmdOS {
             }
             try {
                 OAFRepack.repackAndReplace(currentJar.getPath(), targs.substring(0, targs.length()));
-            } catch (IOException e) {
+            } catch (Exception e) {
                 SimpleLog.log(SimpleLog.logtype.ERROR, "Error with the repack: " + e.getMessage(), null);
                 SimpleLog.log(SimpleLog.logtype.DEBUG, "", e);
             }

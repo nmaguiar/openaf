@@ -1,8 +1,8 @@
-const $$ = function(aObj) {
-	const _r = {
+var $$ = function(aObj) {
+	var _r = {
 		/**
 		 * <odoc>
-		 * <key>$$(aObject).get(aPath) : Object</key>
+		 * <key>$$.get(aPath) : Object</key>
 		 * Given aObject it will try to parse the aPath a retrive the corresponding object under that path. Example:\
 		 * \
 		 * var a = { a : 1, b : { c: 2, d: [0, 1] } };\
@@ -32,7 +32,7 @@ const $$ = function(aObj) {
 		},
 		/**
 		 * <odoc>
-		 * <key>$$(aObject).set(aPath, aNewValue) : Object</key>
+		 * <key>$$.set(aPath, aNewValue) : Object</key>
 		 * Given aObject it will try to parse the aPath a set the corresponding object under that path to aNewValue. Example:\
 		 * \
 		 * var a = { a : 1, b : { c: 2, d: [0, 1] } };\
@@ -94,12 +94,12 @@ const $$ = function(aObj) {
 };
 
 
-const _$ = function(aValue, aPrefixMessage) {
+var _$ = function(aValue, aPrefixMessage) {
     var defined;
     if ($$(aPrefixMessage).isDef()) aPrefixMessage += " "; else aPrefixMessage = "";
     if ($$(aValue).isDef()) defined = true; else defined = false;
 
-    const __r = {
+    var __r = {
         // Defaults
         /**
          * <odoc>
@@ -122,11 +122,16 @@ const _$ = function(aValue, aPrefixMessage) {
 			return aValue;
 		},
 		
-		// Type check
+		// Type check and conversion
         isNumber: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not a number";
             if (defined && !$$(aValue).isNumber()) throw aMessage;
             return __r;
+        },
+        toNumber: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "can't be converted to number"
+            if (defined) try { aValue = Number(aValue) } catch(e) { throw aMessage }
+            return __r
         },
         isTNumber: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not a number type";
@@ -138,20 +143,46 @@ const _$ = function(aValue, aPrefixMessage) {
             if (defined && !$$(aValue).isString()) throw aMessage;
             return __r;
         },
+        toString: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "can't be converted to string"
+            if (defined) try { aValue = String(aValue) } catch(e) { throw aMessage }
+            return __r
+        },
         isBoolean: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not boolean";
             if (defined && (typeof aValue !== "boolean")) throw aMessage;
             return __r;
+        },
+        toBoolean: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "can't be converted to a boolean"
+            if (defined) try { 
+                if ($$(aValue).isNumber()) aValue = Boolean(aValue);
+                if ($$(aValue).isString()) aValue = (aValue.trim().toLowerCase() == 'true');
+            } catch(e) { throw aMessage }
+            return __r
         },
         isArray: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not an array";
             if (defined && !$$(aValue).isArray()) throw aMessage;
             return __r;
         },
+        toArray: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "can't be converted to an array"
+            if (defined) try { aValue = String(aValue).split(",").map(r => r.trim()) } catch(e) { throw aMessage }
+            return __r
+        },  
         isMap: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not a map";
             if (defined && !$$(aValue).isMap()) throw aMessage;
             return __r;
+        }, 
+        toMap: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "can't be converted to a map"
+            if (defined) try { 
+                var __f = j => { return ($$(global.jsonParse).isFunction() ? global.jsonParse(j, true) : JSON.parse(j)) }
+                aValue = __f(aValue) 
+            } catch(e) { throw aMessage }
+            return __r
         },
         isObject: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not an object";
@@ -163,6 +194,11 @@ const _$ = function(aValue, aPrefixMessage) {
             if (defined && !$$(aValue).isDate()) throw aMessage;
             return __r;
         },    
+        toDate: (aMessage) => {
+            if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "can't be converted to date"
+            if (defined) try { aValue = new Date(aValue) } catch(e) { throw aMessage }
+            return __r
+        },
         isRegExp: (aMessage) => {
             if ($$(aMessage).isUnDef()) aMessage = aPrefixMessage + "is not a RegExp";
             if (defined && !$$(aValue).isRegExp()) throw aMessage;

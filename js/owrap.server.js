@@ -337,7 +337,7 @@ OpenWrap.server.prototype.jmx = {
  * Example:\
  * \
  * ow.loadServer();\
- * $ch("a").createRemote("http://some.server:1234/a", void 0, (h) => {\
+ * $ch("a").createRemote("http://some.server:1234/a", __, (h) => {\
  *    h.login("user", ow.server.authAppGen("...", "...", "..."));\
  * });\
  * \
@@ -370,7 +370,7 @@ OpenWrap.server.prototype.authAppGen = function(anAppPassword, aUserPassword, a2
 	if (numRounds < 1) {
 		return "Z" + af.encrypt(sha512(aPass + String(af.get2FAToken(token))), appPass);
 	} else {
-		return "Z" + af.encrypt(bcrypt(sha512(aPass + String(af.get2FAToken(token))), void 0, numRounds), appPass);
+		return "Z" + af.encrypt(bcrypt(sha512(aPass + String(af.get2FAToken(token))), __, numRounds), appPass);
 	}
 };
 
@@ -484,7 +484,7 @@ OpenWrap.server.prototype.auth = function(aIniAuth, aKey, aCustomFunction) {
 	 */
 	this.initialize = function(aIniAuth, aKey, aCustomFunc) {
 		if (isString(aIniAuth)) {
-			this.aListOfAuths = jsonParse(af.decrypt(aIniAuth, (isDef(aKey) ? aKey : void 0)));
+			this.aListOfAuths = jsonParse(af.decrypt(aIniAuth, (isDef(aKey) ? aKey : __)));
 		} else {
 			this.aListOfAuths = aIniAuth;
 		}
@@ -509,7 +509,7 @@ OpenWrap.server.prototype.auth = function(aIniAuth, aKey, aCustomFunction) {
 	 * </odoc>
 	 */
 	this.dumpEncrypt = function(aKey) {
-		return af.encrypt(stringify(this.aListOfAuths), (isDef(aKey) ? aKey : void 0));
+		return af.encrypt(stringify(this.aListOfAuths), (isDef(aKey) ? aKey : __));
 	};
 	
 	/**
@@ -788,7 +788,7 @@ OpenWrap.server.prototype.rest = {
 
 		r = {};
 		var l = splitBySeparator(s, "&");
-		for(let i in l) {
+		for(var i in l) {
 			var a = splitBySeparator(l[i], "=");
 			if (a.length == 2) r[decodeURIComponent(a[0])] = decodeURIComponent(a[1]);
 		}
@@ -797,7 +797,7 @@ OpenWrap.server.prototype.rest = {
 
 	/**
 	 * <odoc>
-	 * <key>ow.server.rest.reply(aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams, anAuditFn) : RequestReply</key>
+	 * <key>ow.server.rest.reply(aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams, anAuditFn, returnHTML) : RequestReply</key>
 	 * Provides a REST compliant HTTPServer request replier given a aBaseURI, aRequest, aCreateFunc, aGetFunc, aSetFunc
 	 * and aRemoveFunc. Each function will receive a map with the provided indexes and data from the request plus the request itself. Optionally you can 
 	 * specify with returnWithParams = true that each function will not return just the data map but a composed map with: data (the actual
@@ -817,23 +817,40 @@ OpenWrap.server.prototype.rest = {
 	 * \
 	 * </odoc>
 	 */
-	reply: function(aBaseURI, aReq, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams, anAuditFn) {
+	reply: function(aBaseURI, aReq, aCreateFunc, aGetFunc, aSetFunc, aRemoveFunc, returnWithParams, anAuditFn, returnHTML) {
+		returnHTML = _$(returnHTML, "returnHTML").isBoolean().default(false);
+
 		var idxs = ow.server.rest.parseIndexes(aBaseURI, aReq);
 		var res = {};
 		res.headers = {};
 		var params;
 
-		res.mimetype = ow.server.httpd.mimes.JSON;
+		if (returnHTML) ow.loadTemplate();
+		res.mimetype = (returnHTML ? ow.server.httpd.mimes.HTML : ow.server.httpd.mimes.JSON);
+
+		var fnD = r => {
+			if (returnHTML) {
+				var res = ow.template.html.parseMap(r, true);
+
+				return String("<html><style>" + res.css + "</style><body>" + res.out + "</body></html>");
+			} else {
+				if (isString(r)) {
+					return r;
+				} else {
+					return stringify(r, __, "");
+				}
+			}
+		};
 
 		switch(aReq.method) {
 		case "GET": 
 			if (returnWithParams) {
 				params = aGetFunc(idxs, aReq);
-				if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+				if (isDef(params.data))     res.data = fnD(params.data);
 				if (isDef(params.status))   res.status = params.status;
 				if (isDef(params.mimetype)) res.mimetype = params.mimetype;
 			} else {
-				res.data = stringify(aGetFunc(idxs, aReq), void 0, ""); 
+				res.data = fnD(aGetFunc(idxs, aReq)); 
 			}
 			break;
 		case "POST":
@@ -842,11 +859,11 @@ OpenWrap.server.prototype.rest = {
 				try { fdata = io.readFileString(aReq.files.content); } catch(e) { }
 				if (returnWithParams) {
 					params = aCreateFunc(idxs, ow.server.rest.parseQuery(fdata), aReq);
-					if (isDef(params.data))     res.data = stringify(params.data);
+					if (isDef(params.data))     res.data = fnD(params.data);
 					if (isDef(params.status))   res.status = params.status;
 					if (isDef(params.mimetype)) res.mimetype = params.mimetype;
 				} else { 
-					res.data = stringify(aCreateFunc(idxs, ow.server.rest.parseQuery(fdata), aReq), void 0, "");
+					res.data = fnD(aCreateFunc(idxs, ow.server.rest.parseQuery(fdata), aReq));
 				}
 			} else {
 				if (isDef(aReq.files.postData)) {
@@ -855,11 +872,11 @@ OpenWrap.server.prototype.rest = {
 					params = aCreateFunc(idxs, ow.server.rest.parseQuery(aReq.params["NanoHttpd.QUERY_STRING"]), aReq);
 				}
 				if (returnWithParams) {
-					if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+					if (isDef(params.data))     res.data = fnD(params.data);
 					if (isDef(params.status))   res.status = params.status;
 					if (isDef(params.mimetype)) res.mimetype = params.mimetype;					
 				} else {
-					res.data = stringify(params, void 0, "");
+					res.data = fnD(params);
 				}
 			}
 			res.headers["Location"] = ow.server.rest.writeIndexes(res.data);
@@ -873,26 +890,27 @@ OpenWrap.server.prototype.rest = {
 				params = aSetFunc(idxs, ow.server.rest.parseQuery(aReq.files.postData), aReq);
 			}
 			if (returnWithParams) {
-				if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+				if (isDef(params.data))     res.data = fnD(params.data);
 				if (isDef(params.status))   res.status = params.status;
 				if (isDef(params.mimetype)) res.mimetype = params.mimetype;	
 			} else {
-				res.data = stringify(params, void 0, "");
+				res.data = fnD(params);
 			}
 			break;
 		case "DELETE": 
 			params = aRemoveFunc(idxs, aReq); 
 			if (returnWithParams) {
-				if (isDef(params.data))     res.data = stringify(params.data, void 0, "");
+				if (isDef(params.data))     res.data = fnD(params.data);
 				if (isDef(params.status))   res.status = params.status;
 				if (isDef(params.mimetype)) res.mimetype = params.mimetype;	
 			} else {
-				res.data = stringify(params, void 0, "");
+				res.data = fnD(params);
 			}
 			break;
 		}
 
 		if (isDef(anAuditFn) && isFunction(anAuditFn)) $do(() => { anAuditFn(aReq, res); });
+
 		return res;
 	},
 	
@@ -1054,7 +1072,7 @@ OpenWrap.server.prototype.scheduler = function () {
 	 * </odoc>
 	 */
 	r.modifyEntry = function(aUUID, aCronExpr, aFunction, waitForFinish) {
-		if (isUnDef(this.__entries[aUUID])) return void 0;
+		if (isUnDef(this.__entries[aUUID])) return __;
 		
 		this.__entries[aUUID] = {
 			expr: aCronExpr,
@@ -1078,7 +1096,7 @@ OpenWrap.server.prototype.scheduler = function () {
 		var t;
 		var ref = new Date();
 
-		for (let i in this.__entries) {
+		for (var i in this.__entries) {
 			var c = new Date(ow.format.cron.nextScheduled(this.__entries[i].expr)) - ref;
 			if (isUnDef(t)) {
 				t = c;
@@ -1101,7 +1119,7 @@ OpenWrap.server.prototype.scheduler = function () {
 		var r = -1;
 		var ref = new Date();
 
-		for (let i in this.__entries) {
+		for (var i in this.__entries) {
 			var c = new Date(ow.format.cron.nextScheduled(this.__entries[i].expr)) - ref;
 			if (isUnDef(t)) {
 				t = c;
@@ -1139,8 +1157,8 @@ OpenWrap.server.prototype.scheduler = function () {
 		this.__t.addCachedThread(function (uuid) {
 
 			do {
-				var ts = void 0;
-				for (let i in parent.__entries) {
+				var ts = __;
+				for (var i in parent.__entries) {
 					var entry = parent.__entries[i];
 
 					// Check if it's time to execute
@@ -1151,7 +1169,7 @@ OpenWrap.server.prototype.scheduler = function () {
 							var si = String(i);
 							try {
 								if (parent.__entries[si].next <= now()) {
-									parent.__entries[si].next = (new Date(ow.format.cron.nextScheduled(parent.__entries[si].expr, void 0, now()+1000))).getTime();
+									parent.__entries[si].next = (new Date(ow.format.cron.nextScheduled(parent.__entries[si].expr, __, now()+1000))).getTime();
 									parent.__entries[si].exec = true;
 									res = parent.__entries[si].func(si);
 									while (ow.format.cron.timeUntilNext(parent.__entries[si].expr) < 0) {
@@ -1169,7 +1187,7 @@ OpenWrap.server.prototype.scheduler = function () {
 
 					// Determine the minimum waiting time
 					if (isUnDef(ts)) {
-						ts = ow.format.cron.timeUntilNext(entry.expr, void 0, now()+1000);
+						ts = ow.format.cron.timeUntilNext(entry.expr, __, now()+1000);
 					} else {
 						var c = ow.format.cron.timeUntilNext(entry.expr);
 						if (c < ts) ts = c;
@@ -1395,7 +1413,7 @@ OpenWrap.server.prototype.locks.prototype.extendTimeout = function(aLockName, aT
  * </odoc>
  */
 OpenWrap.server.prototype.locks.prototype.unlock = function (aLockName) {
-	if (this.type == "cluster" && !this.options.cluster.clusterCanUnLock(this.options.clusterOptions, aLockName)) return void 0;
+	if (this.type == "cluster" && !this.options.cluster.clusterCanUnLock(this.options.clusterOptions, aLockName)) return __;
 
 	$ch(this.name).getSet({
 		value: true
@@ -1556,7 +1574,7 @@ OpenWrap.server.prototype.queue.prototype.send = function(aObject, aId, aTTL, aP
     }, this.stamp), merge({
         id: id,
 		status: "s",
-		to: (isDef(aTTL) ? nowUTC() + aTTL : void 0),
+		to: (isDef(aTTL) ? nowUTC() + aTTL : __),
         obj: aObject
 	}, this.stamp));
 	return id;
@@ -1668,11 +1686,11 @@ OpenWrap.server.prototype.telemetry = {
 				sprintErr(e);
 			}
 		};
-		ow.server.httpd.route(aHs, r);
+		ow.server.httpd.route(aHs, ow.server.httpd.mapWithExistingRoutes(aHs, r));
 	},
 	/**
 	 * <odoc>
-	 * <key>ow.server.telemetry.active(aSendFund, aPeriod)</key>
+	 * <key>ow.server.telemetry.active(aSendFunc, aPeriod)</key>
 	 * Setup recurrent execution of aSendFunc with the propose of sending ow.metrics for a provided aPeriod (defaults to 60000 ms). 
 	 * </odoc>
 	 */
@@ -1686,6 +1704,59 @@ OpenWrap.server.prototype.telemetry = {
 		var t = new Threads();
 		t.addScheduleThreadWithFixedDelay(aSendFunc, aPeriod);
 		t.startNoWait();
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.server.telemetry.send2nAttrMon(anAttrMonCValsURL, anAttrPrefix, anArrayOfMetricNames) : Function</key>
+	 * Returns a function to be used with ow.server.telemetry.active to send metrics to nAttrMon using the provided anAttrMonCValsURL,
+	 * anAttrPrefix (e.g. "myjobname/") and, optionally, an array of metrics (anArrayOfMetricsNames)
+	 * </odoc>
+	 */
+	send2nAttrMon: function(anAttrMonCValsURL, anAttrPrefix, anArrayOfMetricNames) {
+		_$(anAttrPrefix, "anAttrPrefix").isString().$_();
+		var name = "openaf::metrics::" + md5(anAttrMonCValsURL);
+		ow.loadObj();
+
+		return function() {
+			$ch(name).createRemote(anAttrMonCValsURL);
+			var tval = new Date();
+			var vals;
+			if (isArray(anArrayOfMetricNames)) {
+				vals = ow.metrics.getSome(anArrayOfMetricNames);
+			} else {
+				vals = ow.metrics.getAll();
+			}
+			Object.keys(vals).forEach(k => {
+				$ch(name).set({ 
+					name: anAttrPrefix + k 
+				}, vals[k])
+			});
+		}
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.server.telemetry.send2Prometheus(aPrometheusGatewayURL, aPrefix, anArrayOfMetricNames) : Function</key>
+	 * Returns a function to be used with ow.server.telemetry.active to send metrics to a OpenMetrics/Prometheus gateway using the provided
+	 * aPrometheusGatewayURL with aPrefix (e.g. "myjobname") and, optionally, an array of metrics (anArrayOfMetricsNames)
+	 * </odoc>
+	 */
+	send2Prometheus: function(aPrometheusGatewayURL, aPrefix, anArrayOfMetricNames) {
+		_$(aPrefix, "aPrefix").isString().$_();
+		
+		return function() {
+			var aObj;
+			if (isArray(anArrayOfMetricNames)) {
+				aObj = ow.metrics.getSome(anArrayOfMetricNames);
+			} else {
+				aObj = ow.metrics.getAll();
+			}
+
+			$rest({
+				requestHeaders: {
+					"Content-Type": "text/plain"
+				}
+			}).post(aPrometheusGatewayURL, ow.metrics.fromObj2OpenMetrics(aObj, aPrefix));
+		}
 	}
 };
 
@@ -1790,7 +1861,7 @@ OpenWrap.server.prototype.cluster = function(aHost, aPort, nodeTimeout, aNumberO
 OpenWrap.server.prototype.cluster.prototype.sendToOthers = function(aData, aSendFn) {
 	var clusterList = this.impl.clusterGetList(this.options);
 	var tryList = clusterList.cluster;
-	var res = void 0;
+	var res = __;
 
 	for(var ii in tryList) {
 		if ((tryList[ii].host + tryList[ii].port) != (this.HOST + this.PORT)) {
@@ -1819,7 +1890,7 @@ OpenWrap.server.prototype.cluster.prototype.any = function(aFunction, includeMe)
 		r.date = Number(r.date) + (isDef(r.load) ? Math.floor(Math.random() * 30000) : r.load);
 		return r; 
 	})).sort("date").select();
-	var res = void 0;
+	var res = __;
 
 	for(var ii in tryList) {
 		if (includeMe || (tryList[ii].host + tryList[ii].port) != (this.HOST + this.PORT)) {
@@ -1844,9 +1915,9 @@ OpenWrap.server.prototype.cluster.prototype.any = function(aFunction, includeMe)
  */
 OpenWrap.server.prototype.cluster.prototype.all = function(aFunction, includeMe) {
 	var clusterList = this.impl.clusterGetList(this.options);
-	var res = void 0, lO = [];
+	var res = __, lO = [];
 
-	for(let ii in clusterList) {
+	for(var ii in clusterList) {
 		if (includeMe || (clusterList[ii].host + clusterList[ii].port) != (this.HOST + this.PORT)) {
 			lO.push($do(() => {
 				return aFunction(clusterList[ii]);
@@ -2004,7 +2075,7 @@ OpenWrap.server.prototype.cluster.prototype.checkOut = function() {
 		dead: false		
 	};
 
-	var res = this.verify(void 0, me);
+	var res = this.verify(__, me);
 	if (!res) throw("Can't unregister from cluster.");
 };
 
@@ -2014,7 +2085,7 @@ OpenWrap.server.prototype.cluster.prototype.checkOut = function() {
  * This ow.servers.cluster implementation will cluster one or more cluster servers keeping the cluster connection details on
  * a cluster channel (defaults to __cluster::[name of cluster]). It's meant to be provided to ow.server.cluster like this:\
  * \
- * var mts = new ow.server.cluster("1.2.3.4", 1234, void 0, void 0, void 0, { name: "testCluster" }, ow.server.clusterChsPeersImpl)\
+ * var mts = new ow.server.cluster("1.2.3.4", 1234, __, __, __, { name: "testCluster" }, ow.server.clusterChsPeersImpl)\
  * \
  * There are several implementation options:\
  * \
@@ -2185,7 +2256,7 @@ OpenWrap.server.prototype.clusterChsPeersImpl = {
 						e: e
 					});
 				}
-				//printErr("ERROR clusterSendMsg: " + aOptions.chMsgs + "::" + vclo.host + ":" + vclo.port + " | " + stringify(e, void 0, ""));
+				//printErr("ERROR clusterSendMsg: " + aOptions.chMsgs + "::" + vclo.host + ":" + vclo.port + " | " + stringify(e, __, ""));
 			});
 		});
 		$doWait($doAll(rPros));
@@ -2201,10 +2272,10 @@ OpenWrap.server.prototype.clusterChsPeersImpl = {
 			aOptions.protocol = _$(aOptions.protocol).isString().default("http");
 			aOptions.path = _$(aOptions.path).isString().default("/__m");
 			if (isUnDef(aOptions.serverOrPort)) aOptions.serverOrPort = ow.server.httpd.start(aOptions.PORT, aOptions.HOST);
-			aOptions.authFunc = _$(aOptions.authFunc).default(void 0);
-			aOptions.unAuthFunc = _$(aOptions.unAuthFunc).default(void 0);
-			aOptions.maxTime = _$(aOptions.maxTime).default(void 0);
-			aOptions.maxCount = _$(aOptions.maxCount).default(void 0);
+			aOptions.authFunc = _$(aOptions.authFunc).default(__);
+			aOptions.unAuthFunc = _$(aOptions.unAuthFunc).default(__);
+			aOptions.maxTime = _$(aOptions.maxTime).default(__);
+			aOptions.maxCount = _$(aOptions.maxCount).default(__);
 			aOptions.chLock = _$(aOptions.chLock).default("__cluster::" + aOptions.name + "::locks");
 			aOptions.chMsgs = _$(aOptions.chMsgs).default("__cluster::" + aOptions.name + "::msgs");
 			aOptions.quorum = _$(aOptions.chQuorum).default("__cluster::" + aOptions.name + "::quorum");
@@ -2344,7 +2415,7 @@ OpenWrap.server.prototype.clusterChsPeersImpl = {
 					var url = aOptions.protocol + "://" + m.h + ":" + m.p + aOptions.path;
 					$ch(aOptions.ch).peer(aOptions.serverOrPort, aOptions.path, url, aOptions.authFunc, aOptions.unAuthFunc, aOptions.maxTime, aOptions.maxCount);
 					
-					for(let ii in aOptions.chs) {
+					for(var ii in aOptions.chs) {
 						var achs = aOptions.chs[ii];
 						if (isString(achs)) {
 							achs = {
@@ -2367,7 +2438,7 @@ OpenWrap.server.prototype.clusterChsPeersImpl = {
 				var del = (m) => {
 					var url = aOptions.protocol + "://" + m.h + ":" + m.p + parent.path;
 					$ch(aOptions.ch).unpeer(url);
-					for(let ii in aOptions.chs) {
+					for(var ii in aOptions.chs) {
 						var achs = aOptions.chs[ii];
 						if (isString(achs)) {
 							achs = {
@@ -2403,7 +2474,7 @@ OpenWrap.server.prototype.clusterChsPeersImpl = {
 	clusterPutList: (aOptions, aList) => {
 		ow.server.clusterChsPeersImpl.__check(aOptions);
 		var res = $ch(aOptions.ch).getKeys();
-		for(let ii in res) {
+		for(var ii in res) {
 			var it = res[ii];
 			if ($from(aList.cluster).equals("host", it.h).equals("port", it.p).none()) {
 				$ch(aOptions.ch).unset({ h: it.h, p: it.p });
@@ -2612,16 +2683,19 @@ OpenWrap.server.prototype.httpd = {
 		aMapOfRoutes["/js/handlebars.js"] = function() { return ow.server.httpd.replyHandlebars(aHTTPd); };
 		aMapOfRoutes["/js/stream.js"] = function() { return ow.server.httpd.replyStream(aHTTPd); };
 		aMapOfRoutes["/js/jlinq.js"] = function() { return ow.server.httpd.replyJLinq(aHTTPd); };
+		aMapOfRoutes["/js/openafnlinq.js"] = function() { return ow.server.httpd.replyNLinq(aHTTPd); };
 		aMapOfRoutes["/js/jmespath.js"] = function() { return ow.server.httpd.replyJMesPath(aHTTPd); };
 		aMapOfRoutes["/js/underscore.js"] = function() { return ow.server.httpd.replyUnderscore(aHTTPd); };
 		aMapOfRoutes["/js/lodash.js"] = function() { return ow.server.httpd.replyLoadash(aHTTPd); };
 		aMapOfRoutes["/js/openafsigil.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/openafsigil.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/js/njsmap.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/njsmap.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/js/highlight.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/highlight.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/js/materialize.js"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/materialize.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/css/materialize.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/materialize.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/css/materialize-icon.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/materialize-icon.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/css/github-gist.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/github-gist.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/css/github-markdown.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/github-markdown.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
+		aMapOfRoutes["/css/nJSMap.css"] = function() { return aHTTPd.reply(ow.server.httpd.getFromOpenAF("css/nJSMap.css"), ow.server.httpd.mimes.CSS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.eot"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.eot", true), ow.server.httpd.mimes.EOT, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.svg"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.svg", true), ow.server.httpd.mimes.SVG, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
 		aMapOfRoutes["/fonts/material-design-icons/Material-Design-Icons.ttf"] = function() { return aHTTPd.replyBytes(ow.server.httpd.getFromOpenAF("fonts/material-design-icons/Material-Design-Icons.ttf", true), ow.server.httpd.mimes.TTF, ow.server.httpd.codes.OK, ow.server.httpd.cache.public) };
@@ -2670,6 +2744,10 @@ OpenWrap.server.prototype.httpd = {
 		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/jlinq.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);		
 	},
 
+	replyNLinq: function(aHTTPd) {
+		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/openafnlinq.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);		
+	},
+
 	replyJMesPath: function(aHTTPd) {
 		return aHTTPd.reply(ow.server.httpd.getFromOpenAF("js/jmespath.js"), ow.server.httpd.mimes.JS, ow.server.httpd.codes.OK, ow.server.httpd.cache.public);		
 	},	
@@ -2690,14 +2768,8 @@ OpenWrap.server.prototype.httpd = {
 	 * documentRoot. Example:\
 	 * \
 	 * ow.server.httpd.route(hs, ow.server.httpd.mapRoutesWithLibs(hs, {\
-	 *    "/stuff/to/server": function(req) {\
-	 *       return ow.server.httpd.replyFile(hs, "/some/path/to/serve/files", "/stuff/to/server", req.uri);\
-	 *    }\
-	 * },\
-	 * function(req) {\
-	 *    return hs.replyOKText("nothing here...");\
-	 * }\
-	 * );\
+	 *    "/stuff/to/server": r => ow.server.httpd.replyFile(hs, "/some/path/to/serve/files", "/stuff/to/server", req.uri)\
+	 * }), r => hs.replyOKText("nothing here...") );\
 	 * \
 	 * </odoc>
 	 */
@@ -2721,7 +2793,7 @@ OpenWrap.server.prototype.httpd = {
 			}
 		
 			if (furi.match(new RegExp("^" + baseFilePath)))
-				return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi), void 0, mapOfHeaders);
+				return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi), __, mapOfHeaders);
 			else
 			  return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI);
 		} catch(e) { 
@@ -2736,11 +2808,11 @@ OpenWrap.server.prototype.httpd = {
 	 * aBaseURI. Optionally you can also provide a notFoundFunction and an array of file strings (documentRootArraY) to replace as
 	 * documentRoot. Example:\
 	 * \
-	 * ow.server.httpd.route((hs, ow.server.httpd.mapRoutesWithLibs(hs, {)\
+	 * ow.server.httpd.route(hs, ow.server.httpd.mapRoutesWithLibs(hs, {\
 	 *    "/stuff/to/server": function(req) {\
 	 *       return ow.server.httpd.replyFileMD(hs, "/some/path/to/serve/files", "/stuff/to/server", req.uri);\
 	 *    }\
-	 * },\
+	 * }),\
 	 * function(req) {\
 	 *    return hs.replyOKText("nothing here...");\
 	 * }\
@@ -2778,7 +2850,7 @@ OpenWrap.server.prototype.httpd = {
 				if (furi.match(/\.md$/)) {
 					return aHTTPd.replyOKHTML(ow.template.parseMD2HTML(io.readFileString(furi), 1));
 				} else {
-					return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi), void 0, mapOfHeaders);
+					return aHTTPd.replyBytes(io.readFileBytes(furi), ow.server.httpd.getMimeType(furi), __, mapOfHeaders);
 				}
 			} else {
 			    return notFoundFunction(aHTTPd, aBaseFilePath, aBaseURI, aURI);
@@ -2790,12 +2862,33 @@ OpenWrap.server.prototype.httpd = {
 
 	/**
 	 * <odoc>
+	 * <key>ow.server.httpd.replyJSMap(aHTTPd, aMapOrArray) : Map</key>
+	 * Provides a helper aHTTPd reply that will parse aMapOrArray into a HTML output. Example:\
+	 * \
+	 * ow.server.httpd.route(hs, ow.server.httpd.mapRoutesWithLibs(hs, {\
+	 *    "/stuff/to/server": r => ow.server.httpd.replyJSMap(hs, getOPackPaths()\
+	 * }),\
+	 * r => hs.replyOKText("nothing here...")\
+	 * );\
+	 * \
+	 * </odoc>
+	 */
+	replyJSMap: function(aHTTPd, aMapOrArray) {
+		ow.loadTemplate();
+
+		var res = ow.template.html.parseMap(aMapOrArray, true);
+
+		return aHTTPd.replyOKHTML("<html><style>" + res.css + "</style><body>" + res.out + "</body></html>");
+	},
+
+	/**
+	 * <odoc>
 	 * <key>ow.server.httpd.replyRedirect(aHTTPd, newLocation, mapOfHeaders) : Map</key>
 	 * Provides a helper aHTTPd reply that will redirect the request to the newLocation provided (HTTP code 303).
 	 * </odoc>
 	 */
 	replyRedirect: function(aHTTPd, newLocation, mapOfHeaders) {
-		return aHTTPd.reply("", "text/plain", 303, {"Location": newLocation}, mapOfHeaders);
+		return aHTTPd.reply("", "text/plain", 303, merge({"Location": newLocation}, mapOfHeaders));
 	},
 	
 	/**
@@ -2844,6 +2937,147 @@ OpenWrap.server.prototype.httpd = {
 		}
 	},
 	
+	/**
+	 * <odoc>
+	 * <key>ow.server.httpd.authOAuth(aMapOptions, aHTTPd, aRequest, aFnReply) : Map</key>
+	 * Provides OAuth 2.0 support by intersecting aRequest of aHTTPd to return aFnReply only on correctly authenticated. aMapOptions
+	 * provides the OAuth configurations to follow:\
+	 * \
+	 * aMapOptions:\
+	 * \
+	 *    realm             (optional)  An unique realm name (defaults to 'realm')\
+	 *    cookie            (optional)  The name of the cookie entry to use (defaults to 'OAF_AUTH_SESSION_ID')\
+	 *    baseURL           (mandatory) The web server base url (e.g. https://myserver:8090)\
+	 *    uriLogout         (optional)  The uri to use on the web server to logout (defaults to '/logout')\
+	 *    uriCallBack       (optional)  The uri to use on the web server to callback (defaults to '/cb'). You should configure oauth to allow redirection to base url + callback (e.g. https://myserver:8090/cb)\
+	 *    oauthAuthURL      (mandatory) The OAuth authorization_endpoint\
+	 *    oauthTokenURL     (mandatory) The OAuth token_endpoint\
+	 *    oauthLogoutURL    (mandatory) The OAuth end_session_endpoint\
+	 *    oauthCliendId     (mandatory) The OAuth configured client id\
+	 *    oauthClientSecret (mandatory) The OAuth configured client secret\ 
+	 * \
+	 * </odoc>
+	 */
+	authOAuth: function(aMapOptions, aHTTPd, aReq, aFnReply) {
+		aMapOptions                   = _$(aMapOptions, "aMapOptions").isMap().default({});
+		aMapOptions.realm             = _$(aMapOptions.realm, "aMapOptions.realm").isString().default("realm");
+		aMapOptions.cookie            = _$(aMapOptions.cookie, "aMapOptions.cookie").isString().default("OAF_AUTH_SESSION_ID");
+		aMapOptions.baseURL           = _$(aMapOptions.baseURL, "aMapOptions.baseURL").isString().$_();
+		aMapOptions.uriLogout         = _$(aMapOptions.uriLogout, "aMapOptions.uriLogout").isString().default("/logout");
+		aMapOptions.uriCallBack       = _$(aMapOptions.uriCallBack, "aMapOptions.uriCallBack").isString().default("/cb");
+		aMapOptions.oauthAuthURL      = _$(aMapOptions.oauthAuthURL, "aMapOptions.oauthAuthURL").isString().$_();
+		aMapOptions.oauthTokenURL     = _$(aMapOptions.oauthTokenURL, "aMapOptions.oauthTokenURL").isString().$_();
+		aMapOptions.oauthLogoutURL    = _$(aMapOptions.oauthLogoutURL, "aMapOptions.oauthLogoutURL").isString().$_();
+		aMapOptions.oauthClientId     = _$(aMapOptions.oauthClientId, "aMapOptions.oauthClientId").isString().$_();
+		aMapOptions.oauthClientSecret = _$(aMapOptions.oauthClientSecret, "aMapOptions.oauthClientSecret").isString().$_();
+
+		// Retrive session from cookie
+		var _getSession = function(aR) {
+			if (isMap(aR.header) && isDef(aR.header.cookie) && aR.header.cookie.indexOf(aMapOptions.cookie) >= 0) {
+				var cookies = splitBySeparator(aR.header.cookie, ";"), res;
+				cookies.forEach(cookie => {
+					var vals = splitBySeparator(cookie.trim(), "=");
+					if (vals[0] == aMapOptions.cookie) { res = vals[1]; }
+				});
+				return res;
+			}
+			return __;
+		}
+
+		// Set variables
+		var parent = this, aRealm = aMapOptions.realm;
+		if (isUnDef(parent.oauth_realms)) parent.oauth_realms = {};
+
+		var r = _$(parent.oauth_realms[aRealm]).default({});
+		parent.oauth_realms[aRealm] = _$(parent.oauth_realms[aRealm]).default({});
+		var shouldLogin = false, session = _getSession(aReq);
+
+		// Logout redirect endpoint
+		if (aReq.uri == aMapOptions.uriLogout) {
+			if (isDef(parent.oauth_realms[aRealm][session])) delete parent.oauth_realms[aRealm][session];
+			return ow.server.httpd.replyRedirect(aHTTPd, aMapOptions.oauthLogoutURL + "?redirect_uri=" + aMapOptions.baseURL + aMapOptions.uriCallBack, { 
+				"Set-Cookie": aMapOptions.cookie + "=" 
+			});
+		}
+
+		// Main handler (default)
+		// Determine if should login or reply aFnReply
+		if ((aReq.uri != aMapOptions.uriCallBack) && 
+				isDef(aReq.header) && isDef(aReq.header.cookie) && aReq.header.cookie.indexOf(aMapOptions.cookie) >= 0) {
+			if (isDef(session) && session.length > 0) {
+				if (isDef(parent.oauth_realms[aRealm][session])) {
+					if (isDef(parent.oauth_realms[aRealm][session].access_token)) {
+						if (isDef(parent.oauth_realms[aRealm][session].x)) {
+							if ((nowUTC() < parent.oauth_realms[aRealm][session].x)) {
+								return aFnReply(aReq);
+							} else {
+								// Should use refresh_token
+								var res = $rest({ urlEncode: true }).post(aMapOptions.oauthTokenURL, {
+									grant_type   : "refresh_token",
+									refresh_token: parent.oauth_realms[aRealm][session].refresh_token,
+									client_id    : aMapOptions.oauthClientId,
+									client_secret: aMapOptions.oauthClientSecret
+								});
+				
+								if (isUnDef(res.access_token)) {
+									shouldLogin = true;
+								} else {
+									var jwt = ow.server.jwt.decode(res.access_token);
+									parent.oauth_realms[aRealm][res.session_state] = merge(res, { x: (jwt.exp * 1000) });
+									return aFnReply(aReq);
+								}
+							}
+						} else {
+							return aFnReply(aReq);
+						}
+					} else {
+						return aFnReply(aReq);
+					}
+				} else {
+					shouldLogin = true;
+				}
+			} else {
+				shouldLogin = true;
+			}
+		} else {
+			shouldLogin = true;
+		}
+
+		// Callback redirect endpoint
+		// If no session exists yet but there is a state the oauth token is invoked
+		if (aReq.uri == aMapOptions.uriCallBack) {
+			//if (Object.keys(parent.oauth_realms[aRealm]).length == 0) parent.oauth_realms[aRealm] = "/";
+			if (isUnDef(parent.oauth_realms[aRealm][aReq.params.state])) return ow.server.httpd.replyRedirect(aHTTPd, "/", {});
+			if (isDef(aReq.params.state) && isDef(parent.oauth_realms[aRealm][aReq.params.state])) {
+				var target = parent.oauth_realms[aRealm][aReq.params.state];
+				var res = $rest({ urlEncode: true }).post(aMapOptions.oauthTokenURL, {
+					grant_type   : "authorization_code",
+					code         : aReq.params.code,
+					redirect_uri : target,
+					client_id    : aMapOptions.oauthClientId,
+					client_secret: aMapOptions.oauthClientSecret
+				});
+
+				delete parent.oauth_realms[aRealm][aReq.params.state];
+				var jwt = ow.server.jwt.decode(res.access_token);
+				parent.oauth_realms[aRealm][res.session_state] = merge(res, { x: (jwt.exp * 1000) });
+
+				return ow.server.httpd.replyRedirect(aHTTPd, target, { "Set-Cookie": aMapOptions.cookie  + "=" + res.session_state });
+			} else {
+				shouldLogin = true;
+			}
+		}
+
+		// Should login handler
+		// If not login yet calls oauth auth url
+		if (shouldLogin) {
+			var sId = "temp." + genUUID();
+			if (aReq.uri == aMapOptions.uriCallBack) aReq.uri = "/";
+			parent.oauth_realms[aRealm][sId] = aReq.uri;
+			return ow.server.httpd.replyRedirect(aHTTPd, aMapOptions.oauthAuthURL + "?response_type=code&client_id=" + aMapOptions.oauthClientId + "&scope=email&state=" + sId);
+		}
+	},
+
 	/**
 	 * <odoc>
 	 * <key>ow.server.httpd.authBasic(aRealm, aHTTPd, aReq, aAuthFunc, aReplyFunc, aUnAuthFunc) : Map</key>
@@ -2964,7 +3198,7 @@ OpenWrap.server.prototype.httpd = {
 	 * </odoc>
 	 */
 	reply: function(aObj, status, mimetype, headers) {
-		headers = _$(headers).isMap().default(void 0);
+		headers = _$(headers).isMap().default(__);
 		status  = _$(status).isNumber().default(200);
 
 		if (isUnDef(mimetype)) {
@@ -2978,7 +3212,7 @@ OpenWrap.server.prototype.httpd = {
 
 		var data;
 		if (isMap(aObj) || isArray(aObj)) {
-			data = stringify(aObj, void 0, "");
+			data = stringify(aObj, __, "");
 		} else {
 			data = aObj;
 		}
@@ -3052,24 +3286,29 @@ OpenWrap.server.prototype.socket = {
 	stop: (aPort) => {
 		_$(aPort, "port").isNumber().$_();
 
-		ow.server.socket.__servers[aPort].close();
-		var res = ow.server.socket.__threads[aPort].stop(true);
-		delete ow.server.socket.__servers[aPort];
-		return res;
+		if (isDef(ow.server.socket.__servers[aPort])) {
+			ow.server.socket.__servers[aPort].close();
+			var res = ow.server.socket.__threads[aPort].stop(true);
+			delete ow.server.socket.__servers[aPort];
+			return res;
+		} else {
+			return __;
+		}
 	}
 }
 
 OpenWrap.server.prototype.jwt = {
     /**
      * <odoc>
-	 * <key>ow.server.jwt.getAlgorithm(aAlgorithm, aArg1, aArg2) : JavaAlgorithm></key>
-	 * To be used with verify and/or sign. Selects the JWT algorithm (defaults to HS256/HMAC256) using aArg1 and, optionally,
-	 * also aArg2 if the algorithm requires two arguments (see more in https://github.com/auth0/java-jwt).
+	 * <key>ow.server.jwt.genKey(aAlgorithm) : JavaObject</key>
+	 * Generates a key for the provided aAlgorithm (defaults to HS256). If aAlgorithm is not HS256, HS384 or HS512
+	 * the generated object will be a key pair for which you will need to user .getPrivate() for signing and .getPublic() for verify.
+	 * Possible algorithms: HS256, HS384, HS512, ES256, ES384, ES512, RS256, RS384, RS512, PS256 (java >= 11), PS384 (java >= 11), PS512 (java >= 11)
 	 * </odoc>
      */
-	getAlgorithm: (aAlgorithm, aArg1, aArg2) => {
-		aAlgorithm = _$(aAlgorithm, "algorithm").isString().default("HMAC256");
-		_$(aArg1, "first argument").$_();
+	genKey: (aAlgorithm) => {
+		aAlgorithm = _$(aAlgorithm, "algorithm").isString().default("HS256");
+		/*_$(aArg1, "first argument").$_();
 
 		if (aAlgorithm = "HS256") aAlgorithm = "HMAC256";
 
@@ -3077,18 +3316,34 @@ OpenWrap.server.prototype.jwt = {
 			return com.auth0.jwt.algorithms.Algorithm[aAlgorithm](aArg1, aArg2);
 		} else {
 			return com.auth0.jwt.algorithms.Algorithm[aAlgorithm](aArg1);
+		}*/
+		var key;
+
+		aAlgorithm = aAlgorithm.toUpperCase().trim();
+		try {
+			isJavaObject(Packages.io.jsonwebtoken.SignatureAlgorithm[aAlgorithm]);
+		} catch(e) {
+			throw "Algorithm '" + aAlgorithm + "' not available.";
 		}
+
+		if (aAlgorithm == "HS256" || aAlgorithm == "HS384" || aAlgorithm == "HS512") {
+			key = Packages.io.jsonwebtoken.security.Keys.secretKeyFor(Packages.io.jsonwebtoken.SignatureAlgorithm[aAlgorithm]);
+		} else {
+			key = Packages.io.jsonwebtoken.security.Keys.keyPairFor(Packages.io.jsonwebtoken.SignatureAlgorithm[aAlgorithm]);
+		}
+
+		return key;
 	},
 
 	/**
 	 * <odoc>
-	 * <key>ow.server.jwt.verify(aAlgorithm, aArg1, aToken, aArg2) : Map</key>
-	 * Verifies the JWT provided with aToken using aAlgorithm with aArg1 and aArg2 (if needed). Returns the
-	 * converted json claims. If any verification fails it will throw a JavaException.
+	 * <key>ow.server.jwt.verify(aSecret1, aToken) : Map</key>
+	 * Verifies the JWT provided with aToken using aSecret1 (key (either a string or java.security.Key)). Returns the
+	 * converted json headers and claims. If any verification fails it will throw a JavaException.
 	 * </odoc>
 	 */
-	verify: (aAlgorithm, aSecret1, aToken, aSecret2) => {
-		_$(aToken, "token").isString().$_();
+	verify: (aSecret1, aToken) => {
+		/*_$(aToken, "token").isString().$_();
 		
 		var al = ow.server.jwt.getAlgorithm(aAlgorithm, aSecret1, aSecret2);
 		var verifier = com.auth0.jwt.JWT.require(al).build();
@@ -3104,23 +3359,117 @@ OpenWrap.server.prototype.jwt = {
 			if (notFound && dt.getClaims().get(keys[ii]).asString() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asString(); }
 			if (notFound && dt.getClaims().get(keys[ii]).asDate() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asDate(); }
 		}
-		return mkeys;
+		return mkeys;*/
+		_$(aToken, "token").isString().$_();
+
+		if (isString(aSecret1)) {
+			if (aSecret1.length > 0 && aSecret1.length < 32)  aSecret1 = aSecret1 + repeat(32 - aSecret1.length, "\u0000");
+			if (aSecret1.length > 32 && aSecret1.length < 48) aSecret1 = aSecret1 + repeat(48 - aSecret1.length, "\u0000");
+			if (aSecret1.length > 48 && aSecret1.length < 64) aSecret1 = aSecret1 + repeat(64 - aSecret1.length, "\u0000");
+
+			aSecret1 = Packages.io.jsonwebtoken.security.Keys.hmacShaKeyFor(af.fromString2Bytes(aSecret1));
+		}
+
+		var res = Packages.io.jsonwebtoken.Jwts.parserBuilder()
+		                             .setSigningKey(aSecret1)
+									 .build()
+									 .parseClaimsJws(aToken);
+
+		var gson = com.google.gson.GsonBuilder().create();
+		return {
+			headers: jsonParse(gson.toJson(res.getHeader())),
+			claims : jsonParse(gson.toJson(res.getBody()))
+		}
 	},
 
 	/**
 	 * <odoc>
-	 * <key>ow.server.jwt.sign(aAlgorithm, aArg1, aFnAddClaims, aArg2) : String</key>
-	 * Signs a JWT using aAlgorithm with aArg1 and, optionally, aArg2 and returns the corresponing signature. To
-	 * add specific claims use the aFnAddClaims function that receives (and returns if modified) a com.auth0.jwt.JWT object
-	 * as argument and returns the signned JWT.
+	 * <key>ow.server.jwt.sign(aKey, aData) : String</key>
+	 * Signs a JWT using aKey (either a string or java.security.Key) returning the corresponding encoded JWT. To
+	 * add specific claims use aData map where you can add custom headers and/or custom claims or used the standard fields. 
+	 * Expected keys for aData:\
+	 * \
+	 *    audience    (String)\
+	 *    claims      (Map)\
+	 *    expiration  (Date)\
+	 *    headers     (Map)\
+	 *    issuer      (String)\
+	 *    id          (String)\
+	 *    issuedAt    (Date)\
+	 *    issuer      (String)\
+	 *    notBefore   (Date)\
+	 *    subject     (String)
 	 * </odoc>
 	 */
-	sign: (aAlgorithm, aSecret1, aFnAddClaims, aSecret2) => {
-		var al = ow.server.jwt.getAlgorithm(aAlgorithm, aSecret1, aSecret2);
+	sign: (aKey, aData) => {
+		/*var al = ow.server.jwt.getAlgorithm(aAlgorithm, aSecret1, aSecret2);
 		aFnAddClaims = _$(aFnAddClaims, "function").isFunction().default((r) => { return r; });
 
 		var jwt = com.auth0.jwt.JWT.create();
 		jwt = aFnAddClaims(jwt);
-		return jwt.sign(al);
+		return jwt.sign(al);*/
+		aData = _$(aData, "aData").isMap().default({});
+		var o = Packages.io.jsonwebtoken.Jwts.builder();
+
+		if (isString(aData.audience))   o = o.setAudience(aData.audience);
+		if (isDate(aData.expiration))   o = o.setExpiration(aData.expiration);
+		if (isString(aData.issuer))     o = o.setIssuer(aData.issuer);
+		if (isString(aData.id))         o = o.setId(aData.id);
+		if (isDate(aData.issuedAt))     o = o.setIssuedAt(aData.issuedAt);
+		if (isString(aData.issuer))     o = o.setIssuer(aData.issuer);
+		if (isDate(aData.notBefore))    o = o.setNotBefore(aData.notBefore);
+		if (isString(aData.subject))    o = o.setSubject(aData.subject);
+
+		if (isMap(aData.claims)) {
+			for(var k in aData.claims) {
+				o = o.claim(k, aData.claims[k]);
+			}
+		}
+
+		if (isMap(aData.headers)) {
+			for(var k in aData.headers) {
+				o = o.setHeaderParam(k, aData.headers[k]);
+			}
+		}
+
+		if (isString(aKey)) {
+			if (aKey.length > 0 && aKey.length < 32)  aKey = aKey + repeat(32 - aKey.length, "\u0000");
+			if (aKey.length > 32 && aKey.length < 48) aKey = aKey + repeat(48 - aKey.length, "\u0000");
+			if (aKey.length > 48 && aKey.length < 64) aKey = aKey + repeat(64 - aKey.length, "\u0000");
+
+			aKey = Packages.io.jsonwebtoken.security.Keys.hmacShaKeyFor(af.fromString2Bytes(aKey));
+		}
+
+		return String(o.signWith(aKey).compact());
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.server.jwt.decode(aToken) : Map</key>
+	 * Tries to decode the JWT aToken provided.
+	 * </odoc>
+	 */
+	decode: aToken => {
+		_$(aToken, "token").isString().$_();
+
+		/*var dt = com.auth0.jwt.JWT.decode(aToken);
+
+		var keys = dt.getClaims().keySet().toArray(), mkeys = {};
+		for(var ii in keys) {
+			var notFound = true;
+			if (notFound && dt.getClaims().get(keys[ii]).asBoolean() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asBoolean(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asInt() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asInt(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asDouble() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asDouble(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asLong() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asLong(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asString() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asString(); }
+			if (notFound && dt.getClaims().get(keys[ii]).asDate() != null) { notFound = false; mkeys[keys[ii]] = dt.getClaims().get(keys[ii]).asDate(); }
+		}
+		return mkeys;*/
+		var parts = aToken.split(".")
+
+		if (parts.length > 1) return {
+			headers: jsonParse( af.fromBytes2String( af.fromBase64( parts[0] ) ) ),
+			claims : jsonParse( af.fromBytes2String( af.fromBase64( parts[1] ) ) )
+		}
 	}
 }

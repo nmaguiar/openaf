@@ -196,6 +196,71 @@ OpenWrap.obj.prototype.__getObj4Path = function(anObj, aPath) {
 
 /**
  * <odoc>
+ * <key>ow.obj.flatMap(data, separator) : Array/Map</key>
+ * Given data as an array of maps or a single map tries to produce an output with only one level of keys per map.
+ * Optionally you can provide a separator between parent keys and each key (defaults to '.').
+ * </odoc>
+ */
+OpenWrap.obj.prototype.flatMap = function(data, separator) {
+	if (!isArray(data) && !isMap(data)) throw "data argument needs to be an array or a map";
+	separator = _$(separator, "separator").isString().default(".");
+
+	var keys = [];
+
+	var anArray = (isArray(data) ? data : [ data ]);
+	if (anArray.length == 0) throw "need at least one element in data";
+	var res1 = anArray.map(v => {
+		var r = {};
+		traverse(v, (aK, aV, aP, aO) => {
+			if (aP.startsWith(".")) aP = aP.slice(1);
+			if (!isMap(aV) && !isArray(aV)) r[aP + (aP.length > 0 ? separator : "") + aK] = aV;
+		});
+		keys = $from(Object.keys(r)).union(keys).select();
+		return r;
+	});
+
+	var res2 = res1.map(v => {
+		var r = {};
+		keys.forEach(k => {
+			r[k] = v[k];
+		});
+		return r;
+	});
+
+	if (isArray(data)) return res2; else return res2[0];
+};
+
+/**
+ * <odoc>
+ * <key>ow.obj.reorderArrayMap(aKs, aArray, removeUnDefs) : Array</key>
+ * Given an array of keys (aKs) will project those for all maps in aArray (the ones not included with be included after).
+ * Optionally if removeUnDefs = true it will not include keys with undefined fields (evaluated for every map in the array).
+ * </odoc>
+ */
+OpenWrap.obj.prototype.reorderArrayMap = function (aKs, aArray, removeUnDefs) {
+	_$(aKs, "aKs").isArray().$_();
+	removeUnDefs = _$(removeUnDefs, "removeUnDefs").isBoolean().default(false);
+
+	if (isMap(aArray)) aArray = [aArray];
+
+	return aArray.map(r => {
+		var res = {};
+		var ks = Object.keys(r);
+		var tks = ks.filter(k => aKs.indexOf(k) < 0);
+		if (removeUnDefs) {
+			aKs.forEach(k => { if (isDef(r[k])) res[k] = r[k] });
+			tks.forEach(k => { if (isDef(r[k])) res[k] = r[k] });
+		} else {
+			aKs.forEach(k => { res[k] = r[k] });
+			tks.forEach(k => { res[k] = r[k] });
+		}
+		return res;
+	});
+}
+
+
+/**
+ * <odoc>
  * <key>ow.obj.flatten(arrayOfMaps, aSeparator, aNADefault) : Array</key>
  * Converts any structured arrayOfMaps into a flat array of maps with only one level of keys. The map key path will be converted
  * into a single key using aSeparator (defaults to "_") and the value will be represented as aNADefault (defaults to "") when no 
@@ -204,7 +269,7 @@ OpenWrap.obj.prototype.__getObj4Path = function(anObj, aPath) {
  * </odoc>
  */
 OpenWrap.obj.prototype.flatten = function(data, aSeparator, aNADefault) {
-	if (!isArray(data)) throw "ow.obj.flatten: need an array of data.";
+	//if (!isArray(data)) throw "ow.obj.flatten: need an array of data.";
 	if (isUnDef(aSeparator)) aSeparator = "_";
 	if (isUnDef(aNADefault)) aNADefault = "";
 	loadLodash();
@@ -222,6 +287,7 @@ OpenWrap.obj.prototype.flatten = function(data, aSeparator, aNADefault) {
 	
 	function getFlatKeys(anArrayOfMaps) {
 		var keys = [];
+		if (isMap(anArrayOfMaps)) anArrayOfMaps = [ anArrayOfMaps ];
 		anArrayOfMaps.forEach((r) => {
 			traverse(r, (aK, aV, aP, aO) => {
 				if (!isObject(aV)) keys.push(getFlatUniqKey(aK, aP));
@@ -283,14 +349,22 @@ OpenWrap.obj.prototype.flatten = function(data, aSeparator, aNADefault) {
 		
 		if (res.length == 0) res = [ m ];
 
-		return _.flattenDeep(res);
+		return _.uniq(_.flattenDeep(res));
 	};
 
-	for(var i in data) {
-		resData = resData.concat(_trav(genFlatMap(keys), data[i]));
+	if (isArray(data)) {
+		for(var i in data) {
+			resData = resData.concat(_trav(genFlatMap(keys), data[i]));
+		}
+	
+		//return _.flattenDeep(resData);
+		return resData;
 	}
 
-	return _.flattenDeep(resData);
+	if (isMap(data)) {
+		var res = _trav(genFlatMap(keys), data);
+		if (res.lenght > 0) return res[0]; else return __;
+	}
 };
 
 /**
@@ -401,17 +475,17 @@ OpenWrap.obj.prototype.searchArray = function(anArray, aPartialMap, useRegEx, ig
  * </odoc>
  */
 OpenWrap.obj.prototype.fromObj2Array = function(aObj, aKey) {
+	_$(aObj, "aObj").isMap().$_();
+
 	var res = [];
-	for(var i in aObj) {
-		var item;
-		if (isDef(aKey)) {
-			var m = {};
-			m[aKey] = i;
-			item = merge(m, aObj[i]);
-		} else {
-			item = clone(aObj[i]);
+	if (isUnDef(aKey)) {
+		res = Object.values(aObj);
+	} else {
+		for(var i in aObj) {
+			var item = clone(aObj[i]);
+			item[aKey] = i;
+			res.push(item);
 		}
-		res.push(item);
 	}
 	return res;
 };
@@ -519,7 +593,7 @@ OpenWrap.obj.prototype.pool = {
 				var parent = this;
 				var isThereRoom = false;
 
-				sync(function() {
+				syncFn(function() {
 					if ((parent.__max > 0 && parent.__max <= (parent.__currentSize + 1)) && parent.__currentFree < 1) {
 						isThereRoom = false;
 					} else {
@@ -531,7 +605,7 @@ OpenWrap.obj.prototype.pool = {
 					if (this.__retry >= 1) {
 						for(var i = 0; i < this.__retry && isOk == false; i++) {
 							sleep(this.__timeout);
-							sync(function() {
+							syncFn(function() {
 								if (parent.__currentFree > 0 || (parent.__max > 0 && parent.__max > parent.__currentSize)) {
 									isOk = true;
 								}
@@ -571,7 +645,7 @@ OpenWrap.obj.prototype.pool = {
 				var parent = this;
 				var res = false;
 
-				sync(function() {
+				syncFn(function() {
 					if (parent.__checkLimits()) {
 						if (parent.__max < 1 || parent.__currentSize <= parent.__max) {
 							parent.__currentSize++;
@@ -682,13 +756,13 @@ OpenWrap.obj.prototype.pool = {
 			},
 			
 			__getUnused: function(shouldTest) {	
-				var obj = void 0;
+				var obj = __;
 				var i = 0, r = 0;
 				var parent = this;
 
-				sync(function() {
+				syncFn(function() {
 					while(isUnDef(obj) && i < parent.__currentSize) {
-						var inUse = void 0;
+						var inUse = __;
 						inUse = parent.__pool[i].inUse;
 						if (inUse == false) {
 							var useit = !shouldTest;						
@@ -713,7 +787,7 @@ OpenWrap.obj.prototype.pool = {
 				if (i >= parent.__currentSize) {
 					var resCheckFree;
 					resCheckFree = parent.__checkFree();
-					sync(function() {
+					syncFn(function() {
 						if (resCheckFree && parent.__checkLimits()) {						
 							obj = parent.__createObj(true);
 						} 
@@ -810,7 +884,7 @@ OpenWrap.obj.prototype.pool = {
 			 */
 			checkIn: function(obj, badObj) {
 				var parent = this;
-				sync(function() {
+				syncFn(function() {
 					var i;
 					for(i = 0; i < parent.__currentSize && parent.__pool[i].obj != obj; i++) {}
 
@@ -1139,11 +1213,11 @@ OpenWrap.obj.prototype.big = {
 						}
 					}
 				}
-				return void 0;
+				return __;
 			},
 		
 			getColsByID: function(anId) {
-				if (isUnDef(anId)) return void 0;
+				if (isUnDef(anId)) return __;
 				return uncompress(this.__getData()[anId]);
 			},
 		
@@ -1536,9 +1610,11 @@ OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isB
 	this.__lps = {}; 
 	this.__config = {};
 	this.__throwExceptions = true;
-	this.__r = void 0;
-	this.__rb = void 0; 
+	this.__r = __;
+	this.__rb = __; 
 	this.__usv = true;
+	this.__uf = __;
+	this.__ufn = "file";
 	options = _$(options).isMap(options).default({});
 	if (options.accessCookies) this.__cookies = new Packages.org.apache.http.impl.client.BasicCookieStore();
 	if (options.accessCtx) this.__ctx = Packages.org.apache.http.client.protocol.HttpClientContext.create();
@@ -1546,6 +1622,14 @@ OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isB
 	if (isDef(aURL)) {
 		this.exec(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream);
 	}
+};
+
+OpenWrap.obj.prototype.http.prototype.upload = function(aName, aFile) {
+	this.__ufn = _$(aName, "aName").isString().default("file");
+	_$(aFile, "aFile").isString().$_();
+
+	this.__ufn = aName;
+	this.__uf = aFile;
 };
 
 OpenWrap.obj.prototype.http.prototype.head = function(aURL, aIn, aRequestMap, isBytes, aTimeout) {
@@ -1590,7 +1674,7 @@ OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, a
 		break;
 	case "HEAD":
 		r = new Packages.org.apache.http.client.methods.HttpHead(aUrl);
-		break;
+		break; 
 	case "PATCH":
 		r = new Packages.org.apache.http.client.methods.HttpPatch(aUrl);
 		canHaveIn = true;
@@ -1650,11 +1734,28 @@ OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, a
 	}
 
 	for(var i in aRequestMap) {
-		r.addHeader(i, aRequestMap[i]);
+		if (r.containsHeader(i)) {
+			r.setHeader(i, aRequestMap[i]);
+		} else {
+			r.addHeader(i, aRequestMap[i]);
+		}
 	}
 
 	if (isDef(aIn) && isString(aIn) && canHaveIn) {
 		r.setEntity(Packages.org.apache.http.entity.StringEntity(aIn));
+	} else {
+		if (isDef(this.__uf) && canHaveIn) {
+			//var fileBody = new Pacakges.org.apache.http.entity.mime.content.FileBody(new java.io.File(this.__uf), Packages.org.apache.http.entity.ContentType.DEFAULT_BINARY);
+			var entityBuilder = Packages.org.apache.http.entity.mime.MultipartEntityBuilder.create();
+			entityBuilder.setMode(Packages.org.apache.http.entity.mime.HttpMultipartMode.BROWSER_COMPATIBLE);
+			if (isString(this.__uf)) {
+				entityBuilder.addBinaryBody(this.__ufn, new java.io.File(this.__uf));
+			} else {
+				entityBuilder.addBinaryBody(this.__ufn, this.__uf);
+			}
+			var mutiPartHttpEntity = entityBuilder.build();
+			r.setEntity(mutiPartHttpEntity);
+		}
 	}
 
 	this.outputObj = {};
@@ -1831,7 +1932,7 @@ OpenWrap.obj.prototype.rest = {
 	 * </odoc>
 	 */
 	getContentLength: function(aURL, _l, _p, _t, aRequestMap, __h) {
-		var h = (isDef(__h)) ? __h : this.connectionFactory();
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 
 		if (isUnDef(_l) && isUnDef(_p)) {
 			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
@@ -1850,7 +1951,7 @@ OpenWrap.obj.prototype.rest = {
 		}
 		 
 		try {
-			h.exec(aURL, "HEAD", void 0, aRequestMap, void 0, _t);
+			h.exec(aURL, "HEAD", __, aRequestMap, __, _t);
 			return Number(h.responseHeaders()["Content-Length"]) || Number(h.responseHeaders()["content-length"]);
 		} catch(e) {
 		   e.message = "Exception " + e.message + "; error = " + stringify(h.getErrorResponse(true));
@@ -1869,7 +1970,7 @@ OpenWrap.obj.prototype.rest = {
 	get: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes) { 
 		//plugin("HTTP");
 		//var h = new HTTP();
-		var h = (isDef(__h)) ? __h : this.connectionFactory();
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 		
 		if (isUnDef(_l) && isUnDef(_p)) {
 			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
@@ -1888,7 +1989,7 @@ OpenWrap.obj.prototype.rest = {
  		}
  		
  		try {
- 			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "GET", void 0, aRequestMap, retBytes, _t, retBytes);
+ 			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "GET", __, aRequestMap, retBytes, _t, retBytes);
  		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + stringify(h.getErrorResponse(true));
 			throw e;
@@ -1919,7 +2020,7 @@ OpenWrap.obj.prototype.rest = {
 	create: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
 		//plugin("HTTP");
 		//var h = new HTTP();
-		var h = (isDef(__h)) ? __h : this.connectionFactory();
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 
 		if (isUnDef(_l) && isUnDef(_p)) {
 			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
@@ -1942,13 +2043,70 @@ OpenWrap.obj.prototype.rest = {
 				   merge({"Content-Type":"application/json; charset=utf-8"} , aRequestMap);
 
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "POST", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, void 0, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
+			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "POST", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
+		} catch(e) {
+			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
+			throw e;
+		}
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.obj.rest.upload(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, aMethod) : String</key>
+	 * Tries to upload a new aDataRowMap entry (composed of name and in (a filename, a stream or an array of bytes)), identified by aIndexMap, on the REST aBaseURI service returning the reply as a string (uses the HTTP POST method or aMethod).
+	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
+	 * that receives the HTTP object.
+	 * Optionally if retBytes = true returns a java stream.
+	 * </odoc>
+	 */
+	upload: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod) {
+		aMethod = _$(aMethod, "aMethod").isString().default("POST");
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
+
+		if (isUnDef(_l) && isUnDef(_p)) {
+			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
+			if (u.getUserInfo() != null) {
+				_l = String(java.net.URLDecoder.decode(u.getUserInfo().substring(0, u.getUserInfo().indexOf(":")), "UTF-8"));
+				_p = String(java.net.URLDecoder.decode(u.getUserInfo().substring(u.getUserInfo().indexOf(":") + 1), "UTF-8"));
+			}
+		}
+		
+		if (isDef(_l) && isDef(_p)) {
+			h.login(_l, _p, false, aURL);
+		} 
+		
+ 		if (isDef(_l) && isFunction(_l)) {
+ 			_l(h);
+ 		}
+		
+		var rmap = aRequestMap;
+
+		try {
+			_$(aDataRow, "aDataRow").isMap().$_();
+			_$(aDataRow.name, "aDataRow.name").isString().$_();
+			_$(aDataRow.in, "aDataRow.in").$_();
+
+			h.upload(aDataRow.name, aDataRow.in);
+			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), aMethod, __, rmap, __, _t, retBytes);
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
 		}
 	},
 	
+	/**
+	 * <odoc>
+	 * <key>ow.obj.rest.jsonUpload(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, aMethod) : String</key>
+	 * Tries to upload a new aDataRowMap entry (composed of name and in (a filename, a stream or an array of bytes)), identified by aIndexMap, on the REST aBaseURI service returning the reply as a map (uses the HTTP POST method or aMethod).
+	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
+	 * that receives the HTTP object.
+	 * Optionally if retBytes = true returns a java stream.
+	 * </odoc>
+	 */
+	jsonUpload: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod) {
+		return jsonParse(af.toEncoding(this.upload(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod).response, "cp1252"));
+	},
+
 	/**
 	 * <odoc>
 	 * <key>ow.obj.rest.jsonCreate(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes) : Map</key>
@@ -1974,7 +2132,7 @@ OpenWrap.obj.prototype.rest = {
 	set: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
 		//plugin("HTTP");
 		//var h = new HTTP();
-		var h = (isDef(__h)) ? __h : this.connectionFactory();
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 
 		if (isUnDef(_l) && isUnDef(_p)) {
 			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
@@ -1997,7 +2155,7 @@ OpenWrap.obj.prototype.rest = {
 				   merge({"Content-Type":"application/json; charset=utf-8"} , aRequestMap);
 		
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PUT", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, void 0, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
+			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PUT", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2029,7 +2187,7 @@ OpenWrap.obj.prototype.rest = {
 	patch: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
 		//plugin("HTTP");
 		//var h = new HTTP();
-		var h = (isDef(__h)) ? __h : this.connectionFactory();
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 
 		if (isUnDef(_l) && isUnDef(_p)) {
 			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
@@ -2052,7 +2210,7 @@ OpenWrap.obj.prototype.rest = {
 				   merge({"Content-Type":"application/json; charset=utf-8"} , aRequestMap);
 		
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PATCH", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, void 0, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
+			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PATCH", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2081,7 +2239,7 @@ OpenWrap.obj.prototype.rest = {
 	remove: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes) {
 		//plugin("HTTP");
 		//var h = new HTTP();
-		var h = (isDef(__h)) ? __h : this.connectionFactory();
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 				
 		if (isUnDef(_l) && isUnDef(_p)) {
 			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
@@ -2100,7 +2258,7 @@ OpenWrap.obj.prototype.rest = {
  		}
 		
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "DELETE", void 0, aRequestMap, retBytes, _t, retBytes);
+			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "DELETE", __, aRequestMap, retBytes, _t, retBytes);
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2126,7 +2284,7 @@ OpenWrap.obj.prototype.rest = {
 	 * </odoc>
 	 */
 	head: function(aURL, aIdx, _l, _p, _t, aRequestMap, urlEncode, __h) {
-		var h = (isDef(__h)) ? __h : this.connectionFactory();
+		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 				
 		if (isUnDef(_l) && isUnDef(_p)) {
 			var u = new java.net.URL(Packages.openaf.AFCmdBase.afc.fURL(aURL));
@@ -2145,7 +2303,7 @@ OpenWrap.obj.prototype.rest = {
  		}
 		
 		try {
-			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "HEAD", void 0, aRequestMap, void 0, _t, void 0);
+			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "HEAD", __, aRequestMap, __, _t, __);
 			res.contentType = "application/json";
 			res.response = h.responseHeaders();
 			return res;
@@ -2450,6 +2608,84 @@ OpenWrap.obj.prototype.setPath = function(aObj, aPath, aValue) {
 
 /**
  * <odoc>
+ * <key>ow.obj.sign(aKey, aMap, aHashName, aHashFunction) : Map</key>
+ * Given aMap and aKey will return a signed aMap using aHashFunction (defaults to sha512) with the hash algorithm indication
+ * aHashName (defaults to 'sha512'). The signed aMap can later be verified with ow.obj.signVerify.
+ * </odoc>
+ */
+OpenWrap.obj.prototype.sign = function(aKey, aMap, aHashName, aHashFunction) {
+    _$(aKey, "aKey").$_();
+    _$(aMap, "aMap").isMap().$_();
+    aHashName = _$(aHashName, "aHashName").isString().default("sha512");
+    aHashFunction = _$(aHashFunction, "aHashFunction").isFunction().default(sha512);
+
+    ow.loadServer();
+    if (isDef(aMap.__jwt)) delete aMap.__jwt;
+    var hash = aHashName + "-" + aHashFunction(stringify(sortMapKeys(aMap), __, ""));
+    var jwt = ow.server.jwt.sign(aKey, {
+        subject: "openaf map signature",
+        claims : {
+            oaf: hash
+        }
+    });
+
+    aMap.__jwt = jwt;
+    return aMap;
+};
+
+/**
+ * <odoc>
+ * <key>ow.obj.isSigned(aMap) : boolean</key>
+ * Verifies if the provided aMap was signed with ow.obj.sign function.
+ * </odoc>
+ */
+OpenWrap.obj.prototype.isSigned = function(aMap) {
+    if (isUnDef(aMap.__jwt)) return false;
+
+    var jwt = aMap.__jwt;
+    ow.loadServer();
+    var djwt = ow.server.jwt.decode(jwt);
+    if (isDef(djwt) && isDef(djwt.claims) && isDef(djwt.claims.oaf)) return true;
+
+    return false;
+};
+
+/**
+ * <odoc>
+ * <key>ow.obj.signVerify(aKey, aMap) : boolean</key>
+ * Verifies the signature of a signed aMap with ow.obj.sign function given aKey. Returns true if the signature is valid.
+ * Supported hash functions of ow.obj.sign: sha512, sha384 and sha256.
+ * </odoc>
+ */
+OpenWrap.obj.prototype.signVerify = function(aKey, aMap) {
+    _$(aKey, "aKey").$_();
+    _$(aMap, "aMap").isMap().$_();
+
+    if (!ow.obj.isSigned(aMap)) throw "No openaf map signature found.";
+
+    var jwt = ow.server.jwt.verify(aKey, aMap.__jwt);
+    var [fn, hash] = jwt.claims.oaf.split("-");
+    
+    var v = clone(aMap);
+    delete v.__jwt;
+
+    switch(fn) {
+    case "sha512": 
+        var vhash = sha512(stringify(sortMapKeys(v), __, ""));
+        if (vhash == hash) return true; else return false;
+    case "sha384": 
+        var vhash = sha384(stringify(sortMapKeys(v), __, ""));
+        if (vhash == hash) return true; else return false;
+    case "sha256": 
+        var vhash = sha256(stringify(sortMapKeys(v), __, ""));
+        if (vhash == hash) return true; else return false;
+    default:
+        throw "Hash algorithm not supported";
+    }
+};
+
+/**
+ * <odoc>
  * <key>ow.obj.syncArray(anArray) : ow.obj.syncArray</key>
  * Creates an instance of a thread-safe array/list. Optionally it can be initialized with anArray.
  * </odoc>
@@ -2680,7 +2916,7 @@ OpenWrap.obj.prototype.schemaGenerator = function(aJson, aId, aRequired, aDescri
     var r = {
         "$id": aId,
 		"$schema": "http://json-schema.org/draft-07/schema#",
-		"description": (isDef(aDescriptionTmpl) ? templify(aDescriptionTmpl, aMap) : void 0),
+		"description": (isDef(aDescriptionTmpl) ? templify(aDescriptionTmpl, aMap) : __),
 		"required": aRequired
     };
 
@@ -2770,7 +3006,7 @@ OpenWrap.obj.prototype.schemaGenerator = function(aJson, aId, aRequired, aDescri
 		}
 
 		if (isDef(aDescriptionTmpl)) {
-			aMap.key = (isDef(ak) ? ak : void 0);
+			aMap.key = (isDef(ak) ? ak : __);
 			ms.description = templify(aDescriptionTmpl, merge(ms, aMap));
 		}
 
@@ -2924,7 +3160,7 @@ OpenWrap.obj.prototype.oneOfFn = function(anArrayFn, aWeightField) {
     if (isObject(o) && isFunction(o.fn)) return o.fn();
     if (isFunction(o)) return o();
 
-    return void 0;
+    return __;
 };
 
 /**

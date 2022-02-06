@@ -17,3 +17,5 @@ dependencies.json
 /dist
 /docs/odoc
 /target/*
+maven-*
+.github/*

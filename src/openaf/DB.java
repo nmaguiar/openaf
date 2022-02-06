@@ -165,8 +165,8 @@ public class DB extends ScriptableObject {
 	}
 
 	@JSFunction
-	public void rollback() throws SQLException {
-		coreDB.rollback();
+	public void rollback(boolean dontIgnoreError) throws SQLException {
+		coreDB.rollback(dontIgnoreError);
 	}
 
 	@JSFunction
@@ -191,5 +191,15 @@ public class DB extends ScriptableObject {
 	@JSFunction
 	public void convertDates(boolean toggle) {
 		coreDB.convertDates(toggle);
+	}
+
+	@JSFunction
+	public void setAutoCommit(boolean toggle) throws Exception {
+		coreDB.setAutoCommit(toggle);
+	}
+
+	@JSFunction
+	public boolean getAutoCommit() throws Exception {
+		return coreDB.getAutoCommit();
 	}
 }

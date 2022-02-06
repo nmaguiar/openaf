@@ -6,6 +6,69 @@ OpenWrap.dev = function() {
 	return ow.dev;
 };
 
+OpenWrap.dev.prototype.loadChFn = function() {
+    ow.loadCh()
+	ow.loadObj()
+
+    ow.ch.__types.fn = {
+        __channels: {},
+        create       : function(aName, shouldCompress, options) {
+            options = _$(options).isMap().default({})
+    
+            options.get           = _$(options.get, "get").isFunction().default(k => k)
+            options.set           = _$(options.set, "set").isFunction().default((k, v, t) => k)
+            options.unset         = _$(options.unset, "unset").isFunction().default((aK, aT) => aK)
+            options.getKeys       = _$(options.getKeys, "getKeys").isFunction().default(() => ([]))
+    
+            options.size          = _$(options.size, "size").isFunction().default(() => options.getKeys().length)
+            options.forEach       = _$(options.forEach, "forEach").isFunction().default(aFn => {
+                options.getKeys().forEach(k => {
+                    try {
+                        aFn(k, options.get(k))
+                    } catch(e) { }
+                })
+            })
+            options.getAll        = _$(options.getAll, "getAll").isFunction().default(() => options.getKeys().map(k => options.get(k)) )
+            options.getSortedKeys = _$(options.getSortedKeys, "getSortedKeys").isFunction().default(() => options.getKeys() )
+            options.getSet        = _$(options.getSet, "getSet").isFunction().default((aM, aK, aV, aT) => options.set(aK, aV, aT) )
+    
+            options.setAll        = _$(options.setAll, "setAll").isFunction().default((aKs, aVs, aTs) => {
+                aVs.forEach(aV => options.set(ow.obj.filterKeys(aKs, aV), aV, aTs) )
+            })
+            options.unsetAll      = _$(options.unsetAll, "unsetAll").isFunction().default((aKs, aVs, aTs) => {
+                aVs.forEach(aV => options.unset(ow.obj.filterKeys(aKs, aV), aTs) )
+            })
+    
+            options.pop           = _$(options.pop, "pop").isFunction().default( () => {
+                var elems = this.getSortedKeys(aName);
+                var elem = elems[elems.length - 1];
+                return elem;
+            })
+            options.shift         = _$(options.shift, "shift").isFunction().default( () => {
+                var elems = this.getSortedKeys(aName);
+                var elem = elems[0];
+                return elem;
+            })
+    
+            this.__channels[aName] = options
+        },
+        destroy      : function(aName) { delete this.__channels[aName] },
+        size         : function(aName) { return this.__channels[aName].size() },
+        forEach      : function(aName, aFunction) { this.__channels[aName].forEach(aFunction) },
+        getAll       : function(aName, full) { return this.__channels[aName].getAll(full) },
+        getKeys      : function(aName, full) { return this.__channels[aName].getKeys(full) },
+        getSortedKeys: function(aName, full) { return this.__channels[aName].getSortedKeys(full) },
+        getSet       : function(aName, aMatch, aK, aV, aTimestamp) { return this.__channels[aName].getSet(aMatch, aK, aV, aTimestamp) },
+        set          : function(aName, aK, aV, aTimestamp) { return this.__channels[aName].set(aK, aV, aTimestamp) },
+        setAll       : function(aName, aKs, aVs, aTimestamp) { return this.__channels[aName].setAll(aKs, aVs, aTimestamp) },
+        unsetAll     : function(aName, aKs, aVs, aTimestamp) { return this.__channels[aName].unsetAll(aKs, aVs, aTimestamp) },		
+        get          : function(aName, aK) { return this.__channels[aName].get(aK) },
+        pop          : function(aName) { return this.__channels[aName].pop() },
+        shift        : function(aName) { return this.__channels[aName].shift() },
+        unset        : function(aName, aK, aTimestamp) { return this.__channels[aName].unset(aK, aTimestamp) }
+    }
+    
+}
 
 OpenWrap.dev.prototype.loadPoolDB = function() {
 	ow.loadCh();
@@ -114,7 +177,7 @@ OpenWrap.dev.prototype.doh = function(aString, aType, aProvider) {
                     if (isDef(res) && isArray(res.Answer) && res.Answer.length > 0) 
                         return $path(res, "sort_by(Answer, &TTL)[?type==`" + nt + "`]"); 
                     else 
-                        return void 0;
+                        return __;
                 };
                 break;
             default:
@@ -125,7 +188,7 @@ OpenWrap.dev.prototype.doh = function(aString, aType, aProvider) {
                     if (isDef(res) && isArray(res.Answer) && res.Answer.length > 0) 
                         return $path(res, "sort_by(Answer, &TTL)[?type==`" + nt + "`]"); 
                     else 
-                        return void 0;
+                        return __;
                 };
                 break;
             }
@@ -264,7 +327,7 @@ OpenWrap.dev.prototype.JSDebug.prototype.setTestingWrapAll = function(aObject) {
 OpenWrap.dev.prototype.JSDebug.prototype.setFn = function(aObject, aMethod, aFn, aPrefix, aSuffix, eachLineTmpl) {
     _$(aObject).isString().regexp(/\w+/).$_("need to provide a object name as a string");
     _$(aMethod).isString().regexp(/\w+/).default(aObject);
-    _$(aFn).isFunction().default(void 0);
+    _$(aFn).isFunction().default(__);
     aPrefix = _$(aPrefix).isString().default("");
     aSuffix = _$(aSuffix).isString().default("");
     eachLineTmpl = _$(eachLineTmpl).isString().default("");
@@ -329,3 +392,204 @@ OpenWrap.dev.prototype.JSDebug.prototype.setFn = function(aObject, aMethod, aFn,
 
     return res;
 };
+
+var oBook = function(aBook, exitOnEnd) {
+    if (isString(aBook) && aBook.indexOf("\n") < 0 && io.fileExists(aBook)) aBook = io.readFileString(aBook)
+
+    this.book = isString(aBook) ? aBook : ""
+    this.pos = -1
+    this.struct = isArray(aBook) ? aBook : []
+    this._show = true
+    this.exitOnEnd = _$(exitOnEnd, "exitOnEnd").isBoolean().default(false)
+
+    if (isString(aBook)) this.parse()
+}
+
+// con.getConsoleReader().getCursorBuffer().write("abc")
+// con.getConsoleReader().getHistory().index()
+// con.getConsoleReader().getHistory().get()
+
+oBook.prototype.printPart = function(partId) {
+    _$(partId).isNumber().$_()
+
+    var thm = ow.format.withSideLineThemes().simpleLineWithTips
+    thm.rtop    = thm.ltop
+    thm.rmiddle = thm.lmiddle
+    thm.rbottom = thm.lbottom
+
+    var head = ansiColor("YELLOW,BOLD", "[" + (partId+1) + "/" + this.struct.length + "]\n\n")
+    var txt = this.struct[partId].text
+    var includeCode = false
+    if (this.struct[partId].code.split("\n").length > 1) {
+        includeCode = true
+        this.includeCodeLines = this.struct[partId].code.split("\n").length-1
+        __pinprefix = this.includeCodeLines+1
+    } else {
+        this.includeCodeLines = 0
+        __pinprefix = ""
+    }
+    
+    //if (includeCode) txt += "\n" + this.struct[partId].code + "\n"
+    print(ow.format.withSideLine(head + ow.format.withMD(txt), __, "YELLOW", __, thm))
+    if (includeCode) print(ansiColor("ITALIC,WHITE", "Copy+paste the following code or adapt it, if needed, as instructed:\n\n") + this.struct[partId].code)
+
+    if (!includeCode) {
+        if (this.struct[partId].code.length > 0) {
+            print(ansiColor("ITALIC,WHITE", "Execute the following code or adapt it, if needed, as instructed:"))
+            con.getConsoleReader().getCursorBuffer().write(this.struct[partId].code.trim())
+        } else {
+            this.interaction()
+        }
+    }
+}
+
+oBook.prototype.bookEnd = function() {
+    watchLine    = ""
+    watchCommand = false
+
+    var thm = ow.format.withSideLineThemes().openTopCurvedRect
+
+    print(ow.format.withSideLine(ow.format.withMD("(obook end)"), __, "YELLOW", __, thm))
+    if (this.exitOnEnd) exit(0)
+}
+
+oBook.prototype.bookStart = function() {
+    var thm = ow.format.withSideLineThemes().openBottomCurvedRect
+
+    print(ow.format.withSideLine(ow.format.withMD("(obook start)"), __, "YELLOW", __, thm))
+}
+
+oBook.prototype.interaction = function() {
+    if (this.pos == -1) {
+        this.printPart(++this.pos)
+    } else {
+        if (this.pos > (this.struct.length)) {
+            this._show = false
+        }
+
+        if (this._show && this.includeCodeLines <= 0) {
+            var _out = false
+            var _msg = ""
+            do {
+                // Position check
+                var _pos = ""
+
+                if (this.pos < 0) this.pos = -1
+                if (this.pos < (this.struct.length-1)) {
+                    _pos = "to show [" + (this.pos+2) + "/" + this.struct.length + "]"
+                    this._show = true
+                }
+                if (this.pos >= (this.struct.length-1)) {
+                    this.pos = this.struct.length-1
+                    _pos = "to end"
+                    this._show = false
+                }
+                
+                _msg = "\r(" + _pos + " press enter, for others use up/down keys, to continue entering commands Ctrl+U and to quit press 'q')"
+                printnl(_msg)
+                var _c = String(con.readChar("")).charCodeAt(0)
+
+                // Keyboard check
+                if (_c == 27) {
+                    // esc
+                    _c = String(con.readChar("")).charCodeAt(0)
+                    
+                    if (_c == 27) {
+                        this._show = false
+                        _out = true
+                    }
+                    if (_c == 91) {
+                        _c = String(con.readChar("")).charCodeAt(0)
+
+                        // others
+                        switch(_c) {
+                        case 65: // up
+                            this.pos--
+                            _out = false
+                            break
+                        case 66: // down
+                            this.pos++
+                            _out = false
+                            break
+                        case 13: // enter
+                        case 32: // space
+                            _out = true
+                            this.pos++
+                            break
+                        default:
+                        }
+                    }
+                }
+                if (_c == 21) {
+                    // ctrl+U
+                    this._show = false
+                    _out = true
+                }
+                if (_c == 13) {
+                    // enter
+                    _out = true
+                    this.pos++
+                }
+                if (_c == 113) {
+                    // q
+                    this._show = false
+                    _out = true
+                    this.pos = this.struct.length
+                }
+                printnl("\r" + repeat(_msg.length, " ") + "\r")
+            } while(_out == false)
+            
+            if (this._show) {
+                this.printPart(this.pos)
+            } else {
+                if (this.pos >= (this.struct.length-1)) this.bookEnd()
+            }
+        } else {
+            if (this.includeCodeLines > 0) {
+                __pinprefix = this.includeCodeLines
+                this.includeCodeLines--
+            } 
+            this._show = true
+        }
+    }
+}
+
+oBook.prototype.parse = function() {
+    this.struct = []
+
+    var _cleanup = s => {
+        if (isString(s)) {
+            return s.trim()
+        } else {
+            return ""
+        }
+    }
+
+    var ro = this.book.match(/^\*requires (.+) >= (.+)\*/m)
+    if (isArray(ro) && ro.length > 0) {
+        ro.forEach(r => {
+            var _r = r.match(/^\*requires (.+) >= (.+)\*/)
+            if (_r && _r.length == 3) {
+                includeOPack(_r[1], _r[2])
+            }
+        })
+    }
+
+    var lst = this.book.replace(/````javascript\n([^`]+)````/mg, "````````\n$1````````").split(/````````\w*/)
+    for(var i = 0; i < lst.length; i = i + 2) {
+        if ((isString(lst[i]) && lst[i].length > 0) || 
+            (isString(lst[i+1]) && lst[i+1].length > 0)) {
+            this.struct.push({
+                text: _cleanup(lst[i]),
+                code: _cleanup(lst[i+1])
+            })
+        }
+    }
+}
+
+var obook = function(aBook, exitOnEnd) {
+    global._obook = new oBook(aBook, exitOnEnd)
+    watchLine = "_obook.interaction()"
+    watchCommand = true
+    global._obook.bookStart()
+}

@@ -6,18 +6,24 @@ var __pinflag = false;
 var __pinprefix = "";
 var __autoupdate = false;
 var __autoupdateResume = true;
+var consoleOldTheme = openafOldTheme;
 var CONSOLESEPARATOR = "-- ";
+var HELPSEPARATOR = "-";
+var HELPSEPARATOR_ANSI = "─";
 var CONSOLESEPARATOR_ANSI = "── ";
 var CONSOLEHISTORY = ".openaf-console_history";
 var CONSOLEPROFILE = ".openaf-console_profile";
-var RESERVEDWORDS = "help|exit|time|output|beautify|desc|scope|alias|color|watch|clear|purge|pause|table|view|sql|esql|dsql|pin";
+var RESERVEDWORDS = "help|exit|time|output|beautify|desc|scope|alias|color|watch|clear|purge|pause|table|view|sql|esql|dsql|pin|multi|diff";
 var __alias = {
 	"opack": "oPack(__aliasparam);",
-	"encryptText": "af.encryptText();",
-	"sh": "sh((!ow.loadFormat().isWindows()?\"stty icanon echo 2>/dev/null && /bin/sh \":\"cmd \")+(__aliasparam.trim().length>0?(ow.format.isWindows()?\" /c \":\" -c \\\"\")+__aliasparam+\"\\\"\":\"\")+(!ow.format.isWindows()?\" && stty -icanon min 1 -echo 2>/dev/null\":\"\"),void 0,void 0,true);void 0;",
-    "ojob": "(()=>{var f = __aliasparam.split(\" \"); var o = processExpr(\" \", false, __aliasparam); delete o[f[0]]; oJobRunFile(f[0], o);})()"
+	"encryptText": "print(\"Encrypted text: \" + askEncrypt(\"Enter text: \"));",
+	"sh": "sh((!ow.loadFormat().isWindows()?\"stty icanon echo 2>/dev/null && /bin/sh \":\"cmd \")+(__aliasparam.trim().length>0?(ow.format.isWindows()?\" /c \":\" -c \\\"\")+__aliasparam+\"\\\"\":\"\")+(!ow.format.isWindows()?\" && stty -icanon min 1 -echo 2>/dev/null\":\"\"),__,__,true);__;",
+    "ojob": "(()=>{var f = __aliasparam.split(\" \"); var o = processExpr(\" \", false, __aliasparam); delete o[f[0]]; oJobRunFile(f[0], o);})()",
+	"ojobio": "oJobRunFile(\"ojob.io\")"
 };
 var __exitActions = [];
+ow.loadFormat();
+var __consoleFormat;
 
 var __aliasparam;
 var __message = "";
@@ -59,7 +65,21 @@ function __desc(aClass, retList, noRecursive, javaMethods) {
 			constructors = classObj.getConstructors();
 		} catch(e) {
 			try {
-				classObj = java.lang.Class.forName("openaf.plugins." + aClassJava);
+				try {
+					classObj = java.lang.Class.forName("openaf.plugins." + aClassJava);
+				} catch(e) {
+					var ar = [];
+					Object.values(getOPackPaths()).map(r => {
+						$from(io.listFilenames(r))
+						.ends(".jar")
+						.select(r2 => {
+							ar.push(new java.net.URL("file://" + r2));
+						});
+					});
+					var cl = new java.net.URLClassLoader(ar, java.lang.Thread.currentThread().getContextClassLoader());
+					classObj = java.lang.Class.forName("openaf.plugins." + aClassJava, true, cl);
+				}
+				
 				methods = classObj.getMethods();
 				constructors = classObj.getConstructors();
 			} catch(e) {
@@ -277,7 +297,7 @@ function __sql(aParams, executeSQL, descSQL, returnOnly) {
 	try {
 		var res;
 		var __start;
-		__timeResult = void 0;
+		__timeResult = __;
 		
 		if (timeCommand) __start = now();
 		if (!executeSQL) {
@@ -303,7 +323,7 @@ function __sql(aParams, executeSQL, descSQL, returnOnly) {
 				if (timeCommand) __timeResult = now() - __start;
 				if (res.results.length > 0) {
 					if (!descSQL) {
-						outputres = printTable(res.results, con.getConsoleReader().getTerminal().getWidth(), returnOnly, __ansiflag && con.isAnsiSupported(), (isDef(__codepage) ? "utf" : void 0));
+						outputres = printTable(res.results, con.getConsoleReader().getTerminal().getWidth(), returnOnly, __ansiflag && con.isAnsiSupported(), (isDef(__codepage) ? "utf" : __));
 					} /* else {
 						outputres = Object.keys(res.results[0]).join("\n");
 					}*/
@@ -554,50 +574,70 @@ function addAlias(aAssignment) {
  * Provides a help screen
  */
 function __help(aTerm) {
+	var __ores = "", c = __consoleFormat.helpLine;
+	var __o = (s, nomd) => __ores += (nomd ? s : ow.format.withMD(s))+ "\n";
 	if(isUnDef(aTerm) || aTerm.length <= 0) {
-		__outputConsoleComments("help     Display this help text");
-		__outputConsoleComments("exit     Exit this console");
-		__outputConsoleComments("time     Turns on or off the timing of any script command provided (default off)");
-		__outputConsoleComments("output   Turns on or off the output of commands (default on)");
-		__outputConsoleComments("beautify Turns on or off the beautify of output (default on)");
-		__outputConsoleComments("color    Turns on or off the colorify of json output (default on)");
-		__outputConsoleComments("desc     Provides a description of the available methods for a class (example 'desc AF')");
-		__outputConsoleComments("scope    Lists the current OpenAF javascript scope loaded filtered by a regexp (example 'scope sha')");
-		__outputConsoleComments("alias    Create an alias for an openaf-console command line (example 'alias ola=print(\"hi\");')");
-		__outputConsoleComments("watch    Turns on or off an execution before every console prompt (example 'watch new Date();')");
-		__outputConsoleComments("pause    Pauses the output of a command if bigger than the terminal height (default off)");
-		__outputConsoleComments("sql      Executes a SQL query, over a db connection, displaying the result in a table (example 'sql adm select...')");
-		__outputConsoleComments("dsql     Returns the list of columns produced by a SQL query over a db connection.");
-		__outputConsoleComments("esql     Executes the SQL statement, over a db connection (example 'esql db update...')");
-		__outputConsoleComments("diff     Show differences between object A and B (example 'diff A with B'; accepts with/withNew/withChanges/withFull)");
-		__outputConsoleComments("pin      Pins the next command as a prefix for the next commands until an empty command (example 'pin sql db...')");
-		__outputConsoleComments("table    Tries to show the command result array as an ascii table.");
-		__outputConsoleComments("view     Tries to show the command result object as an ascii table.");
-		__outputConsoleComments("clear    Tries to clear the screen.");
-		__outputConsoleComments("purge    Purge all the command history");
-		__outputConsoleComments("[others] Executed as a OpenAF script command (example 'print(\"ADEUS!!!\");')");
+		__o("__help__     Display this help text");
+		__o("__exit__     Exit this console");
+		__o("__time__     Turns on or off the timing of any script command provided (default off)");
+		__o("__output__   Turns on or off the output of commands (default on)");
+		__o("__beautify__ Turns on or off the beautify of output (default on)");
+		__o("__color__    Turns on or off the colorify of json output (default on)");
+		__o("__desc__     Provides a description of the available methods for a class (example 'desc AF')");
+		__o("__scope__    Lists the current OpenAF javascript scope loaded filtered by a regexp (example 'scope sha')");
+		__o("__alias__    Create an alias for an openaf-console command line (example 'alias ola=print(\"hi\");')");
+		__o("__watch__    Turns on or off an execution before every console prompt (example 'watch new Date();')");
+		__o("__pause__    Pauses the output of a command if bigger than the terminal height (default off)");
+		__o("__sql__      Executes a SQL query, over a db connection, displaying the result in a table (example 'sql adm select...')");
+		__o("__dsql__     Returns the list of columns produced by a SQL query over a db connection.");
+		__o("__esql__     Executes the SQL statement, over a db connection (example 'esql db update...')");
+		__o("__diff__     Show differences between object A and B (example 'diff A with B'; accepts with/withNew/withChanges/withFull)");
+		__o("__pin__      Pins the next command as a prefix for the next commands until an empty command (example 'pin sql db...')");
+		__o("__table__    Tries to show the command result array as an ascii table.");
+		__o("__view__     Tries to show the command result object as an ascii table.");
+		__o("__multi__    Turns on or off the entry of multiline expressions (default on)");
+		__o("__clear__    Tries to clear the screen.");
+		__o("__purge__    Purge all the command history");
+		__o("__[others]__ Executed as a OpenAF script command (example 'print(\"ADEUS!!!\");')");
 	} else {
 		var h;
 
 		if (aTerm == "scope") {
-			h = searchHelp("", undefined, ['scope']);
+			h = searchHelp("", __, ['scope']);
 		} else {
 			h = searchHelp(aTerm);
 		}
 		
-		if (h.length == 1) {
-			__outputConsoleComments(h[0].fullkey);
-			__outputConsoleComments(repeat(h[0].fullkey.length, '-'));
-			__outputConsoleComments(h[0].text);
-		} else {
-			if (h.length > 1) {
-				for(let i in h) {
-					__outputConsoleComments(h[i].key);
+		if (isArray(h)) {
+			if (h.length == 1 && isDef(h[0].fullkey) && isDef(h[0].text)) {
+				if (__ansiflag) {
+					__o("**" + h[0].fullkey + "**");
+					__o("**" + repeat(h[0].fullkey.length, HELPSEPARATOR_ANSI) + "**");
+					__o(h[0].text, true);
+				} else {
+					__o(h[0].fullkey);
+					__o(repeat(h[0].fullkey.length, HELPSEPARATOR));
+					__o(h[0].text, true);
 				}
 			} else {
-				__outputConsoleComments("Term '" + aTerm + "' not found.");
+				if (h.length > 1) {
+					for(var i in h) {
+						__o(h[i].key);
+					}
+				} else {
+					__o("Term '" + aTerm + "' not found.");
+					c = __consoleFormat.errorLine;
+				}
 			}
 		}
+	}
+
+	if (__ansiflag && con.isAnsiSupported()) {
+		ansiStart();
+		print(ow.format.withSideLine(__ores.slice(0, __ores.length-1), con.getConsoleReader().getTerminal().getWidth(), c, __, __consoleFormat.helpTheme));
+		ansiStop();
+	} else {
+		__outputConsoleCommentsEnd(__ores);
 	}
 }
 
@@ -607,33 +647,43 @@ function __outputConsole(anOutput, colorify) {
 
 function __outputConsoleNoEnd(anOutput, colorify) {
 	if(__ansiflag && con.isAnsiSupported()) {
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
-		if (colorCommand && colorify) {
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		//if (colorCommand && colorify) {
 			//if (isDef(__codepage) && isString(__codepage)) 
 			//	printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
 			//else
-			printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
-		} else {
-			//if (isDef(__codepage) && isString(__codepage))
-			//printnl(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.CYAN).a(anOutput).a(jansi.Ansi.Attribute.RESET), void 0, __codepage);
+			//if (__ansiColorFlag)
+			//	printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
 			//else
+			ansiStart();
 			printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
-		}
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
+			ansiStop();
+		//} else {
+			//if (isDef(__codepage) && isString(__codepage))
+			//printnl(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.CYAN).a(anOutput).a(jansi.Ansi.Attribute.RESET), __, __codepage);
+			//else
+			//printnl(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
+		//}
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		printnl(anOutput);
 	}
 }
 
 function __outputConsoleEnd(anOutput, colorify) {
-	//if (isDef(__codepage) && isString(__codepage)) anOutput = af.toEncoding(anOutput, void 0, __codepage);
+	//if (isDef(__codepage) && isString(__codepage)) anOutput = af.toEncoding(anOutput, __, __codepage);
 	if(__ansiflag && con.isAnsiSupported()) {
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
 		//if (colorCommand && colorify) 
 		//   print(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
 		//else
-		print(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
+		//if (__ansiColorFlag)
+		//	print(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET));
+		//else
+		ansiStart(); 
+		print(jansi.Ansi.ansi().boldOff().a(anOutput).a(jansi.Ansi.Attribute.RESET)); 
+		ansiStop();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		print(anOutput);
 	}
@@ -644,33 +694,42 @@ function __outputConsoleComments(anOutputComment) {
 }
 
 function __outputConsoleCommentsNoEnd(anOutputComment) {
-	//if (isDef(__codepage) && isString(__codepage)) anOutputComment = af.toEncoding(anOutputComment, void 0, __codepage);
+	//if (isDef(__codepage) && isString(__codepage)) anOutputComment = af.toEncoding(anOutputComment, __, __codepage);
 	if(__ansiflag && con.isAnsiSupported()) {
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
-		printnl(jansi.Ansi.ansi().bold().a(anOutputComment).a(jansi.Ansi.Attribute.RESET));
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		//if (__ansiColorFlag)
+		//	printnl(jansi.Ansi.ansi().bold().a(anOutputComment).a(jansi.Ansi.Attribute.RESET));
+		//else
+		ansiStart(); printnl(jansi.Ansi.ansi().bold().a(anOutputComment).a(jansi.Ansi.Attribute.RESET)); ansiStop();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		printnl(anOutputComment);
 	}
 }
 
 function __outputConsoleCommentsEnd(anOutputComment) {
-	//if (isDef(__codepage) && isString(__codepage)) anOutputComment = af.toEncoding(anOutputComment, void 0, __codepage);
+	//if (isDef(__codepage) && isString(__codepage)) anOutputComment = af.toEncoding(anOutputComment, __, __codepage);
 	if(__ansiflag && con.isAnsiSupported()) {
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
-		print(jansi.Ansi.ansi().bold().a(anOutputComment).a(jansi.Ansi.Attribute.RESET));
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		//if (__ansiColorFlag)
+		//	print(jansi.Ansi.ansi().bold().a(anOutputComment).a(jansi.Ansi.Attribute.RESET));
+		//else
+		ansiStart(); print(ansiColor("BOLD", anOutputComment)); ansiStop();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		print(anOutputComment);
 	}
 }
 
 function __outputConsoleError(anError) {
-	//if (isDef(__codepage) && isString(__codepage)) anError = af.toEncoding(anError, void 0, __codepage);
+	//if (isDef(__codepage) && isString(__codepage)) anError = af.toEncoding(anError, __, __codepage);
 	if(__ansiflag && con.isAnsiSupported()) {
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
-		printErr(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.RED).a(CONSOLESEPARATOR + anError).a(jansi.Ansi.Attribute.RESET));
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		//if (__ansiColorFlag) 
+		//	printErr(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.RED).a(CONSOLESEPARATOR + anError).a(jansi.Ansi.Attribute.RESET));
+		//else
+		ansiStart(); printErr(jansi.Ansi.ansi().boldOff().fg(jansi.Ansi.Color.RED).a(CONSOLESEPARATOR + anError).a(jansi.Ansi.Attribute.RESET)); ansiStop();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
 	} else {
 		printErr(CONSOLESEPARATOR + anError);
 	}
@@ -678,9 +737,10 @@ function __outputConsoleError(anError) {
 
 function __clear() {
 	if(__ansiflag && con.isAnsiSupported()) {
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
-		printnl(jansi.Ansi.ansi().eraseScreen().cursor(0,0).reset());
-		if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemInstall();
+		//cprintnl(jansi.Ansi.ansi().eraseScreen().cursor(0,0).reset());
+		//if (!__ansiColorFlag) jansi.AnsiConsole.systemUninstall();
+		cls();
 	}
 }
 
@@ -723,10 +783,10 @@ function __table(aCmd) {
 	if (isArray(__res) && __res.length > 0 && isObject(__res[0]) && isObject(__res[__res.length -1])) {
 		var __pres = 0;
 		if (pauseCommand) {
-			var __lines = printTable(__res, con.getConsoleReader().getTerminal().getWidth(), true, colorCommand, (isDef(__codepage) ? "utf" : void 0)).split(/\n/);
+			var __lines = printTable(__res, con.getConsoleReader().getTerminal().getWidth(), true, colorCommand, (isDef(__codepage) ? "utf" : __)).split(/\n/);
 			while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
 		} else {
-			__outputConsole(printTable(__res, con.getConsoleReader().getTerminal().getWidth(), true, colorCommand, (isDef(__codepage) ? "utf" : void 0)));
+			__outputConsole(printTable(__res, con.getConsoleReader().getTerminal().getWidth(), true, colorCommand, (isDef(__codepage) ? "utf" : __)));
 		}
 		return true;
 	} else {
@@ -734,6 +794,19 @@ function __table(aCmd) {
 		return true;
 	}
 	return false;
+}
+
+function __multi(aCmd) {
+	if (aCmd.match(/^off$|^0$/i)) { multiCommand = false; return; }
+	if (aCmd.match(/^on$|^1$/i)) { multiCommand = true; return; }
+	if (aCmd == "") {
+		if (multiCommand) {
+			__outputConsoleComments("Multi-line is active.");
+		} else {
+			__outputConsoleComments("Multi-line is not active.");
+		}
+		return true;
+	}
 }
 
 function __view(aCmd, fromCommand, shouldClear) {
@@ -754,7 +827,7 @@ function __view(aCmd, fromCommand, shouldClear) {
 		} catch(e) {
 			if (shouldClear) __clear();
 			//if (isUnDef(__res)) __res = __processCmdLine(aCmd); 
-			__showResultProcessCmdLine(__res, aCmd);
+			if (!isJavaException(e)) __showResultProcessCmdLine(__res, aCmd);
 			throw e;
 		}	
 			
@@ -762,10 +835,10 @@ function __view(aCmd, fromCommand, shouldClear) {
 		if (outputCommand && (isMap(__res) || isArray(__res)) && Object.keys(__res).length > 0) {
 			var __pres = 0, prefix = (colorCommand ? jansi.Ansi.ansi().a(jansi.Ansi.Attribute.RESET) : "");
 			if (pauseCommand) {
-				var __lines = (prefix + printMap(__res, void 0, (isDef(__codepage) ? "utf" : void 0), colorCommand)).split(/\n/);
+				var __lines = (prefix + printMap(__res, __, (isDef(__codepage) ? "utf" : __), colorCommand)).split(/\n/);
 				while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
 			} else {
-				__outputConsole(prefix + printMap(__res, void 0, (isDef(__codepage) ? "utf" : void 0), colorCommand));
+				__outputConsole(prefix + printMap(__res, __, (isDef(__codepage) ? "utf" : __), colorCommand));
 			}
 			if (isDef(__timeResult) && timeCommand) __time(__timeResult);
 			return true;
@@ -834,7 +907,11 @@ function __processCmdLine(aCommand, returnOnly) {
 			if (aCommand.match(/^view(?: +|$)/)) {
 				internalCommand = true;
 				__view(aCommand.replace(/^view */, ""), true);
-			}						
+			}	
+			if (aCommand.match(/^multi(?: +|$)/)) {
+				internalCommand = true;
+				__multi(aCommand.replace(/^multi */, ""), true);
+			}							
 			if (aCommand.match(/^beautify(?: +|$)/)) {
 				internalCommand = true;
 				__beautify(aCommand.replace(/^beautify */, ""));
@@ -907,7 +984,14 @@ function __processCmdLine(aCommand, returnOnly) {
 
 		}
 	} catch(e) {
-		__outputConsoleError(String(e));
+		//__outputConsoleError(String(e));
+		if (__ansiflag && con.isAnsiSupported()) {
+			ansiStart(); 
+			printErr(ow.format.withSideLine(String(e), con.getConsoleReader().getTerminal().getWidth(), __consoleFormat.errorLine, __consoleFormat.error, __consoleFormat.errorTheme)); 
+			ansiStop();
+		} else {
+			__outputConsoleError(String(e));
+		}
 	}
 
 	internalCommand = false;
@@ -919,7 +1003,7 @@ function __showResultProcessCmdLine(__res, __cmd) {
 			var __pres = 0;
 			var lines = [];
 			if (beautifyCommand && !__cmd.trim().startsWith("sql") && !__cmd.trim().startsWith("esql") && !__cmd.trim().startsWith("dsql")) {
-				if (colorCommand && isObject(__res)) 
+				if (colorCommand) 
 					__lines = String(colorify(__res)).replace(/\\t/g, "\t").replace(/\\r/g, "\r").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
 				else
 					__lines = String(stringify(__res)).replace(/\\t/g, "\t").replace(/\\r/g, "\r").replace(/([^\\])\\n/g, "$1\n").split(/\n/);
@@ -929,7 +1013,7 @@ function __showResultProcessCmdLine(__res, __cmd) {
 			while(__pres >= 0) __pres = __pauseArray(__lines, __pres);
 		} else {
 			if (beautifyCommand && !__cmd.trim().startsWith("sql") && !__cmd.trim().startsWith("esql") && !__cmd.trim().startsWith("dsql")) {
-				if (colorCommand && isObject(__res))
+				if (colorCommand)
 					__outputConsole(String(colorify(__res)).replace(/\\t/g, "\t").replace(/([^\\])\\n/g, "$1\n").replace(/\\r/g, "\r"), true);
 				else
 					__outputConsole(String(stringify(__res)).replace(/\\t/g, "\t").replace(/([^\\])\\n/g, "$1\n").replace(/\\r/g, "\r"));
@@ -978,7 +1062,7 @@ function __checkVersion() {
 			io.cp(getOpenAFJar() + ".orig", getOpenAFPath() + "/openaf.jar.old.orig");
 			getFile(__openafDownload, "openaf-" + remoteRelease + ".jar.repacked", getOpenAFPath() + "/openaf.jar.new");
 			getFile(__openafDownload, "openaf-" + remoteRelease + ".jar", getOpenAFPath() + "/openaf.jar.new.orig");
-			__message = "OpenAF will update to version " + remoteRelease + " on exit.";
+			__message += "OpenAF will update to version " + remoteRelease + " on exit; ";
 			addOnOpenAFShutdown(() => {
 				__outputConsoleComments("Please hold on, updating to OpenAF version: " + remoteRelease + "...");
 				io.writeFileBytes(getOpenAFJar() + ".orig", io.readFileBytes(getOpenAFPath() + "/openaf.jar.new.orig"));
@@ -1003,13 +1087,14 @@ function __checkVersion() {
 				ow.loadServer();
 				ow.server.checkIn(getOpenAFPath() + "/openaf_update.pid", aPid => {
 					anotherOne = true;
+					return true;
 				}, () => {
 					anotherOne = true;
 				});
 				if (__autoupdate && !anotherOne)
 					openAFAutoUpdate();
 				else
-					__message = "There is a new OpenAF version available: " + current + ". Run 'openaf --update' to update.";
+					__message += "There is a new OpenAF version available: " + current + ". Run 'openaf --update' to update; ";
 			}
 		}
 		t.stop(true);
@@ -1106,19 +1191,22 @@ function __pauseString(aString) {
 // ---------------------
 // MAIN
 // ---------------------
+__initializeCon();
+
 var con = new Console();
 if (__ansiColorFlag) ansiStart();
 //var __ansiflag = con.isAnsiSupported();
 var jansi = JavaImporter(Packages.org.fusesource.jansi);
-var __ansiflag = (jansi != null && isDef(jansi)) ? con.isAnsiSupported() : false;
+var __ansiflag = (isDef(__conAnsi) ? __conAnsi : (jansi != null && isDef(jansi)) ? con.isAnsiSupported() : false);
 var cmd = "";
 var timeCommand = false; var start; var end;
 var outputCommand = true;
 var beautifyCommand = true;
-var colorCommand = true;
+var colorCommand = __ansiflag;
 var pauseCommand = true;
 var watchCommand = false;
-var viewCommand = true;
+var viewCommand = __ansiflag;
+var multiCommand = true;
 var watchLine = "";
 var __previousAnsiFlag = __ansiflag;
 
@@ -1129,8 +1217,44 @@ con.getConsoleReader().setHistoryEnabled(true);
 con.getConsoleReader().setExpandEvents(false);
 //java.lang.System.setProperty("jansi.passthrough", true);
 
+// Read profile
+try {
+	__readProfile(java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE);
+} catch(e) {
+	printErr("Error while loading " + java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE + ": " + String(e));
+}
+
+// Ensure __consoleFormat
+if (isUnDef(__consoleFormat)) __consoleFormat = (!ansiWinTermCap() || consoleOldTheme ? {
+	error     : "BOLD,WHITE",
+	errorLine : "BOLD,RED",
+	helpLine  : "BOLD,BLUE",
+    init      : "BOLD,WHITE",
+    initLine  : "BOLD,WHITE",
+    initTheme : { lmiddle: CONSOLESEPARATOR_ANSI.trim() },
+	errorTheme: ow.format.withSideLineThemes().simpleLine,
+	helpTheme : ow.format.withSideLineThemes().simpleLine
+} : {
+	error     : "BOLD,WHITE",
+	errorLine : "RED",
+	helpLine  : "BLUE",
+    init      : "BOLD,WHITE",
+    initLine  : "FAINT,WHITE",
+    initTheme : ow.format.withSideLineThemes().openBottomCurvedRect,
+	errorTheme: ow.format.withSideLineThemes().openCurvedRect,
+	helpTheme : ow.format.withSideLineThemes().openCurvedRect,
+    doneLine  : "FAINT,WHITE",
+    doneTheme : ow.format.withSideLineThemes().openTopCurvedRect
+});
+
 // Startup
-__outputConsoleComments("OpenAF console (OpenAF version " + getVersion() + " (" + getDistribution() + ")) (type help for commands)");
+if (__ansiflag && con.isAnsiSupported()) {
+   ansiStart();
+   print(ow.format.withSideLine(" OpenAF console (OpenAF version " + getVersion() + " (" + getDistribution() + ")) (type help for commands)", __, __consoleFormat.initLine, __consoleFormat.init, __consoleFormat.initTheme));
+   ansiStop();
+} else {
+   __outputConsoleComments("OpenAF console (OpenAF version " + getVersion() + " (" + getDistribution() + ")) (type help for commands)");
+}
 var historyFile;
 var jLineFileHistory;
 
@@ -1194,17 +1318,26 @@ initThread.addThread(function(uuid) {
 		} catch(e) { }
 	}
 
-	// Read profile
-	try {
-		__readProfile(java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE);
-	} catch(e) {
-		printErr("Error while loading " + java.lang.System.getProperty("user.home") + "/" + CONSOLEPROFILE + ": " + String(e));
-	}
-	
+        if (io.getDefaultEncoding() != "UTF-8") __message += "Please ensure that the java option -D\"file.encoding=UTF-8\" is included (this can be achieved by executing 'cd " + getOpenAFPath() + " && ./oaf --install'); ";
 	if (!noHomeComms) __checkVersion();
 	initThread.stop();
 });
 initThread.startNoWait();
+
+if(__ansiflag && con.isAnsiSupported()) {
+	Packages.openaf.SimpleLog.setNFunc(function(s) { 
+		ansiStart(); printErr(ow.format.withSideLine(String(s), con.getConsoleReader().getTerminal().getWidth(), __consoleFormat.errorLine, __consoleFormat.error, __consoleFormat.errorTheme)); ansiStop();
+	});
+}
+
+addOnOpenAFShutdown(() => {
+        if (__ansiflag && con.isAnsiSupported()) {
+   		ansiStart();
+		printnl("\r");
+		print(ow.format.withSideLine(__, __, __consoleFormat.doneLine, __consoleFormat.done, __consoleFormat.doneTheme));
+  		ansiStop();
+	}
+});
 
 if (__expr.length > 0) cmd = __expr;
 cmd = cmd.trim();
@@ -1227,9 +1360,33 @@ while(cmd != "exit") {
 			if (isUnDef(watchresult)) watchresult = "";
 			if (beautifyCommand) watchresult = String(stringify(watchresult)).replace(/\\t/g, "\t").replace(/([^\\])\\n/g, "$1\n").replace(/\\r/g, "\r");
 		} catch(e) { watchresult = "ERROR: " + e.message; watchCommand = false; }
-		cmd = con.readLinePrompt("[ " + watchresult + " ]\n" + __pinprefix + "> ").trim();
-	} else {
+		//cmd = con.readLinePrompt("[ " + watchresult + " ]\n" + __pinprefix + "> ").trim();
+		//if(__ansiflag && con.isAnsiSupported() && __ansiColorFlag)
+		if (isDef(watchresult) && watchresult.length > 0 && watchresult != '""') { ansiStart(); print("[ " + watchresult + " ]\n"); ansiStop(); }
+		//else
+		//	print("[" + watchresult + " ]\n");
+	}
+	if (!multiCommand) {
 		cmd = con.readLinePrompt(__pinprefix + "> ").trim();
+	} else {
+		cmd = askN(t => {
+			if (t.length > 0) 
+				return __pinprefix + "| ";
+			else
+				return __pinprefix + "> ";
+		}, t => {
+			if (t.endsWith("\n\n") || RESERVEDWORDS.split("|").indexOf(t.trim().split(/ +/)[0]) >= 0 || Object.keys(__alias).indexOf(t.trim().split(/ +/)[0]) >= 0 ) return true;
+			try {
+				new Function(t);
+				return true;
+			} catch(e) {
+				if (String(e).startsWith("SyntaxError:")) {
+					return false;
+				} else {
+					return true;
+				}
+			}
+		}, con).trim();
 	}
 	
 	if (cmd == "") {

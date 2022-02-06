@@ -69,7 +69,7 @@ function repackSetMainClass(aClass) {
 
 try {
   var curDir    = java.lang.System.getProperty("user.dir") + "";
-  var classPath = java.lang.System.getProperty("java.class.path") + "";
+  var classPath = getOpenAFJar();
   var os        = String(java.lang.System.getProperty("os.name"));
 } catch (e) {
   logErr("Couldn't retrieve system properties: " + e.message);
@@ -118,6 +118,9 @@ try {
 $from(ow.obj.fromObj2Array(getOPackLocalDB(), "path")).notEmpty("scripts.prerepack").select(function(r) {
 	if (r.name == "OpenCli" && r.version != af.getVersion()) {
 		logWarn("Please update OpenCli to match the version " + af.getVersion());
+		if (io.fileExists(r.path + "/.url")) {
+			logWarn("by executing 'opack install " + eval( io.readFileYAML(r.path + "/.url").c ) + "'" );
+		}
 	} else {
 		log("Executing prepack actions from oPack '" + r.name + "'");
 		try {
@@ -131,7 +134,22 @@ $from(ow.obj.fromObj2Array(getOPackLocalDB(), "path")).notEmpty("scripts.prerepa
 
 if (!irj || __expr != "" || Object.keys(includeMore).length > 0) {
 	var oldVersionFile = classPath.replace(/openaf.jar/, "openaf.jar.orig");
-	
+    
+    if (!noHomeComms) syncFn(() => {
+        if (!io.fileExists(oldVersionFile)) {
+            var dist = getDistribution() + "/";
+            if (dist == "stable/") dist = "";
+            
+            var url = "https://openaf.io/" + dist + "openaf-" + getVersion() + ".jar";
+            logWarn("Trying to download from '" + url + "'...");
+            $rest().get2File(oldVersionFile, url);
+
+            if (!(io.fileExists(oldVersionFile) && io.fileInfo(oldVersionFile).size > 0)) {
+                logErr("Couldn't download '" + url + "'");
+            }
+        }
+    });
+
 	if (!irj) {
 		log("Backup to " + oldVersionFile);
 		io.writeFileBytes(oldVersionFile, io.readFileBytes(classPath));

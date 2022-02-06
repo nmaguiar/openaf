@@ -87,13 +87,13 @@ public class DB {
 	 */
 	public void close() throws SQLException {
 		if (con != null) {
-			try {
+			//try {
 				closeAllStatements();
 				con.close();
-			} catch (SQLException e) {
+			//} catch (SQLException e) {
 				//SimpleLog.log(SimpleLog.logtype.ERROR, "Error closing database " + url + ": " + e.getMessage(), e);
-				throw e;
-			}
+			//	throw e;
+			//}
 		}
 	}
 	
@@ -163,7 +163,7 @@ public class DB {
 	 */
 	public Object q(String query) throws IOException, SQLException {
 		if (con != null) {
-			try {
+			//try {
 				PreparedStatement ps = con.prepareStatement(query);
 				ResultSet rs = ps.executeQuery();
 				
@@ -273,9 +273,9 @@ public class DB {
 				no.put("results", records.getList());
 
 				return no.getMap();
-			} catch (SQLException e) {
-				throw e;
-			}
+			//} catch (SQLException e) {
+			//	throw e;
+			//}
 		}
 		return null;
 	}
@@ -292,7 +292,7 @@ public class DB {
 	 */
 	public Object qsRS(String query, JSEngine.JSList bindVariables) throws IOException, SQLException {
 		if (con != null) {
-			try {
+			//try {
 				PreparedStatement ps = null;
 				ps = con.prepareStatement(query);
 				
@@ -305,9 +305,9 @@ public class DB {
 				ResultSet rs = ps.executeQuery();
 		
 				return rs;
-			} catch (SQLException e) {
-				throw e;
-			}
+			//} catch (SQLException e) {
+			//	throw e;
+			//}
 		}
 		return null;
 	}
@@ -325,13 +325,11 @@ public class DB {
 	 */
 	public Object qs(String query, JSEngine.JSList bindVariables, boolean keepStatement) throws IOException, SQLException {
 		if (con != null) {
-			try {
-				PreparedStatement ps = null;
-				if (preparedStatements.containsKey(query)) {
-					ps = preparedStatements.get(query);
-				} else {
+			//try {
+				PreparedStatement ps = preparedStatements.get(query);
+				if (ps == null) {
 					ps = con.prepareStatement(query);
-					if (keepStatement) preparedStatements.put(query, ps);
+					if (keepStatement) preparedStatements.putIfAbsent(query, ps);
 				}
 				
 				int ii = 0;
@@ -429,9 +427,9 @@ public class DB {
 				no.put("results", records.getList());
 
 				return no.getMap();
-			} catch (SQLException e) {
-				throw e;
-			}
+			//} catch (SQLException e) {
+			//	throw e;
+			//}
 		}
 		return null;
 	}
@@ -446,7 +444,7 @@ public class DB {
 	 */
 	public Object qLob(String sql) throws Exception {
 		if (con != null) {
-			try {
+			//try {
 				PreparedStatement ps = con.prepareStatement(sql);
 				ResultSet rs = ps.executeQuery();
 				
@@ -473,10 +471,10 @@ public class DB {
 				
 				rs.close();
 				ps.close();
-			} catch (SQLException e) {
+			//} catch (SQLException e) {
 				//SimpleLog.log(SimpleLog.logtype.ERROR, "Error executing query " + sql + ": " + e.getMessage(), e);
-				throw e;
-			}
+			//	throw e;
+			//}
 		}
 		return null;
 	}
@@ -490,16 +488,16 @@ public class DB {
 	 */
 	public int u(String sql) throws SQLException {
 		if (con != null) {
-			try {
+			//try {
 				Statement cs = con.createStatement();
 			    int res = cs.executeUpdate(sql);
 			    cs.close();
 			    
 			    return res;
-			} catch (SQLException e) {
+			//} catch (SQLException e) {
 				//SimpleLog.log(SimpleLog.logtype.ERROR, "Error executing sql " + sql + ": " + e.getMessage(), e);
-				throw e;
-			}			
+			//	throw e;
+			//}			
 		}
 		return -1;
 	}
@@ -517,14 +515,13 @@ public class DB {
 	 */
 	public int us(String sql, JSEngine.JSList objs, boolean keepStatement) throws SQLException {
 		if (con != null) {
-			try { 
-				PreparedStatement ps = null;
-				if (preparedStatements.containsKey(sql)) {
-					ps = preparedStatements.get(sql);
+			//try { 
+				PreparedStatement ps = preparedStatements.get(sql);
+				if (ps != null) {
 					keepStatement = true;
 				} else {
 					ps = con.prepareStatement(sql);
-					if (keepStatement) preparedStatements.put(sql, ps);
+					if (keepStatement) preparedStatements.putIfAbsent(sql, ps);
 				}
 
 				//if (objs instanceof JSEngine.JSList) {
@@ -538,9 +535,9 @@ public class DB {
 				if (!keepStatement) ps.close();
 				
 				return res;
-			} catch (SQLException e) {
-				throw e;
-			}
+			//} catch (SQLException e) {
+			//	throw e;
+			//}
 		}
 		return -1;
 	}
@@ -565,14 +562,13 @@ public class DB {
 	 */
 	public int usArray(String sql, JSEngine.JSList objs, int batchSize, boolean keepStatement) throws SQLException {
 		if (con != null) {
-			try {
-				PreparedStatement ps = null;
-				if (preparedStatements.containsKey(sql)) {
-					ps = preparedStatements.get(sql);
+			//try {
+				PreparedStatement ps = preparedStatements.get(sql);
+				if (ps != null) {
 					keepStatement = true;
 				} else {
 					ps = con.prepareStatement(sql);
-					if (keepStatement) preparedStatements.put(sql, ps);
+					if (keepStatement) preparedStatements.putIfAbsent(sql, ps);
 				}
 				
 				int count = 0;
@@ -601,9 +597,9 @@ public class DB {
 				if (!keepStatement) ps.close();
 				
 				return res;
-			} catch (SQLException e) {
-				throw e;
-			}
+			//} catch (SQLException e) {
+			//	throw e;
+			//}
 		}
 		return -1;
 	}
@@ -618,7 +614,7 @@ public class DB {
 	 */
 	public int uLob(String sql, Object lob) throws SQLException {
 		if (con != null) {
-			try {
+			//try {
 				PreparedStatement ps = con.prepareStatement(sql);
 				//Clob clobOut = con.createClob();
 
@@ -638,10 +634,10 @@ public class DB {
 				ps.close();
 				
 				return res;
-			} catch (SQLException e) {
+			//} catch (SQLException e) {
 				//SimpleLog.log(SimpleLog.logtype.ERROR, "Error executing sql " + sql + ": " + e.getMessage(), e);
-				throw e;
-			}			
+			//	throw e;
+			//}			
 		}		
 		return -1;
 	}
@@ -656,7 +652,7 @@ public class DB {
 	 */
 	public int uLobs(String sql, JSEngine.JSList lobs) throws SQLException {
 		if (con != null) {
-			try {
+			//try {
 				PreparedStatement ps = con.prepareStatement(sql);
 					int i = 0;
 					for(Object lob : lobs) {
@@ -678,9 +674,9 @@ public class DB {
 					
 					return res;
 
-			} catch (SQLException e) {
-				throw e;
-			}			
+			//} catch (SQLException e) {
+			//	throw e;
+			//}			
 		}		
 		return -1;
 	}	
@@ -705,24 +701,28 @@ public class DB {
 	
 	/**
 	 * <odoc>
-	 * <key>DB.rollback()</key>
+	 * <key>DB.rollback(dontIgnoreError)</key>
 	 * Rollbacks the current database session on the current DB object instance.
-	 * In case of error an exception will be thrown.
+	 * In case of error an exception will be thrown if dontIgnoreError = true
 	 * </odoc>
 	 */
-	public void rollback() throws SQLException {
+	public void rollback(boolean dontIgnoreError) throws SQLException {
 		if (con != null) {
 			try {
 				con.rollback();
 			} catch (SQLException e) {
-				SimpleLog.log(SimpleLog.logtype.ERROR, "Error while rollback on " + url + ": " + e.getMessage(), e);
-				throw e;
+				if (!dontIgnoreError) {
+					SimpleLog.log(SimpleLog.logtype.DEBUG, "Error while rollback on " + url + ": " + e.getMessage(), e);
+				} else {
+					SimpleLog.log(SimpleLog.logtype.ERROR, "Error while rollback on " + url + ": " + e.getMessage(), e);
+					throw e;
+				}
 			}
 		}
 	}
 	
 	protected void connect(String driver, String url, String login, String pass, String timeout) throws Exception {
-		try {
+		//try {
 			if (OAFdCL.oafdcl != null) 
 				Class.forName(driver, true, OAFdCL.oafdcl);
 			else 
@@ -731,8 +731,8 @@ public class DB {
 			
 			Properties props = new Properties();
 			
-			props.setProperty("user", AFCmdBase.afc.dIP(login));
-			props.setProperty("password", AFCmdBase.afc.dIP(pass));
+			if (login != null) props.setProperty("user", AFCmdBase.afc.dIP(login));
+			if (pass != null)  props.setProperty("password", AFCmdBase.afc.dIP(pass));
 			try {
 				if (timeout != null && Integer.valueOf(timeout) > 0) {
 					props.setProperty("connectTimeout", timeout);
@@ -743,20 +743,31 @@ public class DB {
 			
 			try {
 				con = DriverManager.getConnection(url, props);
+				try {
+					con.setAutoCommit(false);
+				} catch(Exception e) {
+					SimpleLog.log(SimpleLog.logtype.DEBUG, "Error on setAutoCommit: " + e.getMessage(), e);
+				}
 			} catch(SQLException e) {
 				if (e.getMessage().contains("No suitable driver found")) {
+					SimpleLog.log(SimpleLog.logtype.DEBUG, "Using OAFdCL to load '" + driver + "': " + e.getMessage(), e);
 					Driver pdriver = (Driver) Class.forName(driver, true, OAFdCL.oafdcl).getDeclaredConstructor().newInstance();
 					DriverManager.registerDriver(new openaf.DBProxy(pdriver));
 					con = DriverManager.getConnection(url, props);
+					try {
+						con.setAutoCommit(false);
+					} catch(Exception e1) {
+						SimpleLog.log(SimpleLog.logtype.DEBUG, "Error on setAutoCommit: " + e1.getMessage(), e1);
+					}
+				} else {
+					throw e;
 				}
 			}
-			
-			con.setAutoCommit(false);
 
-		} catch (ClassNotFoundException | SQLException e) {
+		//} catch (ClassNotFoundException | SQLException e) {
 			//SimpleLog.log(SimpleLog.logtype.ERROR, "Error connecting to database " + url + " using " + driver + ": " + e.getMessage(), e);
-			throw e;
-		}
+		//	throw e;
+		//}
 	}
 	
 	/**
@@ -815,4 +826,31 @@ public class DB {
 		convertDates = toggle;
 	}
 
+	/**
+	 * <odoc>
+	 * <key>DB.setAutoCommit(aFlag)</key>
+	 * Sets to true or false (defaults to false) the current database connection auto-commit.
+	 * </odoc>
+	 */
+    public void setAutoCommit(boolean toggle) throws Exception {
+		if (con != null) {
+			con.setAutoCommit(toggle);
+		} else {
+			throw new Exception("No connection defined.");
+		}
+	}
+
+	/**
+	 * <odoc>
+	 * <key>DB.getAutoCommit() : boolean</key>
+	 * Retrieves the current database connection auto-commit flag state.
+	 * </odoc>
+	 */
+	public boolean getAutoCommit() throws Exception {
+		if (con != null) {
+			return con.getAutoCommit();
+		} else {
+			throw new Exception("No connection defined.");
+		}
+	}
 }

@@ -62,17 +62,36 @@ OpenWrap.template.prototype.__addHelpers = function(aHB) {
  *   - toYAML          -- returns the YAML version of the parameter\
  *   - env             -- returns the current environment variable identified by the parameter\
  *   - escape          -- returns an escaped version of the parameter\
+ *   - f               -- uses the $f format function\
+ *   - ft              -- uses the $ft format function\
+ *   - get             -- uses the $$.get function to access objects\
+ *   - path            -- uses the $path function to query objects\
+ *   - toSLON          -- returns the ow.format.toSLON version of an object\
+ *   - $get            -- returns the corresponding value for a key on $get\
+ *   - $getObj         -- equivalent to $get with the extra parameter for $$.get path\ 
  * \
  * </odoc>
  */
 OpenWrap.template.prototype.addOpenAFHelpers = function() {
+	// Don't load if already loaded
+	if (this.__helperOpenAF) return
+
 	ow.loadFormat();
-	ow.template.addHelper("debug", (s) => { sprint(s); });
-	ow.template.addHelper("stringify", (s) => { return stringify(s); });
-	ow.template.addHelper("stringifyInLine", (s) => { return stringify(s, void 0, ""); });
-	ow.template.addHelper("toYAML", (s) => { return af.toYAML(s); });
-	ow.template.addHelper("env", (s) => { return String(java.lang.System.getenv().get(s)); });
+	ow.template.addHelper("debug", sprint);
+	ow.template.addHelper("stringify", stringify);
+	ow.template.addHelper("stringifyInLine", (s) => { return stringify(s, __, ""); });
+	ow.template.addHelper("toYAML", af.toYAML);
+	ow.template.addHelper("env", getEnv);
 	ow.template.addHelper("escape", (s) => { return s.replace(/['"]/g, "\\$1"); });	
+	ow.template.addHelper("f", $f);
+	ow.template.addHelper("ft", $ft);
+	ow.template.addHelper("get", (o, p) => $$(o).get(p));
+	ow.template.addHelper("path", (o, p) => $path(o, p));
+	ow.template.addHelper("toSLON", ow.format.toSLON);
+	ow.template.addHelper("$get", $get)
+	ow.template.addHelper("$getObj", (o, p) => $$($get(o)).get(p))
+
+	this.__helperOpenAF = true
 };
 
 /**
@@ -82,8 +101,13 @@ OpenWrap.template.prototype.addOpenAFHelpers = function() {
  * </odoc>
  */
 OpenWrap.template.prototype.addFormatHelpers = function() {
+	// Don't load if already loaded
+	if (this.__helperFormat) return
+
 	ow.loadFormat();
 	this.addHelpers("owFormat_", ow.format);
+
+	this.__helperFormat = true
 }
 
 /**
@@ -94,6 +118,9 @@ OpenWrap.template.prototype.addFormatHelpers = function() {
  * </odoc>
  */
 OpenWrap.template.prototype.addConditionalHelpers = function() {
+	// Don't load if already loaded
+	if (this.__helperCond) return 
+
 	// Based on assemble.io handlebars helpers https://github.com/assemble/handlebars-helpers
 	ow.template.addHelper("and", function(a, b, s) { return (a && b) ? s.fn(this) : s.inverse(this); });
 	ow.template.addHelper("compare", function(a, op, b, s) {
@@ -199,7 +226,9 @@ OpenWrap.template.prototype.addConditionalHelpers = function() {
 	ow.template.addHelper("unlessGt", function(ctx, s) { return (ctx > s.hash.compare) ? s.fn(this) : s.inverse(this); });	
 	ow.template.addHelper("unlessLt", function(ctx, s) { return (ctx < s.hash.compare) ? s.fn(this) : s.inverse(this); });		
 	ow.template.addHelper("unlessGteq", function(ctx, s) { return (ctx >= s.hash.compare) ? s.fn(this) : s.inverse(this); });		
-	ow.template.addHelper("unlessLteq", function(ctx, s) { return (ctx <= s.hash.compare) ? s.fn(this) : s.inverse(this); });			
+	ow.template.addHelper("unlessLteq", function(ctx, s) { return (ctx <= s.hash.compare) ? s.fn(this) : s.inverse(this); });	
+	
+	this.__helperCond = true
 }
 
 /**
@@ -533,7 +562,65 @@ OpenWrap.template.prototype.addInLineCSS2HTML = function(aHTML, aCustomCSSMap) {
 	return aHTML;
 };
 
+OpenWrap.template.prototype.md = {
+	/**
+	 * <odoc>
+	 * <key>ow.template.md.table(anArray) : String</key>
+	 * Converts anArray into a markdown table string.
+	 * </odoc>
+	 */
+	table: function(anArray) {
+		var md = "";
+		if (anArray.length > 0) {
+		  md += "| " + Object.keys(anArray[0]).join(" | ") + " |\n";
+		  md += "|-" + Object.keys(anArray[0]).map(r => repeat(r.length, "-")).join("-|-") + "-|\n";
+		  anArray.map(r => md += "| " + Object.values(r).join(" | ") + " |\n");
+		}
+		return md;
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.template.md.htmlArrayMap(anMapOrArray) : String</key>
+	 * Converts anMapOrArray into a div html suitable to be added to a markdown.
+	 * </odoc>
+	 */
+	htmlArrayMap: function(anMapOrArray) {
+		var md = "<div>";
+        md = ow.template.html.parseMap(anMapOrArray);
+		md += "</div>";
+
+		return md;
+	}
+};
+
 OpenWrap.template.prototype.html = {
+	/**
+	 * <odoc>
+	 * <key>ow.template.html.parseMap(aMapOrArray, genParts) : Object</key>
+	 * Returns a string with a HTML representation of the aMapOrArray provided or, if genParts = true, a map with the style css and the out string necessary.
+	 * </odoc>
+	 */
+	parseMap: function(aMapOrArray, genParts) {
+		if (!isMap(aMapOrArray) && !isArray(aMapOrArray)) throw "aMapOrArray needs to be a map or an array.";
+		genParts = _$(genParts).isBoolean().default(false);
+
+		try {
+			loadCompiledLib("njsmap_js");
+		} catch(e) {
+			loadLib(getOpenAFJar() + "::js/njsmap.js");
+		}
+
+		var out = nJSMap(aMapOrArray);
+		if (genParts) {
+			var res = {};
+			res.css = io.readFileString(getOpenAFJar() + "::css/nJSMap.css");
+			res.out = out;
+			
+			return res;
+		} else {
+			return out;
+		}
+	},
 	/**
 	 * <odoc>
 	 * <key>ow.template.html.thinFontCSS(aSize) : String</key>
@@ -595,7 +682,7 @@ OpenWrap.template.prototype.html = {
 		var h = new ow.obj.http();
 		try {
 			var u = new java.net.URL(aURL);
-			var b = h.get(aURL, void 0, void 0, true);
+			var b = h.get(aURL, __, __, true);
 			return aPrefix + "data:" + b.contentType.replace(/\; charset=utf-8\;/, "\;") +";base64," + af.fromBytes2String(af.toBase64Bytes(b.responseBytes)) + aSuffix;
 		} catch(e1) {
 			return ow.template.html.inlineSrc(aURL, aPrefix, aSuffix);
@@ -644,7 +731,7 @@ OpenWrap.template.prototype.html = {
 			var h = new ow.obj.http();
 			try {
 				var u = new java.net.URL(aURL);
-				var b = h.get(aURL, void 0, void 0, true);
+				var b = h.get(aURL, __, __, true);
 				if (withContents)
 					return af.fromBytes2String(b.responseBytes);
 				else

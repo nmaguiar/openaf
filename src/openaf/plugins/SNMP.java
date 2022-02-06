@@ -2,6 +2,8 @@ package openaf.plugins;
 
 import java.io.IOException;
 import java.lang.String;
+import java.math.BigInteger;
+import java.util.Arrays;
 
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.NativeArray;
@@ -87,12 +89,14 @@ public class SNMP extends ScriptableObject {
 	 *    privProtocol   (String) 3DES, AES128, AES192, AES256, DES\
 	 *    authPassphrase (String)\
 	 *    privPassphrase (String)\
-	 *    engineId       (String)\
+	 *    engineId       (String) (in hex format only)\
 	 * \
 	 * </odoc>
 	 */
 	@JSConstructor
-	public void newSNMP(String addr, String community, int tout, int ret, int version, Object security) throws IOException {
+	public void newSNMP(String addr, String community, int tout, int ret, int version, Object security) throws Exception {
+		if (addr == null) throw new Exception("No address was provided.");
+
 		address = addr;
 		if (tout <= 0) timeout = 1500; else timeout = tout; 
 		if (ret <= 0) retries = 2; else retries = ret; 
@@ -105,7 +109,14 @@ public class SNMP extends ScriptableObject {
 		if (version >= 2 && security instanceof NativeObject) {
 			NativeObject smap = (NativeObject) security;
 			if (smap.containsKey("securityName")) this.securityName = (String) smap.get("securityName");
-			if (smap.containsKey("engineId")) this.engineID = ((String) smap.get("engineId")).getBytes();
+
+			if (smap.containsKey("engineId")) {
+				// Converting the engineID from HEX to byte array (issue #267)
+				byte tmpEngineId[] = (new BigInteger( ((String) smap.get("engineId")), 16)).toByteArray();
+				// First byte from BigInteger needs to be discarded
+				tmpEngineId = Arrays.copyOfRange(tmpEngineId, 1, tmpEngineId.length);
+				this.engineID = tmpEngineId;
+			}
 		}
 		if (version >= 3) {
 			if (security instanceof NativeObject) {
@@ -116,24 +127,28 @@ public class SNMP extends ScriptableObject {
 					case "HMAC192SHA256": authProtocol = org.snmp4j.security.AuthHMAC192SHA256.ID; break;
 					case "HMAC256SHA384": authProtocol = org.snmp4j.security.AuthHMAC256SHA384.ID; break;
 					case "HMAC384SHA512": authProtocol = org.snmp4j.security.AuthHMAC384SHA512.ID; break;
-					case "MD5": authProtocol = org.snmp4j.security.AuthMD5.ID; break;
-					case "SHA": authProtocol = org.snmp4j.security.AuthSHA.ID; break;
+					case "MD5"          : authProtocol = org.snmp4j.security.AuthMD5.ID; break;
+					case "SHA"          : authProtocol = org.snmp4j.security.AuthSHA.ID; break;
+					default:
+						throw new Exception("SNMP Auth protocol '" + (String) smap.get("authProtocol") + "' not supported (supported: HMAC128SHA224, HMAC192SHA256, HMAC256SHA384, HMAC384SHA51, MD5, SHA)");
 					}
 				}
 				if (smap.containsKey("privProtocol")) {
 					switch((String) smap.get("privProtocol")) {
-					case "3DES": privProtocol = org.snmp4j.security.Priv3DES.ID; break;
+					case "3DES"  : privProtocol = org.snmp4j.security.Priv3DES.ID; break;
 					case "AES128": privProtocol = org.snmp4j.security.PrivAES128.ID; break;
 					case "AES192": privProtocol = org.snmp4j.security.PrivAES192.ID; break;
 					case "AES256": privProtocol = org.snmp4j.security.PrivAES256.ID; break;
-					case "DES": privProtocol = org.snmp4j.security.PrivDES.ID; break;
+					case "DES"   : privProtocol = org.snmp4j.security.PrivDES.ID; break;
+					default:
+						throw new Exception("SNMP Priv protocol '" + (String) smap.get("privProtocol") + "' not supported (supported: 3DES, AES128, AES192, AES256, DES)");
 					}
 				}
 				if (smap.containsKey("authPassphrase")) {
-					this.authPassphrase = (String) smap.get("authPassphrase");	
+					this.authPassphrase = openaf.AFCmdBase.afc.dIP((String) smap.get("authPassphrase"));	
 				}
 				if (smap.containsKey("privPassphrase")) {
-					this.privPassphrase = (String) smap.get("privPassphrase");	
+					this.privPassphrase = openaf.AFCmdBase.afc.dIP((String) smap.get("privPassphrase"));	
 				}
 			}
 		}
@@ -162,9 +177,21 @@ public class SNMP extends ScriptableObject {
 			USM usm = new USM(SecurityProtocols.getInstance(), new OctetString(this.engineID), 0);
 			SecurityModels.getInstance().addSecurityModel(usm);
 			snmp.getUSM().addUser(new OctetString(this.securityName), new UsmUser(new OctetString(this.securityName), this.authProtocol, new OctetString(this.authPassphrase), this.privProtocol, new OctetString(this.privPassphrase)));
+			snmp.setLocalEngine(new OctetString(this.engineID).getValue(), 0, 0);   // Making sure the local Engine ID is also set
 		}
 
 		transport.listen();
+	}
+
+	/**
+	 * <odoc>
+	 * <key>SNMP.getJavaObject() : JavaObject</key>
+	 * Returns the current internal Java object being used.
+	 * </odoc>
+	 */
+	@JSFunction
+	public Object getJavaObject() {
+		return this.snmp;
 	}
 
 	/**

@@ -80,17 +80,17 @@ public class CSV {
 			}
 
 			br.close();
-		} catch (IOException e) {
+		} /*catch (IOException e) {
 			//SimpleLog.log(SimpleLog.logtype.ERROR, "Error reading file: " + aFile + ": "+ e.getMessage(),e);
 			throw e;
-		} finally {
+		}*/ finally {
 			if (fr != null)
-				try {
+				//try {
 					fr.close();
-				} catch (IOException e) {
+				//} catch (IOException e) {
 					//SimpleLog.log(SimpleLog.logtype.ERROR, "Error closing file: " + aFile + ": "+ e.getMessage(),e);
-					throw e;
-				}
+				//	throw e;
+				//}
 		}
 	}
 
@@ -172,7 +172,7 @@ public class CSV {
 		clear();
 		long numberOfLines = -1;
 
-		try {	 
+		//try {	 
 			String line = br.readLine();
 			numberOfLines = 1;
 			if (line != null) readHeader(line);
@@ -183,10 +183,10 @@ public class CSV {
 			}
 
 			br.close();
-		} catch (IOException e) {
+		//} catch (IOException e) {
 			//SimpleLog.log(SimpleLog.logtype.ERROR, "Error reading string representation: " + e.getMessage(), e);
-			throw e;
-		} 
+		//	throw e;
+		//} 
 		return numberOfLines;
 	}
 
@@ -361,13 +361,13 @@ public class CSV {
 		pw.flush();
 		sw.flush();
 
-		try {
+		//try {
 			pw.close();
 			sw.close();
-		} catch (IOException e) {
+		//} catch (IOException e) {
 			//SimpleLog.log(SimpleLog.logtype.ERROR, "Error converting to string: " + e.getMessage(), e);
-			throw e;
-		}
+		//	throw e;
+		//}
 
 		return sw.toString().replaceFirst("[\r\n]$", "");
 	}
@@ -403,12 +403,12 @@ public class CSV {
 			throw e;
 		} finally {
 			if (fr != null)
-				try {
+				//try {
 					fr.close();
-				} catch (IOException e) {
+				//} catch (IOException e) {
 					//SimpleLog.log(SimpleLog.logtype.ERROR, "Error closing file: " + aFile + ": " + e.getMessage(), e);
-					throw e;
-				}
+				//	throw e;
+				//}
 		}
 		return numberOfLines;
 	}
@@ -461,5 +461,44 @@ public class CSV {
 		return records;
 	}
 
+	/**
+	 * <odoc>
+	 * <key>CSV.fromStream(aStream, aFunction)</key>
+	 * Tries to read a CSV from aStream a calls aFunction with a map representing the fields of each line. The format
+	 * is determined by CSV.setStreamFormat and each map entry will have either the number of the field or the corresponding name
+	 * depending on the header options.
+	 * </odoc>
+	 */
 
+	/**
+	 * <odoc>
+	 * <key>CSV.toStream(aStream, aFunction)</key>
+	 * Tries to write a CSV to aStream calling aFunction and expecting it to return a map with the fields previously set with CSV.setStreamFormat and
+	 * corresponding values for each line (each call will represent a line). The fields
+	 * need to be specificed in withHeaders map property in CSV.setStreamFormat. The aFunction will be called continuosly until a different output from a map is
+	 * returned. Note: aStream won't be closed.
+	 * </odoc>
+	 */
+
+	/**
+	 * <odoc>
+	 * <key>CSV.setStreamFormat(aMap)</key>
+	 * Set the options that will be used with CSV.fromStream. Available options are:\
+	 * \
+	 * format: String\
+	 *   You can choose between DEFAULT, EXCEL, INFORMIX_UNLOAD, INFORMIX_UNLOAD_CSV, MYSQL, RFC4180, ORACLE, POSTGRESQL_CSV, POSTGRESQL_TEXT and TDF (please check http://commons.apache.org/proper/commons-csv/user-guide.html)\
+	 * withHeader: Boolean\
+	 *   Tries to automatically use the available header\
+	 * withHeaders: Array\
+	 *   An array of header strings in the order that data lines will appear.\
+	 * quoteMode: String\
+	 *   You can choose between ALL, ALL_NON_NULL, MINIMAL, NON_NUMERIC and NONE.\
+	 * withDelimiter: String\
+	 *   A single character as a custom delimiter\
+	 * withEscape: String\
+	 *   A single character as a custom escape\
+	 * withNullString: String\
+	 * \
+	 * </odoc>
+	 */
 }
