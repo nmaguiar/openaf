@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.zip.ZipFile;
+import java.util.Iterator;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -62,6 +63,8 @@ import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
 import org.mozilla.javascript.optimizer.ClassCompiler;
 //import org.mozilla.javascript.tools.debugger.Main;
 import org.mozilla.javascript.xml.XMLObject;
+import org.mozilla.javascript.Parser;
+import org.mozilla.javascript.ast.AstRoot;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParser;
@@ -997,6 +1000,31 @@ public class AFBase extends ScriptableObject {
 	
 	/**
 	 * <odoc>
+	 * <key>af.parse(aScriptString, aSourceName) : Array</key>
+	 * Parses aScriptString, with aSourceName, returning the corresponding parsed statments.
+	 * </odoc>
+	 */
+	@JSFunction
+	public Object parse(String script, String name) {
+		Context cx = (Context) AFCmdBase.jse.enterContext();
+		try {
+			JSEngine.JSList out = AFCmdBase.jse.getNewList(null);
+			CompilerEnvirons ce = new CompilerEnvirons();
+			ce.setOptimizationLevel(9);
+			ce.setLanguageVersion(org.mozilla.javascript.Context.VERSION_ES6);
+			Parser parse = new Parser(ce);
+			AstRoot root = parse.parse(script, name, 1);
+			for (Iterator i = root.iterator(); i.hasNext(); ) {
+				out.add(((org.mozilla.javascript.ast.ExpressionStatement) i.next()).toSource());
+			}
+			return out.getList();
+		} finally {
+			AFCmdBase.jse.exitContext();
+		}
+	}
+
+	/**
+	 * <odoc>
 	 * <key>af.compileToClasses(aClassfile, aScriptString, aPath)</key>
 	 * Given aClassfile name, aScriptString and, optionally, a filesystem aPath it will generate Java bytecode
 	 * as result of compiling the aScriptString into a filesystem aClassfile (on the provided aPath). Example:\
@@ -1221,6 +1249,20 @@ public class AFBase extends ScriptableObject {
 	public static String getOpenAFJar() {
 		return AFCmdBase.getJarFilePath(AFCmdBase.class);
 	}	
+
+	/**
+	 * <odoc>
+	 * <key>af.visibleLength(aString) : int</key>
+	 * Given aString will try to remove ansi characters and just count code point (e.g. removing combined
+	 * characters like emojis).
+	 * </odoc>
+	 */
+	@JSFunction
+	public static int visibleLength(String s) {
+		s = s.replaceAll("\\033\\[[0-9;]*m", "");
+		return s.codePointCount(0, s.length());
+	}
+
 	/**
 	 * <odoc>
 	 * <key>af.sync(aFunction, aObject)</key>

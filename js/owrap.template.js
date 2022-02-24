@@ -493,7 +493,7 @@ OpenWrap.template.prototype.loadCompiledHBS = function(aFilename) {
 
 /**
  * <odoc>
- * <key>ow.template.parseMD2HTML(aMarkdownString, isFull) : String</key>
+ * <key>ow.template.parseMD2HTML(aMarkdownString, isFull, removeMaxWidth) : String</key>
  * Given aMarkdownString will parse it with showdown (using the github flavor) and return the HTML in a string. If isFull = true
  * it will produce a complete HTML with references for the highlight library+css and github markdown css included internally in OpenAF.
  * Example:\
@@ -504,7 +504,8 @@ OpenWrap.template.prototype.loadCompiledHBS = function(aFilename) {
  * \
  * </odoc>
  */
-OpenWrap.template.prototype.parseMD2HTML = function(aMarkdownString, isFull) {
+OpenWrap.template.prototype.parseMD2HTML = function(aMarkdownString, isFull, removeMaxWidth) {
+	removeMaxWidth = _$(removeMaxWidth, "removeMaxWidth").isBoolean().default(__flags.MD_NOMAXWIDTH)
 	//var showdown = require(getOpenAFJar() + "::js/showdown.js");
 	var showdown = loadCompiledRequire("showdown_js");
 	showdown.setFlavor("github");
@@ -528,7 +529,8 @@ OpenWrap.template.prototype.parseMD2HTML = function(aMarkdownString, isFull) {
 		}
 		
 		return this.parse(this.__templatemd, {
-			markdown: converter.makeHtml(aMarkdownString)
+			markdown: converter.makeHtml(aMarkdownString),
+			noMaxWidth: removeMaxWidth
 		});
 	} else {
 		return converter.makeHtml(aMarkdownString);
@@ -580,6 +582,40 @@ OpenWrap.template.prototype.md = {
 	},
 	/**
 	 * <odoc>
+	 * <key>ow.template.md.fromTable(aMarkdown) : Array</key>
+	 * Tries to transform aMarkdown table text into an array.
+	 * </odoc>
+	 */
+	fromTable: function(aMD) {
+		var ar = aMD.split("\n").map(r => r.split("|").map(s => s.trim()))
+
+		// Process header
+		var hdrs = ar[0]
+		hdrs.shift()
+		hdrs.pop()
+	  
+		// Remove header and separator
+		ar.shift()
+		ar.shift()
+	  
+		// Process rows
+		var m = []
+		ar.forEach(r => {
+		  if (r.length == 1) return
+		  r.shift()
+		  r.pop()
+	  
+		  var mr = {}
+		  hdrs.forEach((h, i) => {
+			mr[h] = r[i]
+		  })
+		  m.push(mr)
+		})
+	  
+		return m
+	},
+	/**
+	 * <odoc>
 	 * <key>ow.template.md.htmlArrayMap(anMapOrArray) : String</key>
 	 * Converts anMapOrArray into a div html suitable to be added to a markdown.
 	 * </odoc>
@@ -590,6 +626,18 @@ OpenWrap.template.prototype.md = {
 		md += "</div>";
 
 		return md;
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.template.md.maxWidth(aValue) : String</key>
+	 * Generates the appropriate HTML to set the MD page width to aValue (e.g. 800px). If aValue not
+	 * defined it will unset the default limit.
+	 * </odoc>
+	 */
+	maxWidth: function(aValue) {
+		aValue = _$(aValue).isString().default("unset")
+		return "<style>.markdown-body { max-width: " + aValue + "; }</style>"
 	}
 };
 
