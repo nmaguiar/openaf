@@ -492,6 +492,66 @@ OpenWrap.obj.prototype.fromObj2Array = function(aObj, aKey) {
 
 /**
  * <odoc>
+ * <key>ow.obj.filter(anArray, aMap) : Object</key>
+ * Given anArray will use $from with the options on aMap basically making all $from options map parameters. Example:\
+ * \ 
+ * filter:\
+ *   where:\
+ *   - cond: equals\
+ *     args:\
+ *     - isFile\
+ *     - true\
+ *   transform:\
+ *   - func: attach\
+ *     args:\
+ *     - lastAccess\
+ *     - !!js/eval elem => new Date(elem.lastAccess)\
+ *   - func: sort\
+ *     args:\
+ *     - "-size"\
+ *   select:\
+ *     filename: n/a\
+ *     size    : -1\
+ *   #selector:\
+ *   #  func: at\
+ *   #  args:\
+ *   #  - 0\
+ * \
+ * </odoc>
+ */
+OpenWrap.obj.prototype.filter = function(aArray, aMap) {
+	aMap = _$(aMap, "aMap").isMap().default({})
+	aArray = _$(aArray, "aArray").isArray().default([])
+
+	aMap.where = _$(aMap.where, "where").isArray().default([])
+	aMap.select = _$(aMap.select, "select").default(__)
+	aMap.transform = _$(aMap.transform, "transform").isArray().default([])
+	aMap.selector = _$(aMap.selector, "selector").isMap().default(__)
+	aArray = _$(aArray, "aArray").isArray().default([])
+
+	var f = $from(aArray)
+
+	aMap.where.forEach(w => {
+		if (isString(w.cond)) f = f[w.cond].apply(f, w.args)
+	})
+	aMap.transform.forEach(t => {
+		if (isString(t.func)) {
+			f = f[t.func].apply(f, t.args)
+		}
+	})
+
+	var res
+	if (isString(aMap.select)) res = f.tselect(new Function("elem", "index", "array", aMap.select))
+	if (isMap(aMap.select)) res = f.select(aMap.select)
+
+	if (isUnDef(res) && isMap(aMap.selector)) res = (isString(aMap.selector.func) ? $$({}).set(aMap.selector.func, f[aMap.selector.func].apply(f, aMap.selector.args)) : res)
+	if (isUnDef(res) && isUnDef(aMap.select)) res = f.select()
+
+	return res
+}
+
+/**
+ * <odoc>
  * <key>ow.obj.filterKeys(anArrayKeyNames, aMap) : Map</key>
  * Given aMap will return an equivalent Map with only the keys contained in the anArrayKeyNames.
  * Note: doesn't traverse existing sub-maps.
@@ -1606,7 +1666,347 @@ OpenWrap.obj.prototype.httpSetDefaultTimeout = function(aTimeout) {
 	this.__httpTimeout = aTimeout;
 };
 
-OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream, options) {
+// https://javadoc.io/static/com.squareup.okhttp3/okhttp/3.14.9/index.html?okhttp3/Request.html
+OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream, options) { 
+	this.__config = {}
+	this.__throwExceptions = true
+	this.__uf = __
+	this.__ufn = "file"
+	this.__forceBasic = false
+	options = _$(options, "options").isMap(options).default({})
+
+	var clt = new Packages.okhttp3.OkHttpClient.Builder()
+
+	if (isDef(aTimeout)) clt = clt.connectTimeout(aTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+	if (isNumber(options.timeout)) clt = clt.callTimeout(options.timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+	this.client = clt.build()
+
+	if (isDef(aURL)) {
+		this.exec(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream)
+	}
+}
+
+OpenWrap.obj.prototype.http.prototype.upload = function(aName, aFile) {
+	this.__ufn = _$(aName, "aName").isString().default("file")
+	_$(aFile, "aFile").isString().$_()
+
+	this.__ufn = aName
+	this.__uf = aFile
+}
+OpenWrap.obj.prototype.http.prototype.head = function(aURL, aIn, aRequestMap, isBytes, aTimeout) { 
+	this.exec(aURL, "HEAD", aIn, aRequestMap, isBytes, aTimeout)
+	return this.responseHeaders()
+}
+OpenWrap.obj.prototype.http.prototype.setThrowExceptions = function(should) {
+	this.__throwExceptions = should
+}
+OpenWrap.obj.prototype.http.prototype.setConfig = function(aMap) { }
+OpenWrap.obj.prototype.http.prototype.getCookieStore = function() { 
+	return this.__cookiesCh
+}
+OpenWrap.obj.prototype.http.prototype.setCookieStore = function(aCh) { 
+	aCh = _$(aCh, "aCh").isString().default("oaf::cookies")
+	this.__cookiesCh = aCh
+	this.__cookies = $ch(aCh).create()
+	this.client = this.client.newBuilder().cookieJar({
+		loadForRequest  : aUrl => { 
+			var res = []
+			this.__cookies.forEach((k, v) => {
+				var cookie = Packages.okhttp3.Cookie.parse(aUrl, v.value)
+				if (cookie.expiresAt() < now()) {
+					this.__cookies.unset(k)
+				} else {
+					if (cookie.matches(aUrl)) {
+						res.push(cookie)
+					}
+				}
+			})
+			return res
+		},
+		saveFromResponse: (aUrl, cookies) => { 
+			var lst = af.fromJavaArray(cookies).map(r => {
+				var k = {
+					name    : r.name(),
+					domain  : r.domain(),
+					path    : r.path(),
+					secure  : r.secure(),
+					hostOnly: r.hostOnly()
+				}
+				this.__cookies.set(k, merge(k, { value: r.toString() }))
+			})
+		}
+	}).build()
+}
+OpenWrap.obj.prototype.http.prototype.exec = function(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream, options) { 
+	aURL = _$(aURL, "aURL").isString().$_()
+	aIn  = _$(aIn, "aIn").default(__)
+	aRequestMap = _$(aRequestMap, "aRequestMap").isMap().default({})
+	options = _$(options, "options").isMap().default({})
+
+	var req = new Packages.okhttp3.Request.Builder().url(aURL)
+	var aBody
+	var mediaType = null
+
+	if (isDef(aRequestMap["Content-Type"])) mediaType = aRequestMap["Content-Type"]
+
+	if (isDef(aIn)) {
+		if (isBytes) {
+			aBody = Packages.okhttp3.RequestBody.create(isNull(mediaType) ? null : Packages.okhttp3.MediaType.get(mediaType), aIn)
+		} else {
+			aBody = Packages.okhttp3.RequestBody.create(isNull(mediaType) ? null : Packages.okhttp3.MediaType.get(mediaType), String(aIn))
+		}
+	} else {
+		if (isDef(this.__uf)) {
+			var f 
+			if (isString(this.__uf)) {
+				f = new java.io.File(this.__uf)
+			} else {
+				f = this.__uf
+			}
+			if (isUnDef(this.__ufn)) {
+				aBody = Packages.okhttp3.RequestBody.create(isNull(mediaType) ? null : Packages.okhttp3.MediaType.get(mediaType), f)
+			} else {
+				aBody = Packages.okhttp3.MultipartBody.Builder().setType(Packages.okhttp3.MultipartBody.FORM).addFormDataPart(this.__ufn, this.__uf, Packages.okhttp3.RequestBody.create(isNull(mediaType) ? Packages.okhttp3.MediaType.get("application/octet-stream") : Packages.okhttp3.MediaType.get(mediaType), f)).build()
+			}
+		}
+	}
+
+	if (isUnDef(aRequestType)) aRequestType = "GET";
+
+	switch(aRequestType.toUpperCase()) {
+	case "GET"    : req = req.get(); break;
+	case "POST"   : req = req.post(aBody); break; 
+	case "DELETE" : req = req.delete(); break;
+	case "HEAD"   : req = req.head(); break;
+	case "PATCH"  : req = req.patch(aBody); break;
+	case "PUT"    : req = req.put(aBody); break;
+	case "TRACE"  : req = req.method("TRACE", aBody); break;
+	case "OPTIONS": req = req.method("OPTIONS", aBody); break;
+	default       : req = req.get(); break;
+	}
+
+	if (this.__forceBasic && isDef(this.__l)) {
+		req.addHeader("Authorization", "Basic " + String(new java.lang.String(Packages.org.apache.commons.codec.binary.Base64.encodeBase64(new java.lang.String(Packages.openaf.AFCmdBase.afc.dIP(this.__l) + ":" + Packages.openaf.AFCmdBase.afc.dIP(this.__p)).getBytes()))));
+	}
+
+	// Headers
+	req.header("User-Agent", __OpenAFUserAgent)
+	Object.keys(aRequestMap).forEach(header => {
+		req.header(header, aRequestMap[header])
+	})
+
+	this.request = req.build()
+	var clt = this.client.newBuilder()
+
+	// Timeout
+	if (isDef(ow.obj.__httpTimeout) && isUnDef(aTimeout)) aTimeout = ow.obj.__httpTimeout
+	if (isNumber(aTimeout)) clt = clt.connectTimeout(aTimeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+	if (isNumber(options.timeout)) clt = clt.callTimeout(options.timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+	clt = clt.build()
+
+	this._response = clt.newCall(this.request).execute()
+	this.outputObj = {}
+
+	if (isBytes && !returnStream) {
+		this.outputObj =  {
+			responseCode: this.responseCode(),
+			contentType: this.responseType(),
+			responseBytes: this.responseBytes()
+		};
+	} else {
+		if (returnStream) {
+			this.outputObj = this.responseStream();
+		} else {
+			this.outputObj = {
+				responseCode: this.responseCode(),
+				contentType: this.responseType(),
+				response: this.response()
+			};
+		}
+	}
+
+	if (this.responseCode() >= 400 && this.__throwExceptions) {
+		switch(this.responseCode()) {
+		case 404: throw "FileNotFoundException " + aURL + "; response = " + stringify(this.getErrorResponse());
+		case 410: throw "FileNotFoundException " + aURL + "; response = " + stringify(this.getErrorResponse());
+		default: throw "IOException Server returned HTTP response code: " + this.responseCode() + " for URL: " + aURL + "; response = " + stringify(this.getErrorResponse());
+		}
+	}
+
+	return this.outputObj
+
+	/*
+	
+	// Set credentials
+	if (isDef(this.__l) && !(this.__forceBasic)) {
+		var getKey;
+		this.__h = new Packages.org.apache.http.impl.client.HttpClients.custom();
+		if (this.__usv) this.__h = this.__h.useSystemProperties();
+		for(var key in this.__lps) {
+			if (aUrl.startsWith(key)) getKey = key;
+		}
+		if (isDef(getKey)) {
+			this.__h = this.__h.setDefaultCredentialsProvider(this.__lps[getKey]);
+			this.__h = this.__handleConfig(this.__h);
+			this.__h = this.__h.build();
+		} else {
+			this.__h = this.__handleConfig(this.__h);
+			this.__h = this.__h.build();
+		}
+	} else {
+		if (isUnDef(this.__h)) {
+			this.__h = new Packages.org.apache.http.impl.client.HttpClients.custom();
+			if (this.__usv) this.__h = this.__h.useSystemProperties();
+			this.__h = this.__handleConfig(this.__h);
+			this.__h = this.__h.build();
+		}
+	}
+
+	if (this.__forceBasic && isDef(this.__l)) {
+		r.addHeader("Authorization", "Basic " + String(new java.lang.String(Packages.org.apache.commons.codec.binary.Base64.encodeBase64(new java.lang.String(Packages.openaf.AFCmdBase.afc.dIP(this.__l) + ":" + Packages.openaf.AFCmdBase.afc.dIP(this.__p)).getBytes()))));
+	}
+
+	for(var i in aRequestMap) {
+		if (r.containsHeader(i)) {
+			r.setHeader(i, aRequestMap[i]);
+		} else {
+			r.addHeader(i, aRequestMap[i]);
+		}
+	}
+
+	if (isDef(aIn) && isString(aIn) && canHaveIn) {
+		r.setEntity(Packages.org.apache.http.entity.StringEntity(aIn));
+	} else {
+		if (isDef(this.__uf) && canHaveIn) {
+			//var fileBody = new Pacakges.org.apache.http.entity.mime.content.FileBody(new java.io.File(this.__uf), Packages.org.apache.http.entity.ContentType.DEFAULT_BINARY);
+			var entityBuilder = Packages.org.apache.http.entity.mime.MultipartEntityBuilder.create();
+			entityBuilder.setMode(Packages.org.apache.http.entity.mime.HttpMultipartMode.BROWSER_COMPATIBLE);
+			if (isString(this.__uf)) {
+				entityBuilder.addBinaryBody(this.__ufn, new java.io.File(this.__uf));
+			} else {
+				entityBuilder.addBinaryBody(this.__ufn, this.__uf);
+			}
+			var mutiPartHttpEntity = entityBuilder.build();
+			r.setEntity(mutiPartHttpEntity);
+		}
+	}
+	*/
+}
+OpenWrap.obj.prototype.http.prototype.get = function(aUrl, aIn, aRequestMap, isBytes, aTimeout, returnStream, options) { 
+	return this.exec(aUrl, "GET", aIn, aRequestMap, isBytes, aTimeout, returnStream, options)
+}
+OpenWrap.obj.prototype.http.prototype.getBytes = function(aUrl, aIn, aRequestMap, aTimeout, options) {
+	return this.exec(aUrl, "GET", aIn, aRequestMap, true, aTimeout, false, options)
+}
+OpenWrap.obj.prototype.http.prototype.getStream = function(aUrl, aIn, aRequestMap, aTimeout, options) {
+	return this.exec(aUrl, "GET", aIn, aRequestMap, false, aTimeout, true, options)
+}
+OpenWrap.obj.prototype.http.prototype.post = function(aUrl, aIn, aRequestMap, isBytes, aTimeout, returnStream, options) {
+	return this.exec(aUrl, "POST", aIn, aRequestMap, false, aTimeout, true, options)
+}
+OpenWrap.obj.prototype.http.prototype.getErrorResponse = function(parseJson) { 
+	if (parseJson) {
+		var res = this.outputObj
+		if (isDef(res) && isDef(res.response)) res.response = jsonParse(res.response)
+		return res;	
+	} else
+		return this.outputObj
+}
+OpenWrap.obj.prototype.http.prototype.getResponse = function()  { 
+	return this.outputObj
+}
+OpenWrap.obj.prototype.http.prototype.login = function(aUser, aPassword, forceBasic, urlPartial) { 
+	if (isUnDef(urlPartial)) forceBasic = true;
+
+	this.__l = Packages.openaf.AFCmdBase.afc.dIP(aUser)
+	this.__p = Packages.openaf.AFCmdBase.afc.dIP(aPassword)
+
+	//if (forceBasic) {
+		/*var url = new java.net.URL(urlPartial);
+		var port = url.getPort();
+		if (port < 0) {
+			switch(url.getProtocol()) {
+			case "http" : port = 80; break;
+			case "https": port = 443; break;
+			}
+		}*/
+		//var as = new Packages.org.apache.http.auth.AuthScope(url.getHost(), port);
+		//var up = new Packages.org.apache.http.auth.UsernamePasswordCredentials(Packages.openaf.AFCmdBase.afc.dIP(aUser), Packages.openaf.AFCmdBase.afc.dIP(aPassword));
+		//var cred = new org.apache.http.impl.client.BasicCredentialsProvider();
+		//cred.setCredentials(as, up);
+		//this.__lps[urlPartial] = cred;
+		var nb = this.client.newBuilder()
+		nb.authenticator({
+			authenticate: (route, response) => {
+				var resCount = response => {
+					var result = 1
+					while ((response = response.priorResponse()) != null) {
+						result++
+					}
+					return result
+				}
+
+				if (resCount(response) >= 3) {
+					return null
+				}
+				var credential = Packages.okhttp3.Credentials.basic(aUser, aPassword)
+				return response.request().newBuilder().header("Authorization", credential).build()
+			}
+		})
+		this.client = nb.build()
+	//}
+
+	this.__forceBasic = forceBasic;
+
+}
+OpenWrap.obj.prototype.http.prototype.response = function() {
+	if (isUnDef(this._response)) return __
+
+	var res = String(this._response.body().string())
+	//this._response.body().close()
+	return res
+}
+OpenWrap.obj.prototype.http.prototype.responseBytes = function() {
+	if (isUnDef(this._response)) return __
+
+	var res = this._response.body().bytes()
+	//this._response.body().close()
+	return res
+}
+OpenWrap.obj.prototype.http.prototype.responseCode = function() { 
+	if (isUnDef(this._response)) return __
+
+	return this._response.code()
+}
+OpenWrap.obj.prototype.http.prototype.responseHeaders = function() { 
+	if (isUnDef(this._response)) return __
+	
+	var m = af.fromJavaMap( this._response.headers().toMultimap() )
+	Object.keys(m).forEach(k => m[k]=(isArray(m[k]) && m[k].length == 1 ? m[k][0] : m[k]))
+
+	return m
+}
+OpenWrap.obj.prototype.http.prototype.responseStream = function() { 
+	if (isUnDef(this._response)) return __
+
+	var res = this._response.body().byteStream()
+	return res
+}
+OpenWrap.obj.prototype.http.prototype.responseType = function() { 
+	if (isUnDef(this._response)) return __
+
+	return this._response.header("content-type")
+}
+OpenWrap.obj.prototype.http.prototype.close = function() {
+	if (isUnDef(this._response)) return __
+
+	this._response.body().close()
+}
+
+
+OpenWrap.obj.prototype.http0 = function(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream, options) {
 	this.__lps = {}; 
 	this.__config = {};
 	this.__throwExceptions = true;
@@ -1624,7 +2024,7 @@ OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isB
 	}
 };
 
-OpenWrap.obj.prototype.http.prototype.upload = function(aName, aFile) {
+OpenWrap.obj.prototype.http0.prototype.upload = function(aName, aFile) {
 	this.__ufn = _$(aName, "aName").isString().default("file");
 	_$(aFile, "aFile").isString().$_();
 
@@ -1632,31 +2032,31 @@ OpenWrap.obj.prototype.http.prototype.upload = function(aName, aFile) {
 	this.__uf = aFile;
 };
 
-OpenWrap.obj.prototype.http.prototype.head = function(aURL, aIn, aRequestMap, isBytes, aTimeout) {
+OpenWrap.obj.prototype.http0.prototype.head = function(aURL, aIn, aRequestMap, isBytes, aTimeout) {
 	this.exec(aURL, "HEAD", aIn, aRequestMap, isBytes, aTimeout);
 	return this.responseHeaders();
 };
 
-OpenWrap.obj.prototype.http.prototype.setThrowExceptions = function(should) {
+OpenWrap.obj.prototype.http0.prototype.setThrowExceptions = function(should) {
 	this.__throwExceptions = should;
 };
 
-OpenWrap.obj.prototype.http.prototype.setConfig = function(aMap) {
+OpenWrap.obj.prototype.http0.prototype.setConfig = function(aMap) {
 	this.__config = aMap;
 };
 
-OpenWrap.obj.prototype.http.prototype.getCookieStore = function() {
+OpenWrap.obj.prototype.http0.prototype.getCookieStore = function() {
 	return this.__cookies;
 };
 
-OpenWrap.obj.prototype.http.prototype.__handleConfig = function(aH) {
+OpenWrap.obj.prototype.http0.prototype.__handleConfig = function(aH) {
 	if (isDef(this.__config.disableCookie) && this.__config.disableCookie) aH = aH.disableCookieManagement();
 	if (isDef(this.__config.disableRedirectHandling) && this.__config.disableRedirectHandling) aH = aH.disableRedirectHandling();
 	if (isDef(this.__cookies)) aH = aH.setDefaultCookieStore(this.__cookies);
 	return aH;
 };
 
-OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
+OpenWrap.obj.prototype.http0.prototype.exec = function(aUrl, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
 	var r, canHaveIn = false;
 
 	if (isUnDef(aRequestType)) aRequestType = "GET";
@@ -1793,23 +2193,23 @@ OpenWrap.obj.prototype.http.prototype.exec = function(aUrl, aRequestType, aIn, a
 	return this.outputObj;
 };
 
-OpenWrap.obj.prototype.http.prototype.get = function(aUrl, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
+OpenWrap.obj.prototype.http0.prototype.get = function(aUrl, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
 	return this.exec(aUrl, "GET", aIn, aRequestMap, isBytes, aTimeout, returnStream);
 };
 
-OpenWrap.obj.prototype.http.prototype.getBytes = function(aUrl, aIn, aRequestMap, aTimeout) {
+OpenWrap.obj.prototype.http0.prototype.getBytes = function(aUrl, aIn, aRequestMap, aTimeout) {
 	return this.exec(aUrl, "GET", aIn, aRequestMap, true, aTimeout, false);
 };
 
-OpenWrap.obj.prototype.http.prototype.getStream = function(aUrl, aIn, aRequestMap, aTimeout) {
+OpenWrap.obj.prototype.http0.prototype.getStream = function(aUrl, aIn, aRequestMap, aTimeout) {
 	return this.exec(aUrl, "GET", aIn, aRequestMap, false, aTimeout, true);
 };
 
-OpenWrap.obj.prototype.http.prototype.post = function(aUrl, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
+OpenWrap.obj.prototype.http0.prototype.post = function(aUrl, aIn, aRequestMap, isBytes, aTimeout, returnStream) {
 	return this.exec(aUrl, "POST", aIn, aRequestMap, isBytes, aTimeout, returnStream);
 };
 
-OpenWrap.obj.prototype.http.prototype.getErrorResponse = function(parseJson) {
+OpenWrap.obj.prototype.http0.prototype.getErrorResponse = function(parseJson) {
 	if (parseJson) {
 		var res = this.outputObj;
 		if (isDef(res.response)) res.response = jsonParse(res.response);
@@ -1818,11 +2218,11 @@ OpenWrap.obj.prototype.http.prototype.getErrorResponse = function(parseJson) {
 		return this.outputObj;
 };
 
-OpenWrap.obj.prototype.http.prototype.getResponse = function() {
+OpenWrap.obj.prototype.http0.prototype.getResponse = function() {
 	return this.outputObj;
 };
 	
-OpenWrap.obj.prototype.http.prototype.login = function(aUser, aPassword, forceBasic, urlPartial) {
+OpenWrap.obj.prototype.http0.prototype.login = function(aUser, aPassword, forceBasic, urlPartial) {
 	if (isUnDef(urlPartial)) forceBasic = true;
 
 	if (!forceBasic) {
@@ -1846,7 +2246,7 @@ OpenWrap.obj.prototype.http.prototype.login = function(aUser, aPassword, forceBa
 	this.__forceBasic = forceBasic;
 };
 
-OpenWrap.obj.prototype.http.prototype.response = function() {
+OpenWrap.obj.prototype.http0.prototype.response = function() {
 	//if (isDef(this.__r)) return this.__r;
 	try {
 		var res, ent = this.__r.getEntity();
@@ -1858,7 +2258,7 @@ OpenWrap.obj.prototype.http.prototype.response = function() {
 	}
 };
 
-OpenWrap.obj.prototype.http.prototype.responseBytes = function() {
+OpenWrap.obj.prototype.http0.prototype.responseBytes = function() {
 	//if (isDef(this.__rb)) return this.__rb;
 	try {
 		var res, ent = this.__r.getEntity();
@@ -1870,11 +2270,11 @@ OpenWrap.obj.prototype.http.prototype.responseBytes = function() {
 	}
 };
 
-OpenWrap.obj.prototype.http.prototype.responseCode = function() {
+OpenWrap.obj.prototype.http0.prototype.responseCode = function() {
 	return Number(this.__r.getStatusLine().getStatusCode());
 };
 
-OpenWrap.obj.prototype.http.prototype.responseHeaders = function() {
+OpenWrap.obj.prototype.http0.prototype.responseHeaders = function() {
 	var ar = {};
 	var hh = this.__r.getAllHeaders();
 	for(var i in hh) {
@@ -1889,7 +2289,7 @@ OpenWrap.obj.prototype.http.prototype.responseHeaders = function() {
 	return ar;
 };
 
-OpenWrap.obj.prototype.http.prototype.responseStream = function() {
+OpenWrap.obj.prototype.http0.prototype.responseStream = function() {
 	var ent = this.__r.getEntity();
 	if (ent != null)
 		return this.__r.getEntity().getContent();
@@ -1897,7 +2297,7 @@ OpenWrap.obj.prototype.http.prototype.responseStream = function() {
 		return undefined;
 };
 
-OpenWrap.obj.prototype.http.prototype.responseType = function() {
+OpenWrap.obj.prototype.http0.prototype.responseType = function() {
 	try {
 		return String(this.__r.getEntity().getContentType().getValue());
 	} catch(e) {
@@ -1919,7 +2319,7 @@ OpenWrap.obj.prototype.rest = {
 	 */
 	exceptionParse: function(anException) {
 		var er = jsonParse(String(anException).replace(/.+response =/, ""));
-		if (isDef(er) && isDef(er.contentType) && er.contentType.toLowerCase().match(/application\/json/))
+		if (isDef(er) && isDef(er.contentType) && String(er.contentType).toLowerCase().match(/application\/json/))
 			er.response = jsonParse(er.response);
 		return er;
 	},
@@ -1951,8 +2351,10 @@ OpenWrap.obj.prototype.rest = {
 		}
 		 
 		try {
-			h.exec(aURL, "HEAD", __, aRequestMap, __, _t);
-			return Number(h.responseHeaders()["Content-Length"]) || Number(h.responseHeaders()["content-length"]);
+			h.exec(aURL, "HEAD", __, aRequestMap, __, _t)
+			var res = Number(h.responseHeaders()["Content-Length"]) || Number(h.responseHeaders()["content-length"])
+			if (isUnDef(__h)) h.close()
+			return res
 		} catch(e) {
 		   e.message = "Exception " + e.message + "; error = " + stringify(h.getErrorResponse(true));
 		   throw e;
@@ -1961,13 +2363,13 @@ OpenWrap.obj.prototype.rest = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.get(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes) : String</key>
+	 * <key>ow.obj.rest.get(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes, options) : String</key>
 	 * Tries to obtain aIndexMap from the REST aBaseURI service returning as a string (uses the HTTP GET method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	get: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes) { 
+	get: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes, options) { 
 		//plugin("HTTP");
 		//var h = new HTTP();
 		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
@@ -1989,7 +2391,9 @@ OpenWrap.obj.prototype.rest = {
  		}
  		
  		try {
- 			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "GET", __, aRequestMap, retBytes, _t, retBytes);
+ 			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "GET", __, aRequestMap, retBytes, _t, retBytes, options)
+			if (isUnDef(__h) && !retBytes) h.close()
+			return res
  		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + stringify(h.getErrorResponse(true));
 			throw e;
@@ -1998,26 +2402,26 @@ OpenWrap.obj.prototype.rest = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonGet(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes) : Map</key>
+	 * <key>ow.obj.rest.jsonGet(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes, options) : Map</key>
 	 * Tries to obtain aIndexMap from the REST aBaseURI service returning as a map (uses the HTTP GET method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	jsonGet: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes) {
-		return jsonParse(this.get(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes).response);
+	jsonGet: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes, options) {
+		return jsonParse(this.get(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes, options).response);
 	},
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.create(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes) : String</key>
+	 * <key>ow.obj.rest.create(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, options) : String</key>
 	 * Tries to create a new aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a string (uses the HTTP POST method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	create: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
+	create: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options) {
 		//plugin("HTTP");
 		//var h = new HTTP();
 		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
@@ -2043,7 +2447,9 @@ OpenWrap.obj.prototype.rest = {
 				   merge({"Content-Type":"application/json; charset=utf-8"} , aRequestMap);
 
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "POST", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
+			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "POST", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes, options)
+			if (isUnDef(__h) && !retBytes) h.close()
+			return res
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2052,14 +2458,14 @@ OpenWrap.obj.prototype.rest = {
 
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.upload(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, aMethod) : String</key>
+	 * <key>ow.obj.rest.upload(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, aMethod, options) : String</key>
 	 * Tries to upload a new aDataRowMap entry (composed of name and in (a filename, a stream or an array of bytes)), identified by aIndexMap, on the REST aBaseURI service returning the reply as a string (uses the HTTP POST method or aMethod).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	upload: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod) {
+	upload: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod, options) {
 		aMethod = _$(aMethod, "aMethod").isString().default("POST");
 		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 
@@ -2087,7 +2493,9 @@ OpenWrap.obj.prototype.rest = {
 			_$(aDataRow.in, "aDataRow.in").$_();
 
 			h.upload(aDataRow.name, aDataRow.in);
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), aMethod, __, rmap, __, _t, retBytes);
+			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), aMethod, __, rmap, __, _t, retBytes, options)
+			if (isUnDef(__h) && !retBytes) h.close()
+			return res
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2096,40 +2504,40 @@ OpenWrap.obj.prototype.rest = {
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonUpload(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, aMethod) : String</key>
+	 * <key>ow.obj.rest.jsonUpload(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, aMethod, options) : String</key>
 	 * Tries to upload a new aDataRowMap entry (composed of name and in (a filename, a stream or an array of bytes)), identified by aIndexMap, on the REST aBaseURI service returning the reply as a map (uses the HTTP POST method or aMethod).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	jsonUpload: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod) {
-		return jsonParse(af.toEncoding(this.upload(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod).response, "cp1252"));
+	jsonUpload: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod, options) {
+		return jsonParse(af.toEncoding(this.upload(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, aMethod, options).response, "cp1252"));
 	},
 
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonCreate(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes) : Map</key>
+	 * <key>ow.obj.rest.jsonCreate(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, urlEncode, aHTTP, retBytes, options) : Map</key>
 	 * Tries to create a new aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a map (uses the HTTP POST method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object.  If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	jsonCreate: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
-		return jsonParse(af.toEncoding(this.create(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h).response, "cp1252"));
+	jsonCreate: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options) {
+		return jsonParse(af.toEncoding(this.create(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options).response, "cp1252"));
 	},
 	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.set(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes) : String</key>
+	 * <key>ow.obj.rest.set(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes, options) : String</key>
 	 * Tries to set aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a string (uses the HTTP PUT method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	set: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
+	set: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options) {
 		//plugin("HTTP");
 		//var h = new HTTP();
 		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
@@ -2155,7 +2563,9 @@ OpenWrap.obj.prototype.rest = {
 				   merge({"Content-Type":"application/json; charset=utf-8"} , aRequestMap);
 		
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PUT", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
+			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PUT", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes, options)
+			if (isUnDef(__h) && !retBytes) h.close()
+			return res
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2164,27 +2574,27 @@ OpenWrap.obj.prototype.rest = {
 
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonSet(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes) : Map</key>
+	 * <key>ow.obj.rest.jsonSet(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes, options) : Map</key>
 	 * Tries to set aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a map (uses the HTTP PUT method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	jsonSet: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
-		return jsonParse(af.toEncoding(this.set(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h).response, "cp1252"));
+	jsonSet: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options) {
+		return jsonParse(af.toEncoding(this.set(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options).response, "cp1252"));
 	},
 
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.patch(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes) : String</key>
+	 * <key>ow.obj.rest.patch(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes, options) : String</key>
 	 * Tries to set aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a string (uses the HTTP PATCH method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	patch: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
+	patch: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options) {
 		//plugin("HTTP");
 		//var h = new HTTP();
 		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
@@ -2210,7 +2620,9 @@ OpenWrap.obj.prototype.rest = {
 				   merge({"Content-Type":"application/json; charset=utf-8"} , aRequestMap);
 		
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PATCH", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes);
+			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "PATCH", (isString(aDataRow) ? aDataRow : (urlEncode) ? ow.obj.rest.writeQuery(aDataRow) : af.toEncoding(stringify(aDataRow, __, ''), "cp1252", "UTF-8")), rmap, retBytes, _t, retBytes, options)
+			if (isUnDef(__h) && !retBytes) h.close()
+			return res
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2218,25 +2630,25 @@ OpenWrap.obj.prototype.rest = {
 	},
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonPatch(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes) : Map</key>
+	 * <key>ow.obj.rest.jsonPatch(aBaseURI, aIndexMap, aDataRowMap, aLoginOrFunction, aPassword, aTimeout, urlEncode, aHTTP, retBytes, options) : Map</key>
 	 * Tries to set aDataRowMap entry, identified by aIndexMap, on the REST aBaseURI service returning the reply as a map (uses the HTTP PATCH method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. If urlEncode=true the aDataRowMap will be converted into x-www-form-urlencoded instead of JSON.
 	 * Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	jsonPatch: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes) {
-		return jsonParse(af.toEncoding(this.patch(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h).response, "cp1252"));
+	jsonPatch: function(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options) {
+		return jsonParse(af.toEncoding(this.patch(aURL, aIdx, aDataRow, _l, _p, _t, aRequestMap, urlEncode, __h, retBytes, options).response, "cp1252"));
 	},	
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.remove(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes) : String</key>
+	 * <key>ow.obj.rest.remove(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes, options) : String</key>
 	 * Tries to remove aIndexMap entry from the REST aBaseURI service returning the reply as a string (uses the HTTP DELETE method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	remove: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes) {
+	remove: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes, options) {
 		//plugin("HTTP");
 		//var h = new HTTP();
 		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
@@ -2258,7 +2670,9 @@ OpenWrap.obj.prototype.rest = {
  		}
 		
 		try {
-			return h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "DELETE", __, aRequestMap, retBytes, _t, retBytes);
+			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "DELETE", __, aRequestMap, retBytes, _t, retBytes, options)
+			if (isUnDef(__h) && !retBytes) h.close()
+			return res
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;
@@ -2266,24 +2680,24 @@ OpenWrap.obj.prototype.rest = {
 	},
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.jsonRemove(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes) : Map</key>
+	 * <key>ow.obj.rest.jsonRemove(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, retBytes, options) : Map</key>
 	 * Tries to remove aIndexMap entry from the REST aBaseURI service returning the reply as a map (uses the HTTP DELETE method).
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object. Optionally if retBytes = true returns a java stream.
 	 * </odoc>
 	 */
-	jsonRemove: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes) {
-		return jsonParse(af.toEncoding(this.remove(aURL, aIdx, _l, _p, _t, aRequestMap, __h).response, "cp1252"));
+	jsonRemove: function(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes, options) {
+		return jsonParse(af.toEncoding(this.remove(aURL, aIdx, _l, _p, _t, aRequestMap, __h, retBytes, options).response, "cp1252"));
 	},
 	/**
 	 * <odoc>
-	 * <key>ow.obj.rest.head(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP) : Map</key>
+	 * <key>ow.obj.rest.head(aBaseURI, aIndexMap, aLoginOrFunction, aPassword, aTimeout, aRequestMap, aHTTP, options) : Map</key>
 	 * Tries to get the header map with aIndexMap entry from the REST aBaseURI service returning the reply as a Map.
 	 * Optionally you can provide aLogin, aPassword and/or aTimeout for the REST request or use a function (aLoginOrFunction)
 	 * that receives the HTTP object.
 	 * </odoc>
 	 */
-	head: function(aURL, aIdx, _l, _p, _t, aRequestMap, urlEncode, __h) {
+	head: function(aURL, aIdx, _l, _p, _t, aRequestMap, urlEncode, __h, options) {
 		var h = (isDef(__h)) ? __h : ow.obj.rest.connectionFactory();
 				
 		if (isUnDef(_l) && isUnDef(_p)) {
@@ -2303,10 +2717,11 @@ OpenWrap.obj.prototype.rest = {
  		}
 		
 		try {
-			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "HEAD", __, aRequestMap, __, _t, __);
-			res.contentType = "application/json";
-			res.response = h.responseHeaders();
-			return res;
+			var res = h.exec(aURL + ow.obj.rest.writeIndexes(aIdx), "HEAD", __, aRequestMap, __, _t, __, options)
+			res.contentType = "application/json"
+			res.response = h.responseHeaders()
+			if (isUnDef(__h)) h.close()
+			return res
 		} catch(e) {
 			e.message = "Exception " + e.message + "; error = " + String(h.getErrorResponse(true));
 			throw e;

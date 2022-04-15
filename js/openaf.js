@@ -29,6 +29,16 @@ var __noSLF4JErrorOnly;
 
 /**
  * <odoc>
+ * <key>isJavaClass(aObj) : boolean</key>
+ * Return true if aObj is a Java class, false otherwise
+ * </odoc>
+ */
+const isJavaClass = function(obj) {
+	if (Object.prototype.toString.call(obj).indexOf(" JavaClass") >= 0) return true; else return false
+}
+
+/**
+ * <odoc>
  * <key>isJavaObject(aObj) : boolean</key>
  * Returns true if aObj is a Java object, false otherwise
  * </odoc>
@@ -42,6 +52,14 @@ var __noSLF4JErrorOnly;
 		else
 			return false
 	} catch(e) {
+		if (String(e).indexOf("getClass") >= 0) {
+			try {
+				var s = Object.prototype.toString.call(obj)
+				return s.indexOf("object Java") >= 0
+			} catch(e1) {
+				return false
+			}
+		}
 		return false
 	}
 }
@@ -982,7 +1000,10 @@ const ansiLength = function(aString, force) {
 		s = aString
 	}
 
-	return Number((new java.lang.String(s)).codePointCount(0, s.length))
+	if (__flags.VISIBLELENGTH)
+		return Number((new java.lang.String(s)).codePointCount(0, s.length))
+	else
+		return Number(s.length)
 }
 
 /**
@@ -1744,6 +1765,16 @@ const nowUTC = function() {
 
 /**
  * <odoc>
+ * <key>nowTZ() : Number</key>
+ * Returns the same as now() but adjusted with the local timezone offset.
+ * </odoc>
+ */
+const nowTZ = function() {
+	return now() - Number(new Date().getTimezoneOffset() * 1000)
+}
+
+/**
+ * <odoc>
  * <key>nowNano() : Number</key>
  * Will return the current system time in nanoseconds.
  * </odoc>
@@ -2347,6 +2378,7 @@ const load = function(aScript, loadPrecompiled) {
 			}
 		}
 
+		global.__loadedfrom = _$(global.__loadedfrom).default(__)
 		if (isDef(__loadedfrom)) {
 			return fn(__loadedfrom.replace(/[^\/]+$/, "") + aScript, 3);
 		}
@@ -3797,7 +3829,11 @@ const isNull = function(obj) {
  * </odoc>
  */
 const isByteArray = function(obj) {
-	return (isDef(obj.getClass) && (obj.getClass().getName() == "byte[]" || obj.getClass().getTypeName() == "byte[]"));
+	try {
+		return (isDef(obj.getClass) && (obj.getClass().getName() == "byte[]" || obj.getClass().getTypeName() == "byte[]"))
+	} catch(e) {
+		return false
+	}
 }
 
 /**
@@ -3814,19 +3850,27 @@ const isUUID = function(obj) {
 	}
 }
 
+/**
+ * <odoc>
+ * <key>descType(aObject) : String</key>
+ * Given aObject will try to return the apparent type withing: undefined, null, bytearray,
+ * javaclass, java, boolean, array, number, string, function, date, map and object.
+ * </odoc>
+ */
 const descType = function(aObj) {
-	if (isUnDef(aObj)) return "undefined";
-	if (isNull(aObj)) return "null";
-	if (isBoolean(aObj)) return "boolean";
-	if (isNumber(aObj)) return "number";
-	if (isString(aObj)) return "string";
-	if (isFunction(aObj)) return "function";
-	if (isByteArray(aObj)) return "bytearray";
-	if (isArray(aObj)) return "array";
-	if (isJavaObject(aObj)) return "java";
-	if (isDate(aObj)) return "date";
-	if (isMap(aObj)) return "map";
-	if (isObject(aObj)) return "object";
+	if (isUnDef(aObj)) return "undefined"
+	if (isNull(aObj)) return "null"
+	if (isByteArray(aObj)) return "bytearray"
+	if (isJavaClass(aObj)) return "javaclass"
+	if (isJavaObject(aObj)) return "java"
+	if (isBoolean(aObj)) return "boolean"
+	if (isArray(aObj)) return "array"
+	if (isNumber(aObj)) return "number"
+	if (isString(aObj)) return "string"
+	if (isFunction(aObj)) return "function"
+	if (isDate(aObj)) return "date"
+	if (isMap(aObj)) return "map"
+	if (isObject(aObj)) return "object"
 }
 
 /**
@@ -5364,6 +5408,7 @@ const $rest = function(ops) {
 		_toptions.retryWait = _$(_toptions.retryWait, "retryWait").isNumber().default(1500);
 		_toptions.login = _$(_toptions.login, "login").default(__);
 		_toptions.pass = _$(_toptions.pass, "pass").default(__);
+		_toptions.options = _$(_toptions.options, "options").isMap().default(__)
 	};
 
     _rest.prototype.__check = function(aBaseURI) {
@@ -5423,7 +5468,7 @@ const $rest = function(ops) {
 			aBaseURI += "?" + $rest().query(aIdxMap);
 			aIdxMap = {};
 		}
-		var fdef = [ "aBaseURL", "aIdxMap", "login", "pass", "conTimeout", "reqHeaders", "urlEncode", "httpClient", "retBytes" ];
+		var fdef = [ "aBaseURL", "aIdxMap", "login", "pass", "conTimeout", "reqHeaders", "urlEncode", "httpClient", "retBytes", "options" ];
 		if (parent.__check(aBaseURI)) {
 			var c = _toptions.retry, error, __t;
 			do {
@@ -5432,18 +5477,18 @@ const $rest = function(ops) {
 					if (isDef(_toptions.timeout) || isDef(_toptions.stopWhen)) {
 						var _r = $tb(() => {
 							if (isDef(_toptions.preAction)) { 
-								var _a = $a2m(fdef, [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ]);
+								var _a = $a2m(fdef, [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ]);
 								_a.aVerb = aVerb;
 								var rres = _toptions.preAction(_a);
 								var args;
 								if (isDef(rres) && rres != null) 
 									args = $m2a(fdef, rres);
 								else
-									args = [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ];
+									args = [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ];
 								res = aFn[aSubFn].apply(aFn, args);
 							} else {
 								__t = now();
-								res = aFn[aSubFn](aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.httpClient, retBytes);
+								res = aFn[aSubFn](aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.httpClient, retBytes, _toptions.options );
 								__t = now() - __t;
 							}		
 						}).timeout(_toptions.timeout).stopWhen(_toptions.stopWhen).exec();
@@ -5455,20 +5500,20 @@ const $rest = function(ops) {
 						}
 					} else {
 						if (isDef(_toptions.preAction)) { 
-							var _a = $a2m(fdef, [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ]);
+							var _a = $a2m(fdef, [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ]);
 							_a.aVerb = aVerb;
 							var rres = _toptions.preAction(_a);
 							var args;
 							if (isDef(rres) && rres != null) 
 								args = $m2a(fdef, rres);
 							else
-								args = [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes ];
+								args = [ aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ];
 							__t = now();
 							res = aFn[aSubFn].apply(aFn, args);
 							__t = now() - __t;
 						} else {
 							__t = now();
-							res = aFn[aSubFn](aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.httpClient, retBytes);
+							res = aFn[aSubFn](aBaseURI, aIdxMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.httpClient, retBytes, _toptions.options);
 							__t = now() - __t;
 						}
 						parent.__stats(aBaseURI, false, __t);
@@ -5503,7 +5548,7 @@ const $rest = function(ops) {
 			aBaseURI += "?" + $rest().query(aIdxMap);
 			aIdxMap = {};
 		}
-		var fdef = [ "aBaseURL", "aIdxMap", "aDataRowMap", "login", "pass", "conTimeout", "reqHeaders", "urlEncode", "httpClient", "retBytes", "aMethod" ];
+		var fdef = [ "aBaseURL", "aIdxMap", "aDataRowMap", "login", "pass", "conTimeout", "reqHeaders", "urlEncode", "httpClient", "retBytes", "aMethod", "options" ];
 		if (parent.__check(aBaseURI)) {
 			var c = _toptions.retry, error;
 			do {
@@ -5512,17 +5557,17 @@ const $rest = function(ops) {
 					if (isDef(_toptions.timeout) || isDef(_toptions.stopWhen)) {
 						var _r = $tb(() => {
 							if (isDef(_toptions.preAction)) { 
-								var _a = $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ]);
+								var _a = $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ]);
 								_a.aVerb = aVerb;
 								var rres = _toptions.preAction(_a);
 								var args;
 								if (isDef(rres) && rres != null) 
 									args = $m2a(fdef, rres);
 								else
-									args = [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ];
+									args = [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ];
 								res = aFn[aSubFn].apply(aFn, args);
 							} else {
-								res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb);
+								res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options);
 							}
 						}).timeout(_toptions.timeout).stopWhen(_toptions.stopWhen).exec();
 						if (_r !== true) {
@@ -5533,17 +5578,17 @@ const $rest = function(ops) {
 						}
 					} else {
 						if (isDef(_toptions.preAction)) { 
-							var _a = $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ]);
+							var _a = $a2m(fdef, [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ]);
 							_a.aVerb = aVerb;
 							var rres = _toptions.preAction(_a);
 							var args;
 							if (isDef(rres) && rres != null) 
 								args = $m2a(fdef, rres);
 							else
-								args = [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb ];
+								args = [ aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options ];
 							res = aFn[aSubFn].apply(aFn, args);
 						} else {
-							res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, aVerb);
+							res = aFn[aSubFn](aBaseURI, aIdxMap, aDataRowMap, _toptions.login, _toptions.pass, _toptions.connectionTimeout, _toptions.requestHeaders, _toptions.urlEncode, _toptions.httpClient, retBytes, _toptions.options);
 						}
 						parent.__stats(aBaseURI, false);
 					}
@@ -6585,6 +6630,7 @@ var __flags = _$(__flags).isMap().default({
 	OJOB_SEQUENTIAL  : true,
 	OJOB_HELPSIMPLEUI: false,
 	OAF_CLOSED       : false,
+	VISIBLELENGTH    : false,
 	MD_NOMAXWIDTH    : true
 })
 
@@ -6913,24 +6959,33 @@ IO.prototype.writeFileJSON = function(aJSONFile, aObj, aSpace) { return io.write
 /**
  * <odoc>
  * <key>io.writeLineNDJSON(aNDJSONFile, aObj, aEncode)</key>
- * Writes aObj into a single line on aNDJSONFile (newline delimited JSON). Optionally you can provide
- * an encoding.
+ * Writes aObj into a single line on aNDJSONFile (newline delimited JSON) (or an output stream). Optionally you can provide
+ * an encoding (only is a string filename is provided)
  * </odoc>
  */
 IO.prototype.writeLineNDJSON = function(aNDJSONFile, aObj, aEncode) {
-	io.writeFileString(aNDJSONFile, stringify(aObj, __, "")+__separator, aEncode, true);
+	if (!isJavaObject(aNDJSONFile)) {
+		io.writeFileString(aNDJSONFile, stringify(aObj, __, "")+__separator, aEncode, true)
+	} else {
+		ioStreamWrite(aNDJSONFile, stringify(aObj, __, "")+__separator)
+	}
 };
 
 /**
  * <odoc>
  * <key>io.readLinesNDJSON(aNDJSONFile, aFuncCallback, aErrorCallback)</key>
- * Opens aNDJSONFile (a newline delimited JSON) as a stream call aFuncCallback with each parse JSON. If
+ * Opens aNDJSONFile (a newline delimited JSON) (a filename or an input stream) as a stream call aFuncCallback with each parse JSON. If
  * aFuncCallback returns true the cycle will be interrupted. For any parse error it calls the aErrorCallback 
  * with each exception.
  * </odoc>
  */
 IO.prototype.readLinesNDJSON = function(aNDJSONFile, aFuncCallback, aErrorCallback) {
-	var rfs = io.readFileStream(aNDJSONFile);
+	var rfs
+	if (!isJavaObject(aNDJSONFile)) {
+		rfs = io.readFileStream(aNDJSONFile)
+	} else {
+		rfs = aNDJSONFile
+	}
 	ioStreamReadLines(rfs, (line) => {
 		try {
 			return aFuncCallback(jsonParse(line));
@@ -6939,6 +6994,68 @@ IO.prototype.readLinesNDJSON = function(aNDJSONFile, aFuncCallback, aErrorCallba
 		}
 	});
 };
+
+/**
+ * <odoc>
+ * <key>io.readStreamJSON(aJSONFile, aValFunc) : Map</key>
+ * Reads a JSON file (aJSONFile) without loading all structures to memory (usefull to handling large JSON files).
+ * The aValFunc receives a single string argument with the current JSON path being processed (for example $.log.entries[123].request),
+ * where "$" is the root of the JSON document. When aValFunc returns true the current JSON structure is recorded in memory.
+ * If aValFunc is not defined it will return true for all paths. Returns the JSON structure recorded in memory.\
+ * \
+ * Example:\
+ * \
+ *    var amap = io.readStreamJSON("someFile.har",\
+ *                                 path => (/^\$\.log\.entries\[\d+\]\.request/).test(path))\
+ * \
+ * </odoc>
+ */
+IO.prototype.readStreamJSON = function(aJSONFile, aValFunc) {
+	_$(aJSONFile, "aJSONFile").isString().$_()
+	aValFunc = _$(aValFunc, "aValFunc").isFunction().default(() => true)
+
+	var is = java.io.FileReader(aJSONFile)
+	var jr = Packages.com.google.gson.stream.JsonReader(is)
+	
+	try {
+		var pending = 0, nam, res = {}, tmp = []
+
+		do {
+			var val = __, hasVal = false, path = String(jr.getPath())
+			var next = String(jr.peek().toString())
+
+			switch(next) {
+			case "BEGIN_OBJECT": jr.beginObject(); pending++; break
+			case "BEGIN_ARRAY" : jr.beginArray();  pending++; break
+			case "END_OBJECT"  : jr.endObject();   pending--; break
+			case "END_ARRAY"   : jr.endArray();    pending--; break
+			case "STRING"      : hasVal = true; val = String(jr.nextString())   ; break
+			case "BOOLEAN"     : hasVal = true; val = Boolean(jr.nextBoolean()) ; break
+			case "DOUBLE"      : hasVal = true; val = Number(jr.nextDouble())   ; break
+			case "NUMBER"      : hasVal = true; val = Number(jr.nextDouble())   ; break
+			case "INT"         : hasVal = true; val = Number(jr.nextInt())      ; break
+			case "LONG"        : hasVal = true; val = Number(jr.nextLong())     ; break
+			case "NULL"        : hasVal = true; val = jr.nextNull()             ; break
+			case "NAME"        : nam = String(jr.nextName()); break
+			case "END_DOCUMENT": pending = 0; break
+			default            : if (!jr.hasNext()) pending = 0
+			}
+		
+			if (hasVal && aValFunc(path) > 0) {
+				tmp.push({ k: path, v: val })
+			}
+		} while(pending > 0)
+	} catch(e) {
+		throw e
+	} finally {
+		jr.close()
+		is.close()
+	}
+
+	tmp.forEach(r => $$(res).set(r.k.substring(2), r.v))
+	
+	return res
+}
 
 /**
  * <odoc>
@@ -7131,6 +7248,59 @@ const $m2a = (aDef, aMap) => {
 const sortMapKeys = (aMap) => {
 	aMap = _$(aMap).isMap().default({});
 	return $a2m(Object.keys(aMap).sort(), $m2a(Object.keys(aMap).sort(), aMap))
+}
+
+/**
+ * <odoc>
+ * <key>$a4m(anArray, aKey, dontRemove) : Array</key>
+ * Tries to create a map of maps from the provided anArrays. Optionally if aKey is provided
+ * it will be used to create the map keys (otherwise will fallback to "row[number]"). And can also
+ * optionally indicate by dontRemove = true that aKey shouldn't be removed from each map.
+ * \
+ * var a = [\
+ *   { "abc": "123", "xpt": "000", "key": "A1" },\
+ *   { "abc": "456", "xpt": "001", "key": "A2" },\
+ *   { "abc": "789", "xpt": "002", "key": "A3" }\
+ * ]\
+ * \
+ * $a4m(a, "key");\
+ * // {\
+ * //   "A1": { "abc": "123", "xpt": "000" },\
+ * //   "A2": { "abc": "456", "xpt": "001" },\
+ * //   "A3": { "abc": "789", "xpt": "002" }\
+ * // }\
+ * \
+ * </odoc>
+ */
+const $a4m = (anArray, aKey, dontRemove) => {
+	ow.loadObj()
+	return ow.obj.fromArray2Obj(anArray, aKey, dontRemove)
+}
+
+/**
+ * <odoc>
+ * <key>$m4a(aMap, aKey) : Array</key>
+ * Tries to create an array of maps from the provided aMap map of maps. Optionally if aKey is provided
+ * it will be added to each array map with the map key. Example:\
+ * \
+ * var a = {\
+ *    "A1": { "abc": "123", "xpt": "000" },\
+ *    "A2": { "abc": "456", "xpt": "001" },\
+ *    "A3": { "abc": "789", "xpt": "002" }\
+ * }\
+ * \
+ * $m4a(a, "key");\
+ * // [\
+ * //  { "key": "A1", "abc": "123", "xpt": "000" },\
+ * //  { "key": "A2", "abc": "456", "xpt": "001" },\
+ * //  { "key": "A3", "abc": "789", "xpt": "002" }\
+ * // ]\
+ * \
+ * </odoc>
+ */
+const $m4a = (aMap, aKey) => {
+	ow.loadObj()
+	return ow.obj.fromObj2Array(aMap, aKey)
 }
 
 /**
@@ -7339,7 +7509,13 @@ const $channels = function(a) {
 	
 	return {
 		getName      : function() { return a; },
-		create       : function(shouldCompress, type, opts) { ow.ch.create(a, shouldCompress, type, opts); return $channels(a); },
+		create       : function(shouldCompress, type, opts) { 
+			if (isString(shouldCompress) && isMap(type)) {
+				ow.ch.create(a, 1, shouldCompress, type)
+			} else {
+				ow.ch.create(a, shouldCompress, type, opts); return $channels(a)
+			}
+		},
 		list         : function() { return ow.ch.list(); },
 		destroy      : function() { ow.ch.destroy(a); return $channels(a); },
 		size         : function() { return ow.ch.size(a); },

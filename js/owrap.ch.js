@@ -1152,6 +1152,7 @@ OpenWrap.ch.prototype.__types = {
 	 *    - key       (String)  If a key contains "key" it will be replaced by the "key" value\
 	 *    - multipath (Boolean) Supports string keys with paths (e.g. ow.obj.setPath) (defaults to false)\
 	 *    - lock      (String)  If defined the filepath to a dummy file for filesystem lock while accessing the file\
+	 *    - gzip      (Boolean) If true the output file will be gzip (defaults to false)\
 	 * \
 	 * </odoc>
 	 */
@@ -1165,9 +1166,22 @@ OpenWrap.ch.prototype.__types = {
 			if (!io.fileExists(m.file)) return r;
 
 			if (m.yaml) {
-				r = io.readFileYAML(m.file, m.multipart);
+				if (m.gzip) {
+					var is = io.readFileGzipStream(m.file)
+					r = af.fromYAML(af.fromInputStream2String(is))
+					if (m.multipart && isDef(m.key)) r = $a4m(r, m.key)
+					is.close()
+				} else {
+					r = io.readFileYAML(m.file)
+				}
 			} else {
-				r = io.readFileJSON(m.file);
+				if (m.gzip) {
+					var is = io.readFileGzipStream(m.file)
+					r = jsonParse(af.fromInputStream2String(is), true)
+					is.close()
+				} else {
+					r = io.readFileJSON(m.file)
+				}
 			}
 
 			if (!isMap(r)) r = {};
@@ -1175,9 +1189,21 @@ OpenWrap.ch.prototype.__types = {
 		},
 		__w: (m, o) => {
 			if (m.yaml) {
-				io.writeFileYAML(m.file, o, m.multipart);
+				if (m.gzip) {
+					var os = io.writeFileGzipStream(m.file)
+					ioStreamWrite(os, af.toYAML((m.multipart && isDef(m.key) ? $m4a(o, m.key) : o), m.multipart))
+					os.close()
+				} else {
+					io.writeFileYAML(m.file, (m.multipart && isDef(m.key) ? $m4a(o, m.key) : o), m.multipart)
+				}
 			} else {
-				io.writeFileJSON(m.file, o, m.compact ? "" : __);
+				if (m.gzip) {
+					var os = io.writeFileGzipStream(m.file)
+					ioStreamWrite(os, stringify(o, __, m.compact ? "" : __))
+					os.close()
+				} else {
+					io.writeFileJSON(m.file, o, m.compact ? "" : __)
+				}
 			}
 		},
 		create       : function(aName, shouldCompress, options) {
@@ -1191,6 +1217,7 @@ OpenWrap.ch.prototype.__types = {
 			this.__channels[aName].multipath = _$(options.multipath, "options.multipath").isBoolean().default(false);
 			this.__channels[aName].key       = _$(options.key, "options.key").isString().default(__);
 			this.__channels[aName].lock      = _$(options.lock, "options.lock").isString().default(__);
+			this.__channels[aName].gzip      = _$(options.gzip, "options.gzip").isBoolean().default(false)
 		},
 		destroy      : function(aName) {
 			delete this.__channels[aName];
@@ -1278,14 +1305,48 @@ OpenWrap.ch.prototype.__types = {
 		},
 		setAll       : function(aName, aKs, aVs, aTimestamp) {
 			ow.loadObj();
-			for(var i in aVs) {
-				this.set(aName, ow.obj.filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
+
+			var m;
+			this.__l(this.__channels[aName]);
+			try {
+				m = this.__r(this.__channels[aName]);
+				for(var i in aVs) {
+					var aK = ow.obj.filterKeys(aKs, aVs[i]), aV = aVs[i]
+
+					if (isMap(aK) && isDef(aK[this.__channels[aName].key])) aK = { key: aK[this.__channels[aName].key] };
+					var id = isDef(aK.key)   ? aK.key   : stringify(sortMapKeys(aK), __, "");
+					if (isString(id) && id.indexOf(".") > 0 && this.__channels[aName].multipath) {
+						ow.obj.setPath(m, id, isDef(aV.value) ? aV.value : aV);
+					} else {
+						m[id] = isDef(aV.value) ? aV.value : aV;
+					}
+				}
+				this.__w(this.__channels[aName], m);
+			} finally {
+				this.__ul(this.__channels[aName]);
 			}
 		},
 		unsetAll     : function(aName, aKs, aVs, aTimestamp) {
 			ow.loadObj();
-			for(var i in aVs) {
-				this.unset(aName, ow.obj.filterKeys(aKs, aVs[i]), aVs[i], aTimestamp);
+			var m;
+			this.__l(this.__channels[aName]);
+			try {
+				m = this.__r(this.__channels[aName]);
+				for(var i in aVs) {
+					var aK = ow.obj.filterKeys(aKs, aVs[i]), aV = aVs[i]
+					
+					if (isMap(aK) && isDef(aK[this.__channels[aName].key])) aK = { key: aK[this.__channels[aName].key] };
+					var id = isDef(aK.key)   ? aK.key   : stringify(sortMapKeys(aK), __, "");
+					delete m[id];
+					if (isString(id) && id.indexOf(".") > 0 && this.__channels[aName].multipath) {
+						ow.obj.setPath(m, id, __);
+					} else {
+						delete m[id];
+					}
+				}
+				this.__w(this.__channels[aName], m);
+			} finally {
+				this.__ul(this.__channels[aName]);
 			}
 		},		
 		get          : function(aName, aK) {
@@ -1505,15 +1566,17 @@ OpenWrap.ch.prototype.__types = {
 	 * <key>ow.ch.types.elasticsearch</key>
 	 * This OpenAF implementation connects to an ElasticSearch (ES) server/cluster. The creation options are:\
 	 * \
-	 *    - index  (String/Function) The ES index to use or a function to return the name (see also ow.ch.utils.getElasticIndex).\
-	 *    - format (String)          If index is a string will use format with ow.ch.utils.getElasticIndex.\
-	 *    - idKey  (String)          The ES key id field. Defaults to 'id'.\
-	 *    - url    (String)          The HTTP(S) URL to access the ES server/cluster.\
-	 *    - user   (String)          Optionally provide a user name to access the ES server/cluster.\
-	 *    - pass   (String)          Optionally provide a password to access the ES server/cluster (encrypted or not).\
-	 *    - fnId   (String/Function) Optionally called on every operation to calculate the idKey with the key provided as argument. If string will the corresponding hash function (md5/sha1/etc...) with sortMapKeys + stringify.\
-	 *    - size   (Number)          Optionally getAll/getKeys to return more than 10 records (up to 10000).\
-	 *    - stamp  (Map)             Optionally merge with stamp map.\
+	 *    - index       (String/Function) The ES index to use or a function to return the name (see also ow.ch.utils.getElasticIndex).\
+	 *    - format      (String)          If index is a string will use format with ow.ch.utils.getElasticIndex.\
+	 *    - idKey       (String)          The ES key id field. Defaults to 'id'.\
+	 *    - url         (String)          The HTTP(S) URL to access the ES server/cluster.\
+	 *    - user        (String)          Optionally provide a user name to access the ES server/cluster.\
+	 *    - pass        (String)          Optionally provide a password to access the ES server/cluster (encrypted or not).\
+	 *    - fnId        (String/Function) Optionally called on every operation to calculate the idKey with the key provided as argument. If string will the corresponding hash function (md5/sha1/etc...) with sortMapKeys + stringify.\
+	 *    - size        (Number)          Optionally getAll/getKeys to return more than 10 records (up to 10000).\
+	 *    - stamp       (Map)             Optionally merge with stamp map.\
+	 *    - timeout     (Number)          Optional request timeout in ms.\
+	 * 
 	 * \
 	 * The getAll/getKeys functions accept an extra argument to provide a ES query map to restrict the results.
 	 * </odoc>
@@ -1591,6 +1654,7 @@ OpenWrap.ch.prototype.__types = {
 			});*/
 			var res = $rest({
 				throwExceptions: parent.__channels[aName].throwExceptions,
+				timeout: parent.__channels[aName].timeout,
 				login: function(h) { 
 					if (isDef(parent.__channels[aName].user))
 						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
@@ -1628,6 +1692,7 @@ OpenWrap.ch.prototype.__types = {
 			});*/
 			var res = $rest({
 				throwExceptions: parent.__channels[aName].throwExceptions,
+				timeout: parent.__channels[aName].timeout,
 				login: function(h) { 
 					if (isDef(parent.__channels[aName].user))
 						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
@@ -1662,6 +1727,7 @@ OpenWrap.ch.prototype.__types = {
 			});*/
 			var res = $rest({
 				throwExceptions: parent.__channels[aName].throwExceptions,
+				timeout: parent.__channels[aName].timeout,
 				login: function(h) { 
 					if (isDef(parent.__channels[aName].user))
 						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
@@ -1709,6 +1775,7 @@ OpenWrap.ch.prototype.__types = {
 
 			var res = $rest({
 				throwExceptions: parent.__channels[aName].throwExceptions,
+				timeout: parent.__channels[aName].timeout,
 				login: function(h) { 
 					if (isDef(parent.__channels[aName].user))
 						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
@@ -1751,6 +1818,7 @@ OpenWrap.ch.prototype.__types = {
 					var parent = this;
 					var res = $rest({
 						throwExceptions: parent.__channels[aName].throwExceptions,
+						timeout: parent.__channels[aName].timeout,
 						login: function(h) { 
 							if (isDef(parent.__channels[aName].user))
 								h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
@@ -1821,6 +1889,7 @@ OpenWrap.ch.prototype.__types = {
 			});*/
 			var res = $rest({
 				throwExceptions: parent.__channels[aName].throwExceptions,
+				timeout: parent.__channels[aName].timeout,
 				login: function(h) { 
 					if (isDef(parent.__channels[aName].user))
 						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
@@ -1863,6 +1932,7 @@ OpenWrap.ch.prototype.__types = {
 			});*/
 			var res = $rest({
 				throwExceptions: parent.__channels[aName].throwExceptions,
+				timeout: parent.__channels[aName].timeout,
 				login: function(h) { 
 					if (isDef(parent.__channels[aName].user))
 						h.login(parent.__channels[aName].user, parent.__channels[aName].pass, true);
@@ -2137,12 +2207,16 @@ OpenWrap.ch.prototype.__types = {
 
 			var map = this.__s[aName].openMap(this.__m[aName](full));
 
-			var start = _$(full.start, "full.start").isNumber().default(0);
-			var max = this.size(aName);
-			var limit = _$(full.end, "full.end").isNumber().default(max);
-
-			for(var i = start; i < limit && i < max; i++) {
-				res.push(jsonParse(map.getKey(i)));
+			if (isDef(full.start) || isDef(full.end)) {
+				var start = _$(full.start, "full.start").isNumber().default(0);
+				var max = this.size(aName);
+				var limit = _$(full.end, "full.end").isNumber().default(max);
+	
+				for(var i = start; i < limit && i < max; i++) {
+					res.push(jsonParse(map.getKey(i), true));
+				}
+			} else {
+				res = af.fromJavaArray(map.keyList()).map(r => jsonParse(r, true))
 			}
 
 			return res;
@@ -2153,12 +2227,16 @@ OpenWrap.ch.prototype.__types = {
 
 			var map = this.__s[aName].openMap(this.__m[aName](full));
 
-			var start = _$(full.start, "full.start").isNumber().default(0);
-			var max = this.size(aName);
-			var limit = _$(full.end, "full.end").isNumber().default(max);
-
-			for(var i = start; i < limit && i < max; i++) {
-				res.push(jsonParse(map.get(map.getKey(i))));
+			if (isDef(full.start) || isDef(full.end)) {
+				var start = _$(full.start, "full.start").isNumber().default(0);
+				var max = this.size(aName);
+				var limit = _$(full.end, "full.end").isNumber().default(max);
+	
+				for(var i = start; i < limit && i < max; i++) {
+					res.push(jsonParse(map.get(map.getKey(i)), true));
+				}
+			} else {
+				res = af.fromJavaArray(map.keyList()).map(k => jsonParse(map.get(k), true))
 			}
 
 			return res;
@@ -2207,22 +2285,22 @@ OpenWrap.ch.prototype.__types = {
 			var map = this.__s[aName].openMap(this.__m[aName](aKey));
 
 			var r = map.get(stringify(sortMapKeys(aKey), __, this.__o[aName].stry));
-			if (r == null || isUnDef(r)) return __; else return jsonParse(r);
+			if (r == null || isUnDef(r)) return __; else return jsonParse(r, true);
 		},
 		pop          : function(aName) {
 			var map = this.__s[aName].openMap(this.__m[aName]());
 			var aKey = map.lastKey();
-			return jsonParse(map.remove(aKey));	
+			return jsonParse(map.remove(aKey), true);	
 		},
 		shift        : function(aName) {
 			var map = this.__s[aName].openMap(this.__m[aName]());
 			var aKey = map.firstKey();
-			return jsonParse(map.remove(aKey));
+			return jsonParse(map.remove(aKey), true);
 		},
 		unset        : function(aName, aKey) {
 			var map = this.__s[aName].openMap(this.__m[aName](aKey));
 
-			return jsonParse(map.remove(stringify(sortMapKeys(aKey), __, this.__o[aName].stry)));
+			return jsonParse(map.remove(stringify(sortMapKeys(aKey), __, this.__o[aName].stry)), true);
 		}
 	},
 	/**
@@ -3742,8 +3820,8 @@ OpenWrap.ch.prototype.utils = {
 	 * \
 	 *   | source | target | return true | return false |\
 	 *   |--------|--------|-------------|--------------|\
-	 *   | __ | def    | del target  | add source   |\
-	 *   | def    | __ | add target  | del source   |\
+	 *   | __     | def    | del target  | add source   |\
+	 *   | def    | __     | add target  | del source   |\
 	 *   | def    | def    | set target  | set source   |\
 	 * \
 	 * </odoc>
@@ -4075,6 +4153,35 @@ OpenWrap.ch.prototype.utils = {
 				}
 			}
 		};
+	},
+
+	/**
+	 * <odoc>
+	 * <key>ow.ch.utils.poolChanges(aCh, idKeys, aChM)</key>
+	 * When executed pools to find all changes in aCh, using an idKeys array of key map fields, and executing a setAll on aCh for
+	 * the changed entries. To compare it stores the last version in a 'aCh + "::chMemory"' channel that can be created with aChM map options
+	 * ($ch type and options entries). Usefull to trigger channel subscribed functions when the aCh type doesn't detect automatically changes.
+	 * Should be used with small sized channels as datasets are compared in memory.
+	 * </odoc>
+	 */
+	poolChanges: function(aCh, idKeys, aChM) {
+		_$(aCh, "aCh").isString().$_()
+		_$(idKeys, "idKeys").isArray().$_()
+		aChM = _$(aChM, "aChM").default(__)
+	
+		var chM = aCh + "::__chMemory"
+		if ($ch().list().indexOf(chM) < 0) {
+			if (isUnDef(aChM)) aChM = { type: "mvs", options: { shouldCompress: true, file: io.createTempFile("openaf_", ".chMemory") }}
+			$ch(chM).create(1, aChM.type, aChM.options)
+		}
+	
+		var n = $ch(aCh).getAll()
+		if ($ch(chM).size() > 0) {
+			var e = $ch(chM).getAll()
+			var ar = $from( n ).except( e ).select()
+			if (ar.length > 0) $ch(aCh).setAll(idKeys, ar)
+		}
+		$ch(chM).setAll(idKeys, n)
 	},
 
 	mvs: {

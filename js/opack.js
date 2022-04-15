@@ -687,7 +687,11 @@ function mkdir(aNewDirectory) {
 
 // Remove directory
 function rmdir(aNewDirectory, shouldCheck) {
-	if (shouldCheck && io.fileExists(aNewDirectory) && io.listFiles(aNewDirectory).files.length != 0) return;
+	if (shouldCheck && 
+		io.fileExists(aNewDirectory) && 
+		$from(io.listFiles(aNewDirectory).files)
+		.equals("isFile", true)
+		.any()) return;
 	return io.rm(aNewDirectory);
 }
 
@@ -701,17 +705,36 @@ function execHTTPWithCred(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeou
 	if (isUnDef(__remoteHTTP)) __remoteHTTP = new ow.obj.http();
     var res;
 
+	ow.loadNet()
+	var path = ow.net.path4URL(aURL), host = ow.net.host4URL(aURL)
+	path = path.substring(0, path.lastIndexOf("/"))
+
 	try {
 		res = __remoteHTTP.exec(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream);
 		if (res.responseCode == 401) throw "code: 401";
 	} catch(e) {
-		if (String(e).match(/code: 401/)) {
+		if (String(e).indexOf("code: 401") >= 0) {
+			// Ensure bucket default exists
+			try { $sec(__, "opack").get("opack::") } catch(e) { $sec(__, "opack").set("opack::", {}) }
+				
+			var si = $sec(__, "opack").get("opack::" + host + "::" + path)
+			if (isMap(si) && (isUnDef(__remoteUser) || isUnDef(__remotePass))) { __remoteUser = Packages.openaf.AFCmdBase.afc.dIP(si.u); __remotePass = Packages.openaf.AFCmdBase.afc.dIP(si.p) }
+			if (isDef(__remoteUser) && isDef(__remotePass)) __remoteHTTP.login(Packages.openaf.AFCmdBase.afc.dIP(__remoteUser), Packages.openaf.AFCmdBase.afc.dIP(__remotePass), aURL)
+
 			if (isUnDef(__remoteUser) || isUnDef(__remotePass)) {
 				__remoteUser = ask("Enter authentication user: ");
 				__remotePass = ask("Enter authentication password: ", String.fromCharCode(0));
 			}
 			__remoteHTTP.login(Packages.openaf.AFCmdBase.afc.dIP(__remoteUser), Packages.openaf.AFCmdBase.afc.dIP(__remotePass), aURL);
 			res = __remoteHTTP.exec(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeout, returnStream);
+			if (res.responseCode == 200) {
+				try {
+					$sec(__, "opack").set("opack::" + host + "::" + path, {
+						u: __remoteUser,
+						p: __remotePass
+					})
+				} catch(e2) {}
+			}
 		} else {
 			throw e;
 		}
@@ -1661,10 +1684,15 @@ function erase(args, dontRemoveDir) {
 				deleteFile(packag.__target + "/" + packag.files[i].replace(/^\/*/, ""));
 			}
 
-			var list = io.listFiles(packag.__target);
-			for(var i in list.files) {
-				if (list.files[i].isDirectory) {
-					rmdir(list.files[i].filepath, true);
+			// Remove precompiled
+			var list = listFilesRecursive(packag.__target);
+			for(var i in list) {
+				if (list[i].isDirectory) {
+					if (list[i].filename == ".openaf_precompiled") {
+						rmdir(list[i].filepath)
+					} else {
+						rmdir(list[i].filepath, true)
+					}
 				}
 			}
 			if (!dontRemoveDir) rmdir(packag.__target, true);
