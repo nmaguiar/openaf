@@ -83,7 +83,7 @@
 	//}));
 
 	//this.__sch = new ow.server.scheduler();
-	this.__ojob = { recordLog: true, logArgs: false, numThreads: __, logToConsole: true };
+	this.__ojob = { recordLog: true, logArgs: false, numThreads: __, logToConsole: true, logOJob: false };
 	this.__help = {};
 	this.__file = "thisOJob.yaml";
 	this.__expr = processExpr(" ");
@@ -287,12 +287,14 @@ OpenWrap.oJob.prototype.load = function(jobs, todo, ojob, args, aId, init, help)
 	this.addTodos(todo, args, aId);
 
 	// Check ojob settings
+	if (isDef(ojob.debug)) this.__ojob.debug = ojob.debug;
 	if (isDef(ojob.numThreads)) this.__ojob.numThreads = ojob.numThreads;
 	if (isDef(ojob.logToConsole)) this.__ojob.logToConsole = ojob.logToConsole;
 	if (isDef(ojob.logLimit)) this.__logLimit = ojob.logLimit;
 	if (isDef(ojob.conAnsi)) { __conAnsi = ojob.conAnsi; __conStatus = Boolean(__conAnsi); }
 	if (isDef(ojob.conWidth)) this.__conWidth = ojob.conWidth;
-	this.__ojob.async = _$(ojob.async).isBoolean().default(false);
+	this.__ojob.logOJob = _$(ojob.logOJob, "logOJob").isBoolean().default(false)
+	this.__ojob.async   = _$(ojob.async).isBoolean().default(false);
     if (this.__ojob.async) this.__ojob.sequential = false;
 
 	this.__ojob.tags = _$(ojob.tags).isArray("The ojob.tags needs to be an array.").default([]);
@@ -317,6 +319,12 @@ OpenWrap.oJob.prototype.load = function(jobs, todo, ojob, args, aId, init, help)
 	if (isDef(ojob.logToFile) && isMap(ojob.logToFile)) {
 		ow.ch.utils.setLogToFile(ojob.logToFile);
 	}
+
+	if (toBoolean(getEnv("OJOB_JSONLOG"))) {
+		if (isUnDef(ojob.log)) ojob.log = {}
+		ojob.log.format = "json"
+	}
+
 	if (isDef(ojob.log) && isMap(ojob.log)) {
 		setLog(ojob.log);
 	}
@@ -469,7 +477,7 @@ OpenWrap.oJob.prototype.load = function(jobs, todo, ojob, args, aId, init, help)
 			if (isMap(this.__ojob.metrics)) {
 				if (isDef(this.__ojob.metrics.add) && isMap(this.__ojob.metrics.add)) {
 					Object.keys(this.__ojob.metrics.add).map(r => {
-						ow.metrics.add(r, new Function(this.__ojob.metrics.add[r]) );
+						ow.metrics.add(r, newFn(this.__ojob.metrics.add[r]) );
 					});
 				}
 				// To deprecate
@@ -583,7 +591,7 @@ OpenWrap.oJob.prototype.loadJSON = function(aJSON, dontLoadTodos) {
 			if (isUnDef(require.cache)) require.cache = {};
 			Object.keys(res.code).forEach(k => {
 				try {
-					require.cache[k] = new Function('require', 'exports', 'module', res.code[k]);
+					require.cache[k] = newFn('require', 'exports', 'module', res.code[k]);
 				} catch(e) {
 					logErr("Problem with code '" + k + "': " + e.message + " (#" + e.lineNumber + ")");
 				}
@@ -1166,7 +1174,7 @@ OpenWrap.oJob.prototype.__addLog = function(aOp, aJobName, aJobExecId, args, anE
 
 	if (isDef(existing)) {
 		var ansis = false;
-		if (this.__ojob.logToConsole || this.__ojob.logToFile || isDef(getChLog())) {
+		if (this.__ojob.logToConsole || this.__ojob.logOJob || this.__ojob.logToFile || isDef(getChLog())) {
 			var aa = "";
 			if (isDef(args) && this.__ojob.logArgs) {
 				var temp = clone(args);
@@ -1191,7 +1199,7 @@ OpenWrap.oJob.prototype.__addLog = function(aOp, aJobName, aJobExecId, args, anE
 					ss = repeat(w, '═');
 					se = repeat(w, '*');
 					//sn = "";
-					sn = String( jansi.Ansi.ansi().a(jansi.Ansi.Attribute.RESET) );
+					sn = String( jansi.Ansi.ansi().a(jansi.Ansi.Attribute.RESET) ) + "\n";
 				} else {
 					s  = repeat(this.__conWidth, '-');
 					ss = repeat(this.__conWidth, '=');
@@ -1230,18 +1238,21 @@ OpenWrap.oJob.prototype.__addLog = function(aOp, aJobName, aJobExecId, args, anE
 						var __d = (new Date()).toJSON(); var __n = nowNano();
 						var __m1 = msg + "STARTED", __m2 = __d.replace(/(T|Z)/g, " ").trim();
 						if (this.__ojob.logToConsole) { syncFn(() => { printnl(_g(aa) + _c(">> ") + _b(__m1) + " " + _c(s.substr(0, s.length - (__m1.length + __m2.length) - 2 - 2 -1) + " " + __m2 + sn)); }, this); }
+						if (this.__ojob.logOJob)      { log(__m1) }
 						if (isDef(getChLog()) && this.__ojob.logJobs) getChLog().set({ n: nowNano(), d: __d, t: "INFO" }, { n: nowNano(), d: __d, t: "INFO", m: __m1 });
 					}
 					if (existing.start && existing.error) { 
 						var __d = (new Date()).toJSON(); var __n = nowNano();
 						var __m1 = msg + "ERROR", __m2 = __d.replace(/(T|Z)/g, " ").trim();
 						if (this.__ojob.logToConsole) { syncFn(() => { printErr("\n" + _e("!! ") + _g(aa) + _b(__m1) + " " + _e(se.substr(0, se.length - (__m1.length + __m2.length) - 2 - 2 -1) + " " + __m2 + sn) + af.toYAML(existing.log) + "\n" + _e(se)); }, this); }
+						if (this.__ojob.logOJob)      { logErr(__m1) }
 						if (isDef(getChLog()) && this.__ojob.logJobs) getChLog().set({ n: nowNano(), d: __d, t: "ERROR" }, { n: nowNano(), d: __d, t: "ERROR", m: __m1 + "\n" + stringify(existing.log) });
 					}
 					if (existing.start && existing.success) { 
 						var __d = (new Date()).toJSON(); var __n = nowNano();
 						var __m1 = msg + "SUCCESS", __m2 = __d.replace(/(T|Z)/g, " ").trim();
 						if (this.__ojob.logToConsole) { syncFn(() => { printnl("\n" + _g(aa) + _c("<< ") + _b(__m1) + " " + _c(ss.substr(0, ss.length - (__m1.length + __m2.length) - 2 - 2 -1) + " " + __m2 + sn)); }, this); }
+						if (this.__ojob.logOJob)      { log(__m1) }
 						if (isDef(getChLog()) && this.__ojob.logJobs) getChLog().set({ n: nowNano(), d: __d, t: "INFO" }, { n: nowNano(), d: __d, t: "INFO", m: __m1 });
 					}
 				}
@@ -1590,7 +1601,7 @@ OpenWrap.oJob.prototype.start = function(provideArgs, shouldStop, aId, isSubJob)
 					}
 					// OR provide a custom function to send telemetry somewhere
 					if (isString(this.__ojob.metrics.active.fn)) {
-						fn = new Function(this.__ojob.metrics.active.fn);
+						fn = newFn(this.__ojob.metrics.active.fn);
 					}
 					ow.server.telemetry.active(fn, this.__ojob.metrics.active.periodInMs);
 
@@ -1609,7 +1620,7 @@ OpenWrap.oJob.prototype.start = function(provideArgs, shouldStop, aId, isSubJob)
 		if (isString(this.__ojob.daemonFunc)) {
 			var parent = this;
 			this.periodicFuncs.push(() => {
-				var res = (new Function(parent.__ojob.daemonFunc))();
+				var res = (newFn(parent.__ojob.daemonFunc))();
 				if (isDef(res) && res == true) {
 					parent.oJobShouldStop = true;
 				}
@@ -1694,7 +1705,7 @@ OpenWrap.oJob.prototype.start = function(provideArgs, shouldStop, aId, isSubJob)
 		this.__mtStart = now();
 		this.mt.addScheduleThreadAtFixedRate(function() {
 			if (isDef(parent.__ojob.checkStall.checkFunc)) {
-				var res = (new Function(parent.__ojob.checkStall.checkFunc))(parent.__mtStart);
+				var res = (newFn(parent.__ojob.checkStall.checkFunc))(parent.__mtStart);
 				if (res) exit(-1);
 			}
 			if ((now() - parent.__mtStart) > (parent.__ojob.checkStall.killAfterSeconds * 1000)) {
@@ -1704,6 +1715,19 @@ OpenWrap.oJob.prototype.start = function(provideArgs, shouldStop, aId, isSubJob)
 			} 
 		}, this.__ojob.checkStall.everySeconds * 1000);
 	} 
+
+	// Handle debug
+	if (isDef(this.__ojob.debug) && this.__ojob.debug) {
+		ow.loadDebug()
+        ow.debug.register()
+		var ch = ow.oJob.getJobsCh()
+		ch.forEach((k, job) => {
+			if (isUnDef(job.lang) || (isDef(job.lang) && (job.lang == "oaf" || job.lang == "js") ) ) {
+				job.exec = ow.debug.debug(job.exec, isMap(this.__ojob.debug) ? this.__ojob.debug : __, true)
+			}
+			ch.set({ name: jj }, job)
+		})
+	}
 
 	//var shouldStop = false;
 	this.oJobShouldStop = false;
@@ -1936,7 +1960,7 @@ OpenWrap.oJob.prototype.runJob = function(aJob, provideArgs, aId, noAsync, rExec
 					if (isDef(depInf) && depInf.success) {
 						canContinue = true;
 						if (isDef(aJob.deps[j].onSuccess)) {
-							var res = (new Function("var args = arguments[0]; var job = arguments[1]; var id = arguments[2];" + aJob.deps[j].onSuccess))(provideArgs, aJob, aId);
+							var res = (newFn("var args = arguments[0]; var job = arguments[1]; var id = arguments[2];" + aJob.deps[j].onSuccess))(provideArgs, aJob, aId);
 							canContinue = res;
 						}
 						depInfo[dep].result = true;
@@ -1949,7 +1973,7 @@ OpenWrap.oJob.prototype.runJob = function(aJob, provideArgs, aId, noAsync, rExec
 							canContinue = false;
 							this.__addLog("depsFail", aJob.name, undefined, provideArgs, undefined, aId);
 							if (isDef(aJob.deps[j].onFail) && isDef(depInf) && depInf.error) {
-								var res = (new Function("var args = arguments[0]; var job = arguments[1]; var id = arguments[2];" + aJob.deps[j].onFail))(provideArgs, aJob, aId);
+								var res = (newFn("var args = arguments[0]; var job = arguments[1]; var id = arguments[2];" + aJob.deps[j].onFail))(provideArgs, aJob, aId);
 								canContinue = res;
 							}
 							depInfo[dep].result = false;
@@ -1999,14 +2023,14 @@ OpenWrap.oJob.prototype.runJob = function(aJob, provideArgs, aId, noAsync, rExec
 			})
 		}
 
-		var f = new Function("var args = arguments[0]; var job = arguments[1]; var id = arguments[2]; var deps = arguments[3]; var each = __; " + aExec + "; return args;");
+		var f = newFn("var args = arguments[0]; var job = arguments[1]; var id = arguments[2]; var deps = arguments[3]; var each = __; " + aExec + "; return args;");
 		var fe, fint;
-		if (isDef(parent.__ojob.catch)) fe = new Function("var args = arguments[0]; var job = arguments[1]; var id = arguments[2]; var deps = arguments[3]; var exception = arguments[4]; " + parent.__ojob.catch);
-		if (isDef(aJob.catch)) fint = new Function("var args = arguments[0]; var job = arguments[1]; var id = arguments[2]; var deps = arguments[3]; var exception = arguments[4]; " + aJob.catch);
+		if (isDef(parent.__ojob.catch)) fe = newFn("var args = arguments[0]; var job = arguments[1]; var id = arguments[2]; var deps = arguments[3]; var exception = arguments[4]; " + parent.__ojob.catch);
+		if (isDef(aJob.catch)) fint = newFn("var args = arguments[0]; var job = arguments[1]; var id = arguments[2]; var deps = arguments[3]; var exception = arguments[4]; " + aJob.catch);
 		
 		var stopWhen, timeout, tb = false, tbres;
 		if (isDef(aJob.typeArgs.timeout))  { tb = true; timeout = aJob.typeArgs.timeout; }
-		if (isDef(aJob.typeArgs.stopWhen)) { tb = true; stopWhen = new Function(aJob.typeArgs.stopWhen); }
+		if (isDef(aJob.typeArgs.stopWhen)) { tb = true; stopWhen = newFn(aJob.typeArgs.stopWhen); }
 
 		if (isDef(args.__oJobRepeat)) { 
 			var errors = [];
@@ -2412,7 +2436,8 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 	}
 
     function procLang(aExec, aJobTypeArgs, aEach, aLang, aFile, aName, aCheck) {
-		var res = _$(aExec).default("");
+		var res = ""
+		var origRes = String(aExec)
 		aLang = _$(aLang).default("oaf");
 
 		aJobTypeArgs = _$(aJobTypeArgs).default({});
@@ -2420,9 +2445,9 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 
 		if (isDef(aJobTypeArgs.execJs))      {
 			aJobTypeArgs.lang = "oaf";
-			res = io.readFileString(aJobTypeArgs.execJs);
+			origRes = io.readFileString(aJobTypeArgs.execJs);
 		}
-		if (res == "" && aJobTypeArgs.lang == "oaf" && (isDef(aJobTypeArgs.execRequire) || isString(parent.__execRequire))) {
+		if (origRes == "" && aJobTypeArgs.lang == "oaf" && (isDef(aJobTypeArgs.execRequire) || isString(parent.__execRequire))) {
 			aJobTypeArgs.execRequire = _$(aJobTypeArgs.execRequire, "execRequire").isString().default(parent.__execRequire);
 
 			// Verify integrity 
@@ -2446,7 +2471,7 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 					}
 				}
 			}
-			res = "var __r = require('" + aJobTypeArgs.execRequire + "'); if (isDef(__r['" + _aName + "'])) __r['" + _aName + "'](args); else throw \"Code for '" + _aName + "' not found!\";";
+			origRes = "var __r = require('" + aJobTypeArgs.execRequire + "'); if (isDef(__r['" + _aName + "'])) __r['" + _aName + "'](args); else throw \"Code for '" + _aName + "' not found!\";";
 		}
 		if (isDef(aCheck) && isMap(aCheck)) {
 			var _in = addSigil(aName, aCheck.in)
@@ -2457,28 +2482,28 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 		}
 		if (isDef(aJobTypeArgs.execPy))      {
 			aJobTypeArgs.lang = "python";
-			res = io.readFileString(aJobTypeArgs.execPy);
+			origRes = io.readFileString(aJobTypeArgs.execPy);
 		}
 
 		if (isDef(aJobTypeArgs.file)) {
 			if (io.fileExists(aJobTypeArgs.file)) {
-				res = io.readFileString(aJobTypeArgs.file);
+				origRes = io.readFileString(aJobTypeArgs.file);
 			} else {
 				logErr("File '" + aJobTypeArgs.file + " not found!");
-				res = "";
+				origRes = "";
 			}
 		}
 
 		if (isDef(aFile)) {
 			if ( io.fileExists(aFile) ) {
-				res = io.readFileString(aFile);
+				origRes = io.readFileString(aFile);
 			} else {
 				logErr("File '" + aFile + " not found!");
-				res = "";
+				origRes = "";
 			}
 		}
 
-		if (res == "") return res;
+		if (origRes == "") return origRes;
 
 		if (isDef(aJobTypeArgs) && isDef(aJobTypeArgs.lang)) {
 			if (aJobTypeArgs.lang == "winssh") {
@@ -2487,18 +2512,20 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 			}
 			switch(aJobTypeArgs.lang) {
 			case "js":
+				res = res + "\n" + origRes
 				break;
 			case "oaf":
+				res = res + "\n" + origRes
 				break;
 			case "python":
 				parent.python = true;
 				if (!(res.indexOf("/* __oaf_ojob python */") >= 0)) {
 					var orig = String(res);
-					res  = "/* __oaf_ojob python */ $pyStart();";
+					res = "/* __oaf_ojob python */ $pyStart();" + res + "\n"
 					if (aJobTypeArgs.noTemplate) {
-						res += "try { args = merge(args, $py(" + stringify(orig) + " + \"\\n\", { args: args, id: id }, [\"args\"], true).args);";
+						res += orig + ";try { args = merge(args, $py(" + stringify(origRes) + " + \"\\n\", { args: args, id: id }, [\"args\"], true).args);";
 					} else {
-						res += "try { args = merge(args, $py(templify(" + stringify(orig) + ", args) + \"\\n\", { args: args, id: id }, [\"args\"], true).args);";
+						res += orig + ";try { args = merge(args, $py(templify(" + stringify(origRes) + ", args) + \"\\n\", { args: args, id: id }, [\"args\"], true).args);";
 					}
 					res += "} catch(e) { throw e; $pyStop(); };\n";
 				}
@@ -2507,11 +2534,11 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 				if (!(res.indexOf("/* __oaf_ojob ssh */") >= 0)) {
 					aJobTypeArgs.shell = _$(aJobTypeArgs.shell, "aJobTypeArgs.shell").isString().default("/bin/sh");
 					var orig = String(res);
-					res = "/* __oaf_ojob ssh */ var ft = io.createTempFile('ojob_', '.ojob'); io.writeFileString(ft, " + stringify(orig) + ");\n";
+					res = "/* __oaf_ojob ssh */ var ft = io.createTempFile('ojob_', '.ojob'); io.writeFileString(ft, " + stringify(origRes) + ");\n" + res + "\n"
 					if (aJobTypeArgs.noTemplate) {
-						res += "";
+						res += orig + ";";
 					} else {
-						res += "io.writeFileString(ft.replace(/\\\\/g, '/'), templify(io.readFileString(ft.replace(/\\\\/g, '/')), args));\n";
+						res += orig + ";io.writeFileString(ft.replace(/\\\\/g, '/'), templify(io.readFileString(ft.replace(/\\\\/g, '/')), args));\n";
 					}
 					var prefix = "";
 					if (isString(aJobTypeArgs.shellPrefix)) {
@@ -2530,11 +2557,11 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 					}
 					if (ow.format.isWindows() && isUnDef(aJobTypeArgs.shell)) {
 						var orig = String(res);
-						res = "/* __oaf_ojob shell */ var ft = io.createTempFile('ojob_', '.bat'); io.writeFileString(ft, " + stringify(orig) + ");\n";
+						res = "/* __oaf_ojob shell */ var ft = io.createTempFile('ojob_', '.bat'); io.writeFileString(ft, " + stringify(origRes) + ");\n" + res + "\n"
 						if (aJobTypeArgs.noTemplate) {
-							res += "";
+							res += orig + ";";
 						} else {
-							res += "io.writeFileString(ft.replace(/\\\\/g, '/'), templify(io.readFileString(ft.replace(/\\\\/g, '/')), args));\n";
+							res += orig + ";io.writeFileString(ft.replace(/\\\\/g, '/'), templify(io.readFileString(ft.replace(/\\\\/g, '/')), args));\n";
 						}
 						res += "var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(ft.replace(/\\\\/g, '/')).sh('del ' + ft)" + prefix + ".get(0);\n";
 						res += "if (!isNull(__res.stdout)) if (isMap(jsonParse(__res.stdout, true))) { args = merge(args, jsonParse(__res.stdout, true)) } else { if (__res.stdout.length > 0) { printnl(__res.stdout) }; if (__res.stderr.length > 0) { printErrnl(__res.stderr); } }";
@@ -2542,11 +2569,11 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 					} else {
 						aJobTypeArgs.shell = _$(aJobTypeArgs.shell, "aJobTypeArgs.shell").isString().default("/bin/sh -s");
 						var orig = String(res);
-                        res = "/* __oaf_ojob shell */ ";
+                        res = "/* __oaf_ojob shell */ " + res + "\n"
 						if (aJobTypeArgs.noTemplate) {
-							res += "var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", " + stringify(orig) + ")" + prefix + ".get(0);\n";
+							res += orig + ";var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", " + stringify(origRes) + ")" + prefix + ".get(0);\n";
 						} else {
-							res += "var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", templify(" + stringify(orig) + ", args))" + prefix + ".get(0);\n";
+							res += orig + ";var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", templify(" + stringify(origRes) + ", args))" + prefix + ".get(0);\n";
 						}
 						res += "if (!isNull(__res.stdout)) if (isMap(jsonParse(__res.stdout, true))) { args = merge(args, jsonParse(__res.stdout, true)) } else { if (__res.stdout.length > 0) { printnl(__res.stdout) }; if (__res.stderr.length > 0) { printErrnl(__res.stderr); } }";
 						res += "if (__res.exitcode != 0) { throw \"exit: \" + __res.exitcode + \" | \" + __res.stderr; };\n";
@@ -2576,11 +2603,11 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 							if (isString(aJobTypeArgs.shellPrefix)) {
 								prefix = ".prefix(objOrStr(args, \"" + parent.__processTypeArg(aJobTypeArgs.shellPrefix) + "\"))";
 							}
-                            res = "/* __oaf_ojob shell */ ";
+                            res = "/* __oaf_ojob shell */ " + res + "\n";
 							if (aJobTypeArgs.noTemplate) {
-								res = "var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", " + stringify(orig) + ")" + prefix + ".get(0);\n";
+								res = res + ";var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", " + stringify(origRes) + ")" + prefix + ".get(0);\n";
 							} else {
-								res = "var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", templify(" + stringify(orig) + ", args))" + prefix + ".get(0);\n";
+								res = res + ";var __res = $sh().envs(ow.oJob.__toEnvs(args)).sh(" + stringify(aJobTypeArgs.shell.split(/ +/), __, "") + ", templify(" + stringify(origRes) + ", args))" + prefix + ".get(0);\n";
 							}
 							res += "if (!isNull(__res.stdout)) if (isMap(jsonParse(__res.stdout, true))) { args = merge(args, jsonParse(__res.stdout, true)) } else { if (__res.stdout.length > 0) { printnl(__res.stdout) }; if (__res.stderr.length > 0) { printErrnl(__res.stderr); } }";
 							res += "if (__res.exitcode != 0) { throw \"exit: \" + __res.exitcode + \" | \" + __res.stderr; };\n";
@@ -2588,7 +2615,7 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 					} else if (isDef(aJobTypeArgs.langFn)) {
 						if (isString(aJobTypeArgs.langFn)) {
 							if (!(res.indexOf("/* __oaf_ojob shellFn */") >= 0)) {
-								res = "/* __oaf_ojob shellFn */ var code = " + stringify(res) + ";\n" + aJobTypeArgs.langFn;
+								res = "/* __oaf_ojob shellFn */ \n" + res + "\n var code = " + stringify(origRes) + ";\n" + aJobTypeArgs.langFn;
 							}
 						}
 					} else {
@@ -2605,10 +2632,10 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 			fnDef += "var _oj = _oji.map(_r => ow.oJob.getJobsCh().get({ name: _r })); ";
 			fnDef += "$doA2B(each => { " + res + " }, (_r, _n) => { _oj.map(_aJob => { ";
 			fnDef += "  var _canDo = true; if(isDef(_n) && _n != _aJob.name) _canDo = false;"
-			fnDef += "  try { if (isDef(_aJob) && _canDo) { var fn = new Function(\"var args = arguments[0]; var job = {name:'" + _aName + "'}; \" + _aJob.exec); ";
+			fnDef += "  try { if (isDef(_aJob) && _canDo) { var fn = newFn(\"var args = arguments[0]; var job = {name:'" + _aName + "'}; \" + _aJob.exec); ";
 			fnDef += "  return fn( merge(_r, { init: args.init }) ); } else { return __; }";
-			fnDef += "} catch(ea2b) { if (isUnDef(_aJob.catch)) throw ea2b; else (new Function(\"var exception = arguments[0]; args = merge(args, \" + stringify(_r, __, \"\") + \"); \" + _aJob.catch))(ea2b); }";
-			fnDef += "}); }, __, __, " + (isUnDef(_jobCatch) ? "__" : "new Function(\"var args = arguments[1], job = {name:'" + _aName + "'}, exception = arguments[0]; " + _jobCatch.replace(/"/g, "\\\"") + "\")" ) + "); ";
+			fnDef += "} catch(ea2b) { if (isUnDef(_aJob.catch)) throw ea2b; else (newFn(\"var exception = arguments[0]; args = merge(args, \" + stringify(_r, __, \"\") + \"); \" + _aJob.catch))(ea2b); }";
+			fnDef += "}); }, __, __, " + (isUnDef(_jobCatch) ? "__" : "newFn(\"var args = arguments[1], job = {name:'" + _aName + "'}, exception = arguments[0]; " + _jobCatch.replace(/"/g, "\\\"") + "\")" ) + "); ";
 
 			res = fnDef;
 		}
@@ -2735,7 +2762,7 @@ OpenWrap.oJob.prototype.addTodo = function(aOJobID, aJobsCh, aTodoCh, aJobName, 
  * <ojob>
  * <key>ow.oJob.output(aObj, args, aFunc) : Map</key>
  * Tries to output aObj in different ways give the args provided. If args.__format or args.__FORMAT is provided it will force 
- * displaying values as "json", "prettyjson", "slon", "yaml", "table", "map", "pm" (on the __pm variable with _list, _map or result) or "human". In "human" it will use the aFunc
+ * displaying values as "json", "prettyjson", "slon", "yaml", "table", "tree", "map", "pm" (on the __pm variable with _list, _map or result) or "human". In "human" it will use the aFunc
  * provided or a default that tries printMap or sprint. If a format isn't provided it defaults to human or global.__format if defined. 
  * </ojob>
  */
@@ -2743,7 +2770,7 @@ OpenWrap.oJob.prototype.output = function(aObj, args, aFunc) {
  	args = _$(args).default({});
  	aFunc = _$(aFunc, "aFunction").isFunction().default((obj) => {
  		if (isArray(obj) || isMap(obj))
- 			print(printMap(obj, __, (isDef(this.__codepage) ? "utf" : __), __conAnsi));
+			print(printTree(obj, __, { noansi: !__conAnsi }))
  		else
  			sprint(obj);
  	});
@@ -2769,8 +2796,8 @@ OpenWrap.oJob.prototype.output = function(aObj, args, aFunc) {
  		case "table":
  			if (isArray(aObj)) print(printTable(aObj, __, __, __conAnsi, (isDef(this.__codepage) ? "utf" : __)));
  			break;
- 		case "map":
- 			print(printMap(aObj, __, (isDef(this.__codepage) ? "utf" : __), __conAnsi));
+		case "tree":
+			print(printTree(aObj, __, { noansi: !__conAnsi }))
 			break;
 		case "jsmap":
 			var res = ow.template.html.parseMap(aObj, true);
@@ -2795,8 +2822,11 @@ OpenWrap.oJob.prototype.output = function(aObj, args, aFunc) {
  				print(csv.w());
  			}
  			break;
- 		default:
- 			aFunc(aObj);
+ 		case "map":
+			print(printMap(obj, __, (isDef(this.__codepage) ? "utf" : __), __conAnsi))
+			break
+		default   :
+			aFunc(aObj)
  	}
 }
 

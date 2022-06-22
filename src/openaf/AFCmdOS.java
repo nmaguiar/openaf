@@ -62,6 +62,7 @@ public class AFCmdOS extends AFCmdBase {
 	final protected static String OPTION_OUTPUT_MODE = "-o";
 	final protected static String OPTION_DEBUG = "-debug";
 	final protected static String OPTION_EXPR = "-e";
+	final protected static String OPTION_CDEBUG = "-d";
 	final protected static String OPTION_SILENT = "-s";
 	final protected static String OPTION_HELP = "-h";
 	final protected static String OPTION_SCRIPTHELP = "-helpscript";
@@ -106,6 +107,7 @@ public class AFCmdOS extends AFCmdBase {
 	protected boolean classscript = false;
 	protected boolean opack = false;
 	protected boolean console = false;
+	protected boolean cdebug = false;
 	protected boolean ojob = false;
 	protected boolean injectscript = false;
 	protected boolean injectclass = false;
@@ -118,7 +120,12 @@ public class AFCmdOS extends AFCmdBase {
 	@Override
 	public String dIP(Object aPass) {
 		if (aPass instanceof String) {
-			return (String) AFBase.decryptIfPossible((String) aPass);
+			if (!dontDIP && !((String) aPass).startsWith("$raw$")) {
+				return (String) AFBase.decryptIfPossible((String) aPass);
+			} else {
+				if (((String) aPass).startsWith("$raw$")) return ((String) aPass).substring(5);
+				return (String) aPass;
+			}
 		} 
 		if (aPass instanceof NativeFunction) {
 			try {
@@ -276,7 +283,7 @@ public class AFCmdOS extends AFCmdBase {
 					exprInput = a;
 					continue;
 				case OPTION_SCRIPTFILE:
-					scriptfile = a;
+					if (cdebug) code = "loadDebug('" + a + "')"; else scriptfile = a;
 					continue;
 				case OPTION_SB:
 					exprInput = a;
@@ -309,6 +316,14 @@ public class AFCmdOS extends AFCmdBase {
 				continue;
 			case OPTION_DEBUG:
 				SimpleLog.currentLogLevel = SimpleLog.logtype.DEBUG;
+				continue;
+			case OPTION_CDEBUG:
+			    cdebug = true;
+				silentMode = true;
+				checkNext = true;
+				checkOption = OPTION_SCRIPTFILE;
+				code = "";
+				injectcode = true;
 				continue;
 			case OPTION_SCRIPTFILE:
 				checkNext = true;
@@ -463,10 +478,12 @@ public class AFCmdOS extends AFCmdBase {
 				input.append("\n");
 			}
 		} else {
-			while (br.ready()) {
-				input.append(br.readLine());
-				input.append("\n");
-			}			
+			if (!filescript && !ojob) {
+				while (br.ready()) {
+					input.append(br.readLine());
+					input.append("\n");
+				}			
+			}
 		}
 		
 		//br.close();
@@ -643,7 +660,7 @@ public class AFCmdOS extends AFCmdBase {
 			}
 			
 			Context cx = (Context) jse.getNotSafeContext();
-			cx.setErrorReporter(new OpenRhinoErrorReporter());
+			//cx.setErrorReporter(new OpenRhinoErrorReporter()); 
 			
 			NativeObject jsonPMOut = new NativeObject();
 
@@ -721,7 +738,7 @@ public class AFCmdOS extends AFCmdBase {
 			}
 
 			AFBase.runFromClass(Class.forName("openaf_js").getDeclaredConstructor().newInstance());
-			cx.setErrorReporter(new OpenRhinoErrorReporter());
+			//cx.setErrorReporter(new OpenRhinoErrorReporter());
 			
 			if (isolatePMs) {
 				script = "(function(__pIn) { var __pmOut = {}; var __pmIn = __pIn; " + script + "; return __pmOut; })(" + pmIn + ")";

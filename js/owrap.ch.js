@@ -748,8 +748,11 @@ OpenWrap.ch.prototype.__types = {
 			this.__lcks[aName] = new ow.server.locks(true);
 
 			var parent = this;
-			this.__f[aName] = function(force) {
-				var cont = false;
+			this.__f[aName] = function(force, itsTime) {
+				itsTime = _$(itsTime).isBoolean().default(false)
+				var cont = itsTime
+
+				if (isUnDef(parent.__bt[aName])) return true
 
 				if (isDef(parent.__bf[aName]) && isFunction(parent.__bf[aName])) {
 					cont = parent.__bf[aName](parent.__bt[aName]);
@@ -764,7 +767,7 @@ OpenWrap.ch.prototype.__types = {
 							return true;
 						}
 					} else {
-						parent.__lcks[aName].lock("openaf::ch::buffer::" + aName, 50, -1);
+						parent.__lcks[aName].lock("openaf::ch::buffer::" + aName, 50, -1, 50);
 					}
 
 					try {
@@ -796,7 +799,7 @@ OpenWrap.ch.prototype.__types = {
 			if (isDef(this.__bm[aName]) && this.__bm[aName] > 0) {
 				plugin("Threads");
 				this.__s[aName] = new Threads();
-				this.__s[aName].addScheduleThreadWithFixedDelay(function() { parent.__f[aName](true); }, this.__bm[aName]);
+				this.__s[aName].addScheduleThreadWithFixedDelay(function() { parent.__f[aName](false, true); }, this.__bm[aName]);
 			}
 	
 			if (addShut) {
@@ -1153,6 +1156,7 @@ OpenWrap.ch.prototype.__types = {
 	 *    - multipath (Boolean) Supports string keys with paths (e.g. ow.obj.setPath) (defaults to false)\
 	 *    - lock      (String)  If defined the filepath to a dummy file for filesystem lock while accessing the file\
 	 *    - gzip      (Boolean) If true the output file will be gzip (defaults to false)\
+	 *    - tmp       (Boolean) If true "file" will be temporary and destroyed upon execution/process end\
 	 * \
 	 * </odoc>
 	 */
@@ -1163,22 +1167,36 @@ OpenWrap.ch.prototype.__types = {
 		__ul: (m) => (isString(m.lock) ? $flock(m.lock).unlock() : __),
 		__r: (m) => {
 			var r = {};
-			if (!io.fileExists(m.file)) return r;
+			if (!io.fileExists(m.file)) {
+				if (m.tmp) {
+					m.file = io.createTempFile("tmp-", "-" + m.file)
+				} else {
+					return r
+				}
+			}
 
 			if (m.yaml) {
 				if (m.gzip) {
-					var is = io.readFileGzipStream(m.file)
-					r = af.fromYAML(af.fromInputStream2String(is))
-					if (m.multipart && isDef(m.key)) r = $a4m(r, m.key)
-					is.close()
+					try {
+						var is = io.readFileGzipStream(m.file)
+						r = af.fromYAML(af.fromInputStream2String(is))
+						if (m.multipart && isDef(m.key)) r = $a4m(r, m.key)
+						is.close()
+					} catch(e) {
+						if (String(e).indexOf("java.io.EOFException") < 0) throw e	
+					}
 				} else {
 					r = io.readFileYAML(m.file)
 				}
 			} else {
 				if (m.gzip) {
-					var is = io.readFileGzipStream(m.file)
-					r = jsonParse(af.fromInputStream2String(is), true)
-					is.close()
+					try {
+						var is = io.readFileGzipStream(m.file)
+						r = jsonParse(af.fromInputStream2String(is), true)
+						is.close()
+					} catch(e) {
+						if (String(e).indexOf("java.io.EOFException") < 0) throw e	
+					}
 				} else {
 					r = io.readFileJSON(m.file)
 				}
@@ -1188,6 +1206,11 @@ OpenWrap.ch.prototype.__types = {
 			return r;
 		},
 		__w: (m, o) => {
+			if (!io.fileExists(m.file)) {
+				if (m.tmp) {
+					m.file = io.createTempFile("tmp-", "-" + m.file)
+				}
+			}
 			if (m.yaml) {
 				if (m.gzip) {
 					var os = io.writeFileGzipStream(m.file)
@@ -1218,8 +1241,10 @@ OpenWrap.ch.prototype.__types = {
 			this.__channels[aName].key       = _$(options.key, "options.key").isString().default(__);
 			this.__channels[aName].lock      = _$(options.lock, "options.lock").isString().default(__);
 			this.__channels[aName].gzip      = _$(options.gzip, "options.gzip").isBoolean().default(false)
+			this.__channels[aName].tmp       = _$(options.tmp, "options.tmp").isBoolean().default(false)
 		},
 		destroy      : function(aName) {
+			if (this.__channels[aName].tmp) io.rm(this.__channels[aName].file)
 			delete this.__channels[aName];
 		},
 		size         : function(aName) {
@@ -2152,7 +2177,7 @@ OpenWrap.ch.prototype.__types = {
 				options.map = function() { return "default"; };
 			} else {
 				if (isString(options.map)) {
-					options.map = new Function("return '" + options.map + "';");
+					options.map = newFn("return '" + options.map + "';");
 				}
 			}
 
@@ -3662,7 +3687,8 @@ OpenWrap.ch.prototype.utils = {
 	 */
 	closeBuffer: function(aName) {
 		if (isDef(aName)) {
-			if (isDef(ow.ch.__types.buffer.__s[aName])) ow.ch.__types.buffer.__s[aName].stop();
+			if (isUnDef(ow.ch.__types.buffer.__s[aName]) && isDef(ow.ch.__types.buffer.__s[aName + "::__bufferTransit"])) aName = aName + "::__bufferTransit"
+			if (isDef(ow.ch.__types.buffer.__s[aName])) ow.ch.__types.buffer.__s[aName].stop()
 		} else {
 			for(var c in ow.ch.__types.buffer.__s) {
 				if (isDef(ow.ch.__types.buffer.__s[c])) ow.ch.__types.buffer.__s[c].stop();

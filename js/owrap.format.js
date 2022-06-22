@@ -308,6 +308,62 @@ OpenWrap.format.prototype.string = {
 
 	/**
 	 * <odoc>
+	 * <key>ow.format.string.chart(aName, aDataPoint, aHSIze, aVSize, aMin, aMax, aTheme) : String</key>
+	 * Given data aName will store, between calls, aDataPoint provided to plot a chart with a horizontal aHSize
+	 * and a vertical aVSize. Optionally aMin value and aMax value can be provided. aTheme can optionally also be provided
+	 * containing the map entries space (char), bar (char), point (char), vertical (boolean) and axis (boolean)
+	 * </odoc>
+	 */
+	chart: (aName, aDataPoint, aHSize, aVSize, aMin, aMax, aTheme) => {
+		// Check
+		_$(aName, "aName").isString().$_()
+	
+		aDataPoint = _$(aDataPoint, "aDataPoint").isNumber().default(__)
+		aHSize     = _$(aHSize).isNumber().default(45)
+		aVSize     = _$(aVSize).isNumber().default(15)
+		aMax       = _$(aMax).isNumber().default(__)
+		aMin       = _$(aMin).isNumber().default(__)
+		aTheme     = _$(aTheme).isMap().default({})
+	
+		aTheme = merge( { vertical: false, axis: true }, aTheme)
+	
+		// Get previous
+		var cN = "__oaf::chart"
+		$ch(cN).create()
+		var data = $ch(cN).get({ name: aName })
+		data = _$(data, "data").isMap().default({ name: aName, data: [] })
+	
+		// Store data
+		if (isDef(aDataPoint)) {
+			data.data.push(aDataPoint)
+			while (data.data.length > (aTheme.vertical ? aVSize : aHSize )) data.data.shift()
+			$ch(cN).set({ name: aName }, data)
+		}
+	
+		var cc = true
+		if (!ow.format.isWindows()) {
+			cc = (__conAnsi ? true : false);
+		} else {
+			if (__initializeCon()) {
+				if (!ansiWinTermCap()) ansiStart();
+				if (isDef(__con.getTerminal().getOutputEncoding())) cc = (__conAnsi ? true : false);
+			}
+		}
+
+		aTheme = merge({ space: (cc ? "░" : " "), bar: (cc ? "▓" : "*") }, aTheme) 
+
+		// Render data
+		if (isUnDef(aMax)) aMax = $from(data.data).max()
+		if (isUnDef(aMin)) aMin = $from(data.data).min()
+		var ar = data.data.map(dp => ow.format.string.progress(dp, aMax, aMin, (aTheme.vertical ? aHSize : aVSize ), aTheme.bar, aTheme.space, aTheme.point)) 
+
+		var haxis = (aTheme.axis ? "\n" + (cc ? ow.format.syms().curveTRight : "+") + repeat(aHSize, (cc ? ow.format.syms().lineH : "-")) : "")
+		var vaxis = (aTheme.axis ? (cc ? ow.format.syms().lineV : "|") : "")
+		return (aTheme.vertical ? ar.map(r=>vaxis+r).join("\n") + haxis : ow.format.transposeArrayLines(ar).map(r=>vaxis+r).join("\n") + haxis )
+	},
+
+	/**
+	 * <odoc>
 	 * <key>ow.format.string.progress(aNumericValue, aMax, aMin, aSize, aIndicator, aSpace) : String</key>
 	 * Outputs an in-line progress bar given aNumericValue, aMax value, aMin value, the aSize of the bar and the aIndicator
 	 * to use. If not provided, aMax defaults to aValue, aMin defaults to 0, aSize defaults to 5, aIndicator defaults to "#" 
@@ -507,7 +563,7 @@ OpenWrap.format.prototype.string = {
          * <odoc>
          * <key>ow.format.string.grid(aMatrix, aX, aY, aBgPattern, shouldReturn) : String</key>
          * Will generate a aX per aY grid to be displayed with aBgPattern (defaults to " "). Each grid cell with use the contents on aMatrix
-         * array of an array. Each cell content can be a map with obj (a Map), a xspan/yspan for in cell spacing, a type (either map, table or string) 
+         * array of an array. Each cell content can be a map with obj (a Map), a xspan/yspan for in cell spacing, a type (either map, table, func or string) 
          * and a title. If shouldReturn = true it will just return the string content instead of trying to print it.
          + </odoc>
          */
@@ -540,9 +596,11 @@ OpenWrap.format.prototype.string = {
 					var p = "", cs = Math.floor((aY / line.length) * xspan);
 			
 					switch(col.type) {
-					case "map": p = printMap(col.obj, cs, "utf", true); break; 
-					case "table": p = printTable(col.obj, cs, __, true, "utf"); break;
-					default: p = String(col.obj).split(/\r?\n/).map(r => r.substring(0, cs)).join("\n");
+					case "map"  : p = printMap(col.obj, cs-1, "utf", true); break; 
+					case "tree" : p = printTree(col.obj, cs-1); break;
+					case "table": p = printTable(col.obj, cs-1, __, true, "utf"); break;
+					case "func" : p = String(newFn("mx", "my", col.obj)((aX * yspan)-1, cs-1)).split(/\r?\n/).map(r => r.substring(0, cs-1)).join("\n"); break;
+					default: p = String(col.obj).split(/\r?\n/).map(r => r.substring(0, cs-1)).join("\n");
 					}
 	
 					if (isDef(col.title)) {
@@ -870,34 +928,85 @@ OpenWrap.format.prototype.toBytesAbbreviation = function (bytes, precision) {
 
 /**
  * <odoc>
- * <key>ow.format.fromBytesAbbreviation(aStr) : Number</key>
- * Tries to reverse the ow.format.toBytesAbbreviation from aStr (string) back to the original value in bytes.\
+ * <key>ow.format.fromBytesAbbreviation(aStr, useDecimal) : Number</key>
+ * Tries to reverse the ow.format.toBytesAbbreviation from aStr (string) back to the original value in bytes.
+ * Use useDecimal=true to interpret KB as 1000 instead of 1024 (see more in https://en.wikipedia.org/wiki/Byte#Multiple-byte_units)\
  * (available after ow.loadFormat())
  * </odoc>
  */
-OpenWrap.format.prototype.fromBytesAbbreviation = function(aStr) {
-	ow.loadFormat();
+OpenWrap.format.prototype.fromBytesAbbreviation = function(aStr, useDecimal) {
+	_$(aStr, "aStr").isString().$_()
+	iseDecimal = _$(useDecimal, "useDecimal").isBoolean().default(false)
 
-	_$(aStr, "aStr").isString().$_();
+	var sizes  = ['BYTES', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+	var msizes = [ 'BYTES', 'KIB', 'MIB', 'GIB', 'TIB', 'PIB', 'EIB', 'ZIB', 'YIB' ]
+	var misizes = [ 'BYTES', 'KI', 'MI', 'GI', 'TI', 'PI', 'EI', 'ZI', 'YI' ]
 
-	var sizes = ['BYTES', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-
-	aStr = aStr.trim();
-	var arr = aStr.split(/\s+/), unit, value;
+	aStr = aStr.trim()
+	var arr = aStr.match(/(-?[0-9\.]+)\s*([a-zA-Z]+)/), unit, value
 	if (arr.length >= 2) {
-		unit  = String(arr[arr.length - 1]);
-		value = Number(arr[arr.length - 2]);  
+		unit  = String(arr[2])
+		value = Number(arr[1])
 	} else {
-		unit  = "";
-		value = parseFloat(aStr);
+		unit  = ""
+		value = parseFloat(aStr)
 	}
-	
-	var vfactor = 1;
-	for(var ii = 1; ii <= sizes.indexOf(unit.toUpperCase()); ii++) {
-		vfactor *= 1024;
+
+	var vfactor = 1
+	if (sizes.indexOf(unit.toUpperCase()) > 0) {		
+		for(var ii = 1; ii <= sizes.indexOf(unit.toUpperCase()); ii++) {
+			vfactor *= (useDecimal ? 1000 : 1024)
+		}
+	} 
+	if (msizes.indexOf(unit.toUpperCase()) > 0) {		
+		for(var ii = 1; ii <= msizes.indexOf(unit.toUpperCase()); ii++) {
+			vfactor *= 1024
+		}
+	} else {
+		for(var ii = 1; ii <= misizes.indexOf(unit.toUpperCase()); ii++) {
+			vfactor *= 1024
+		}
 	}
-	
-	return Math.round(value * vfactor);
+			
+	return Math.round(value * vfactor)
+}
+
+/**
+ * <odoc>
+ * <key>ow.format.fromTimeAbbreviation(aStr) : Number</key>
+ * From aStr time abbreviation (e.g. 1h2m3s (1 hour, 2 minutes and 3 seconds)) will return the corresponding amount
+ * of time in ms.
+ * </odoc>
+ */
+OpenWrap.format.prototype.fromTimeAbbreviation = function(aStr) {
+	_$(aStr, "aStr").isString().$_()
+
+	var ars = aStr.trim().match(/[0-9]+[a-zA-Z]+/g), res = 0
+	if (!isArray(ars) || ars.length == 0) return parseInt(aStr)
+	for(var i in ars) {
+		var ar = ars[i].match(/([0-9]+)\s*([a-zA-Z]+)/)
+		if (isArray(ar) && ar.length > 0) {
+			var v = Number(ar[1])
+			var u = String(ar[2])
+
+			var _u = {
+				"ms": 1,
+				"s" : 1000,
+				"m" : 60 * 1000,
+				"h" : 60 * 60 * 1000,
+				"d" : 24 * 60 * 60 * 1000,
+				"M" : 30 * 24 * 60 * 60 * 1000,
+				"y" : 365 * 24 * 60 * 60 * 1000
+			}
+			if (isDef(_u[u])) {
+				res += v * _u[u]
+			} else {
+				res += v
+			}
+		}
+	}
+
+	return res
 }
 
 /**
@@ -984,28 +1093,31 @@ OpenWrap.format.prototype.hmacSHA512 = hmacSHA512;
 
 /**
  * <odoc>
- * <key>ow.format.timeago(aDate) : String</key>
+ * <key>ow.format.timeago(aDate, isAbv) : String</key>
  * Will output how much time ago aDate is (e.g. 2 years ago, 30 minutes ago, etc...).\
+ * Optionally isAbv = true for abbreviated output. 
  * (available after ow.loadFormat())
  * </odoc>
  */
-OpenWrap.format.prototype.timeago = function(date) {
+OpenWrap.format.prototype.timeago = function(date, isAbv) {
+	_$(isAbv, "isAbv").isBoolean().default(false)
+
     date = new Date(date);
     var seconds = Math.floor((new Date() - date) / 1000);
     var interval = Math.floor(seconds / 31536000);
-    if (interval > 1) {return "" + interval + " years ago"; }
+    if (interval > 1) {return "" + interval + (isAbv ? "yrs" : " years ago") }
     interval = Math.floor(seconds / 2592000);
-    if (interval > 1) {return "" + interval + " months ago"; }
+    if (interval > 1) {return "" + interval + (isAbv ? "mths" : " months ago") }
     interval = Math.floor(seconds / 86400);
-    if (interval > 1) {return "" + interval + " days ago"; }
+    if (interval > 1) {return "" + interval + (isAbv ? "days" : " days ago") }
     interval = Math.floor(seconds / 3600);
-    if (interval > 1) {return "" + interval + " hours ago"; }
+    if (interval > 1) {return "" + interval + (isAbv ? "hrs" : " hours ago") }
     interval = Math.floor(seconds / 60);
-    if (interval > 1) {return "" + interval + " minutes ago"; }
+    if (interval > 1) {return "" + interval + (isAbv ? "mins" : " minutes ago") }
     if (Math.floor(seconds) === 0) {
-      return 'Just now';
+      return (isAbv ? "now" : 'Just now');
     } else {
-      return Math.floor(seconds) + ' seconds ago';
+      return Math.floor(seconds) + (isAbv ? "secs" : ' seconds ago');
     }
 }
 
@@ -1463,6 +1575,26 @@ OpenWrap.format.prototype.getClasspath = function() {
 
 /**
  * <odoc>
+ * <key>ow.format.getTmpDir() : String</key>
+ * Returns the current temporary directory.
+ * </odoc>
+ */
+OpenWrap.format.prototype.getTmpDir = function() {
+	return String(java.lang.System.getProperty("java.io.tmpdir"))
+}
+
+/**
+ * <odoc>
+ * <key>ow.format.getUserName() : String</key>
+ * Returns the current user name.
+ * </odoc>
+ */
+ OpenWrap.format.prototype.getUserName = function() {
+	return String(java.lang.System.getProperty("user.name"))
+}
+
+/**
+ * <odoc>
  * <key>ow.format.getHostName() : String</key>
  * Returns the current hostname.
  * </odoc>
@@ -1657,6 +1789,7 @@ OpenWrap.format.prototype.transposeArrayLines = function(anLineArray) {
 	for(let i in anLineArray) {
 		if (aLimit < anLineArray[i].length) aLimit = anLineArray[i].length;
 	}	
+	aLimit--
 	for(let j = 0; j <= aLimit; j++) {
 		if (isUnDef(newArray[j])) newArray[j] = "";
 		for(let i in anLineArray) {

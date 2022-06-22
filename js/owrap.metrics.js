@@ -27,6 +27,10 @@ OpenWrap.metrics.prototype.__m = {
         }
         return res;
     },
+    cmem: () => {
+        ow.loadJava()
+        return ow.java.getCMemory()
+    },
     cpu: () => ({
         load1 : java.lang.System.getProperty("os.name").indexOf("Windows") < 0 ? getCPULoad() : "n/a",
         load2 : java.lang.System.getProperty("os.name").indexOf("Windows") < 0 ? getCPULoad(true) : "n/a",
@@ -154,6 +158,91 @@ OpenWrap.metrics.prototype.__m = {
                 res.states[r.state] += 1;
         });
         return res;
+    },
+    hotspotVM: () => {
+        ow.loadJava()
+        var _hspF = $from(ow.java.getLocalJavaPIDs()).equals("pid", getPid()).at(0)
+
+        if (isMap(_hspF)) {
+            var o = ow.java.parseHSPerf(_hspF.path)
+
+            var gcGens = []
+            $from(o.sun.gc.generation).select(gen => {
+              gcGens.push({
+                gen  : gen.name,
+                used : gen.__totalUsed,
+                total: gen.capacity,
+                max  : gen.maxCapacity
+              })
+            })
+
+            var gcCols = []
+            gcCols = o.sun.gc.collector.map(r => {
+                return {
+                  name : r.name,
+                  count: r.invocations,
+                  avg  : r.__avgExecTime,
+                  last : r.__lastExecTime,
+                  lastEntryTime: isDate(r.__lastEntryDate) ? r.__lastEntryDate.getTime() : __,
+                  lastExitTime: isDate(r.__lastExitDate) ? r.__lastExitDate.getTime() : __,
+                  lastEntryDate: r.__lastEntryDate,
+                  lastExitDate: r.__lastExitDate,
+                  lastExecTime: r.__lastExecTime,
+                  avgExecTime: r.__avgExecTime
+                }
+            })
+
+            var gcSpaces = []
+            $from(o.sun.gc.generation).select(gen => {
+                $from(gen.space).select(space => {
+                  gcSpaces.push({
+                    gen  : gen.name,
+                    space: space.name,
+                    used : space.used > 0 ? space.used : 0,
+                    total: space.capacity > 0 ? space.capacity : 0,
+                    max  : space.maxCapacity > 0 ? space.maxCapacity : 0
+                  })
+                })
+            })
+
+            var mem = { max: 0, total: 0, used: 0, free: 0 }
+            $from(o.sun.gc.generation).select(gen => {
+              $from(gen.space).select(space => {
+                mem.max   = (mem.max < Number(space.maxCapacity)) ? Number(space.maxCapacity) : mem.max
+                mem.used  = mem.used + Number(space.used)
+                mem.total = isNumber(space.capacity) ? mem.total + Number(space.capacity) : mem.total
+              })
+            })
+
+            return {
+                java: {
+                    cmd: o.sun.rt.javaCommand,
+                    started: o.sun.rt.__createVmBeginDate.toISOString(),
+                    jvmName: o.java.property.java.vm.name,
+                    jvmVersion: o.java.property.java.vm.version,
+                    jvmVendor: o.java.property.java.vm.vendor,
+                    gcCause: o.sun.gc.cause,
+                    gcLastCause: o.sun.gc.lastCause,
+                    appTime: ow.format.round(o.sun.rt.__percAppTime, 2),
+                    vmStart: o.sun.rt.__createVmBeginDate
+                },
+                gcGens: gcGens,
+                gcCollections: gcCols,
+                gcSpaces: gcSpaces,
+                memory: {
+                    max: mem.max,
+                    total: mem.total,
+                    used: mem.used,
+                    free: mem.total - mem.used,
+                    metaMax: o.sun.gc.metaspace.maxCapacity,
+                    metaTotal: o.sun.gc.metaspace.capacity,
+                    metaUsed: o.sun.gc.metaspace.used,
+                    metaFree: o.sun.gc.metaspace.capacity - o.sun.gc.metaspace.used
+                }
+            }
+        } else {
+            return __
+        }
     }
 };
 
@@ -411,18 +500,22 @@ OpenWrap.metrics.prototype.fromOpenMetrics2Array = function(lines) {
 
 /**
  * <odoc>
- * <key>ow.metrics.fromObj2OpenMetrics(aObj, aPrefix, aTimestamp, aHelpMap) : String</key>
+ * <key>ow.metrics.fromObj2OpenMetrics(aObj, aPrefix, aTimestamp, aHelpMap, aConvMap) : String</key>
  * Given aObj will return a string of open metric (prometheus) metric strings. Optionally you can provide a prefix (defaults to "metric") 
- * and/or aTimestamp (that will be used for all aObj values).
+ * and/or aTimestamp (that will be used for all aObj values) and aConvMap composed of a key with a map of possible values and corresponding
+ * translation to numbers. Note: prefixes should not start with a digit.
  * </odoc>
  */
-OpenWrap.metrics.prototype.fromObj2OpenMetrics = function(aObj, aPrefix, aTimestamp, aHelpMap) {
+OpenWrap.metrics.prototype.fromObj2OpenMetrics = function(aObj, aPrefix, aTimestamp, aHelpMap, aConvMap) {
     var handled = false
     aPrefix = _$(aPrefix, "prefix").isString().default("metric")
     aPrefix = aPrefix.replace(/[^a-zA-Z0-9]/g, "_")
+    if (/^\d.+/.test(aPrefix)) aPrefix = "_" + aPrefix
 
+    aConvMap = _$(aConvMap, "aConvMap").isMap().default({})
+  
     // https://github.com/OpenObservability/OpenMetrics/blob/main/specification/OpenMetrics.md
-
+  
     var _help = aMetric => {
         if (isDef(aHelpMap) && isMap(aHelpMap)) {
             var far = ""
@@ -437,78 +530,125 @@ OpenWrap.metrics.prototype.fromObj2OpenMetrics = function(aObj, aPrefix, aTimest
             return ""
         }
     }
-
-    var _map = (obj, prefix, lbs) => { 
+  
+    var _map = (obj, prefix, lbs, suf) => { 
+        suf = _$(suf).default("")
+        suf = suf.replace(/[^a-zA-Z0-9]/g, "_")
         var ar = ""
         if (isMap(obj)) {
             var keys = Object.keys(obj)
             // build labels
-            lbs = _$(lbs).default([])
+            lbs = _$(lbs).default({})
             keys.forEach(key => {
-                if (!isNumber(obj[key]) && !isBoolean(obj[key]) && isDef(obj[key]) && !isArray(obj[key]) && !isMap(obj[key]) ) 
-                    lbs.push(key + "=\"" + String(obj[key]).replace(/\n/g, "\\\n").replace(/\"/g, "\\\\") + "\"")
+                if (!isNumber(obj[key]) && !isBoolean(obj[key]) && isDef(obj[key]) && !isArray(obj[key]) && !isMap(obj[key]) ) {
+                    var _key   = String(key)
+                    var _value = String(obj[key])
+                    // Handling limits
+                    if (__flags.OPENMETRICS_LABEL_MAX) {
+                        if (_key.length > 128)   _key = _key.substring(0, 128)
+                        if (_value.length > 128) _value = _value.substring(0, 128)
+                    }
+                    
+                    // Escaping
+                    if (/\d.+/.test(_key)) _key = "_" + _key
+                    _key = _key.replace(/[^a-zA-Z0-9]/g, "_")
+                    _value = _value.replace(/\n/g, "\\\\n").replace(/\\/g, "\\\\").replace(/\"/g, "\\\"")
+                    
+                    // Adding
+                    lbs[_key] = "\"" + _value + "\""
+                }
             })
-            var lprefix = (lbs.length > 0 ? "{" + lbs.join(",") + "}" : "")
-
+            var lprefix = (Object.keys(lbs).length > 0 ? "{" + Object.keys(lbs).map(k => k + "=" + lbs[k]).join(",") + "}" : "")
+  
             // build each map metric entry
             keys.forEach(key => {
                 if (isDef(obj[key])) {
                     var k = key.replace(/[^a-zA-Z0-9]/g, "_")
-                    if (isBoolean(obj[key])) ar += _help(prefix + "_" + k) + prefix + "_" + k + lprefix + " " + (obj[key] ? "1" : "0") + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
-                    if (isNumber(obj[key]))  ar += _help(prefix + "_" + k) + prefix + "_" + k + lprefix + " " + Number(obj[key]) + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
-                    if (isMap(obj[key]))     ar += _map(obj[key], prefix + "_" + k, clone(lbs))
-                    if (isArray(obj[key]))   ar += _arr(obj[key], prefix + "_" + k, clone(lbs))
+                    if (isMap(aConvMap) && isString(obj[key]) && isDef(aConvMap[key])) {
+                        if (isMap(aConvMap[key]) && isNumber(aConvMap[key][obj[key]])) {
+                            ar += _help(prefix + "_" + k) + prefix + "_" + k + suf + lprefix + " " + (aConvMap[key][obj[key]]) + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
+                            return 1
+                        }
+                        if (isMap(aConvMap[prefix + "_" + k + suf]) && isNumber(aConvMap[prefix + "_" + k + suf][obj[key]])) {
+                            ar += _help(prefix + "_" + k) + prefix + "_" + k + suf + lprefix + " " + (aConvMap[prefix + "_" + k + suf][obj[key]]) + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
+                            return 1
+                        }     
+                    } 
+                    if (isBoolean(obj[key])) ar += _help(prefix + "_" + k) + prefix + "_" + k + suf + lprefix + " " + (obj[key] ? "1" : "0") + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
+                    if (isNumber(obj[key]))  ar += _help(prefix + "_" + k) + prefix + "_" + k + suf + lprefix + " " + Number(obj[key]) + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
+                    if (isMap(obj[key]))     ar += _map(obj[key], prefix + "_" + k, clone(lbs), suf)
+                    if (isArray(obj[key]))   ar += _arr(obj[key], prefix + "_" + k, clone(lbs), suf)
                 }
             })
         }
         return ar;
     }
-    var _arr = (obj, prefix, lbs) => { 
+    var _arr = (obj, prefix, lbs, suf) => { 
+        suf = _$(suf).default("")
         var ar = ""
         if (isArray(obj)) {
-            lbs = _$(lbs).default([])
+            lbs = _$(lbs).default({})
+            var orig = String(suf)
             for(var i in obj) {
                 if (isDef(obj[i])) {
-                    var tlbs = lbs.concat("_id" + "=\"" + String(i) + "\"")
-                    if (isMap(obj[i]))                         ar += _map(obj[i], prefix, tlbs)
-                    if (isArray(obj[i]))                       ar += _arr(obj[i], prefix, tlbs)
-                    if (isNumber(obj[i]) || isBoolean(obj[i])) ar += _sim(obj[i], prefix, tlbs)
+                    var tlbs = clone(lbs)
+                    if (isDef(tlbs["_id"])) tlbs["_id"] = "\"" + tlbs["_id"].replace(/"/g, "") + "." + String(i) + "\""; else tlbs["_id"] = "\"" + String(i) + "\""
+                    //var tlbs = clone(lbs)
+                    //try to identify key
+                    /*var addSuf = false
+                    if (isMap(obj[i])) {
+                        if (isDef(obj[i].key))  { suf = orig + "_" + obj[i].keyb; addSuf = true }
+                        if (isDef(obj[i].name)) { suf = orig + "_" + obj[i].name; addSuf = true }
+                        if (isDef(obj[i].id))   { suf = orig + "_" + obj[i].id; addSuf = true }
+                        if (isDef(obj[i].uuid)) { suf = orig + "_" + obj[i].uuid; addSuf = true }
+                        if (isDef(obj[i].UUID)) { suf = orig + "_" + obj[i].UUID; addSuf = true }
+  
+                        if (!addSuf) suf = orig + "_row" + String(i)
+                    } else {
+                        suf = orig + "_row" + String(i)
+                    }*/
+  
+                    if (isMap(obj[i]))                         ar += _map(obj[i], prefix, tlbs, suf)
+                    if (isArray(obj[i]))                       ar += _arr(obj[i], prefix, tlbs, suf)
+                    if (isNumber(obj[i]) || isBoolean(obj[i])) ar += _sim(obj[i], prefix, tlbs, suf)
                 }
             }
         }
         return ar
     }
-    var _sim = (obj, prefix, tlbs) => { 
+    var _sim = (obj, prefix, tlbs, suf) => { 
+        suf = _$(suf).default("")
+        suf = suf.replace(/[^a-zA-Z0-9]/g, "_")
         var ar = ""
         if (isBoolean(obj)) {
             obj = (obj ? 1 : 0);
         }
-
-        tlbs = _$(tlbs).default([])
-        var lprefix = (tlbs.length > 0 ? "{" + tlbs.join(",") + "}" : "")
-
+  
+        tlbs = _$(tlbs).default({})
+        var lprefix = (Object.keys(tlbs).length > 0 ? "{" + Object.keys(tlbs).map(k => k + "=" + tlbs[k]).join(",") + "}" : "")
+  
         if (isNumber(obj)) {
-            ar += _help(prefix) + prefix + lprefix + " " + Number(aObj) + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
+            ar += _help(prefix) + prefix + suf + lprefix + " " + Number(aObj) + (isDef(aTimestamp) ? " " + Number(aTimestamp) : "") + "\n"
         }
         return ar
     }
-
+  
     var ar = ""
     if (isMap(aObj)) {
         handled = true;
         ar += _map(aObj, aPrefix)
     }
-
+  
     if (isArray(aObj)) {
         handled = true;
         ar += _arr(aObj, aPrefix)
     }
-
+  
     if (!handled) {
         ar += _sim(aObj, aPrefix)
     }
-
+  
     //return ar.map(r => r.replace(/\\{1}/g, "/").trim()).join("\n") + "\n";
     //return ar.replace(/\\{1}/g, "/").trim() + "\n"
     return ar.trim() + "\n"
-}
+  }

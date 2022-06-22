@@ -261,7 +261,7 @@ OpenWrap.java.prototype.maven.prototype.processMavenFile = function(aDirectory, 
 
             var testfunc;
             if (isDef(arts.testFunc)) {
-                testfunc = new Function(arts.testFunc);
+                testfunc = newFn(arts.testFunc);
             }
 
             var outputDir = _$(arts.output).isString().default(aDirectory);
@@ -1016,6 +1016,39 @@ OpenWrap.java.prototype.cipher.prototype.verify = function(sigToVerify, aPublicK
 
 /**
  * <odoc>
+ * <key>ow.java.cipher.encodeCert(aCert) : String</key>
+ * Encodes aCert(ificate) into a base64 PEM representation.
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.encodeCert = function(aCert) {
+    _$(aCert, "aCert").$_()
+    
+    var beginTxt = "-----BEGIN CERTIFICATE KEY-----\n"
+    var endTxt = "-----END CERTIFICATE KEY-----\n"
+    
+    var encoder = java.util.Base64.getMimeEncoder(64, java.lang.System.getProperty("line.separator").getBytes())
+    return beginTxt + af.fromBytes2String(encoder.encode(aCert.getEncoded())) + "\n" + endTxt
+}
+
+/**
+ * <odoc>
+ * <key>ow.java.cipher.encodeKey(aKey, isPrivate) : String</key>
+ * Encodes private (isPrivate = true) or public key into a base64 key representation.
+ * </odoc>
+ */
+OpenWrap.java.prototype.cipher.prototype.encodeKey = function(aKey, isPrivate) {
+    _$(aKey, "aKey").$_()
+    isPrivate = _$(isPrivate, "isPrivate").isBoolean().default(false)
+
+    var beginTxt = "-----BEGIN " + (isPrivate ? "PRIVATE" : "PUBLIC") + " KEY-----\n"
+    var endTxt = "-----END " + (isPrivate ? "PRIVATE" : "PUBLIC") + " KEY-----\n"
+    
+    var encoder = java.util.Base64.getMimeEncoder(64, java.lang.System.getProperty("line.separator").getBytes())
+    return beginTxt + af.fromBytes2String(encoder.encode(aKey.getEncoded())) + "\n" + endTxt
+}
+
+/**
+ * <odoc>
  * <key>ow.java.cipher.genCert(aDn, aPublicKey, aPrivateKey, aValidity, aSigAlgName, aKeyStore, aPassword, aKeyStoreType) : JavaSignature</key>
  * Generates a certificate with aDn (defaults to "cn=openaf"), using aPublicKey and aPrivateKey, for aValidity date (defaults to a date 
  * one year from now). Optionally you can specify aSigAlgName (defaults to SHA256withRSA), a file based aKeyStore and the corresponding
@@ -1070,6 +1103,41 @@ OpenWrap.java.prototype.cipher.prototype.genCert = function(aDn, aPubKey, aPrivK
 
     return certificate;
 };
+
+/**
+ * <odoc>
+ * <key>ow.java.getCMemory(shouldFormat) : Map</key>
+ * Returns a map with the current cgroup runtime max, total, used and free memory. If shouldFormat = true ow.format.toBytesAbbreviation will be used.
+ * </odoc>
+ */
+OpenWrap.java.prototype.getCMemory = function(shouldFormat) {
+    if (io.fileExists("/sys/fs/cgroup/memory")) {
+        var vals = {
+            m: Number(io.readFileString("/sys/fs/cgroup/memory/memory.limit_in_bytes")),
+            t: Number(io.readFileString("/sys/fs/cgroup/memory/memory.max_usage_in_bytes")),
+            f: -1,
+            u: Number(io.readFileString("/sys/fs/cgroup/memory/memory.usage_in_bytes"))
+        };
+        vals.f = vals.t - vals.u;
+    
+        if (shouldFormat) {
+            ow.loadFormat();
+            return {
+                max: ow.format.toBytesAbbreviation(vals.m),
+                total: ow.format.toBytesAbbreviation(vals.t),
+                used: ow.format.toBytesAbbreviation(vals.u),
+                free: ow.format.toBytesAbbreviation(vals.f)
+            };
+        } else {
+            return {
+                max: vals.m,
+                total: vals.t,
+                used: vals.u,
+                free: vals.f
+            };
+        }
+    }
+}
 
 /**
  * <odoc>
@@ -1340,6 +1408,160 @@ OpenWrap.java.prototype.getWhoIs = function(aQuery, server) {
 
     return result;*/
 };
+
+/**
+ * <odoc>
+ * <key>ow.java.getLocalJavaPIDs(aUserID) : Array</key>
+ * Will return an array with the pid and the path for hsperf (to use with ow.java.parseHSPerf) that are currently running (hotspot jvms only) in the current system. 
+ * If aUserID is not provided the current user name will be used.
+ * </odoc>
+ */
+OpenWrap.java.prototype.getLocalJavaPIDs = function(aUserID) {
+    ow.loadFormat()
+
+    aUserID = _$(aUserID, "aUserID").isString().default(ow.format.getUserName())
+    var td = ow.format.getTmpDir() + "/hsperfdata_" + aUserID
+
+    return $from(io.listFiles(td).files)
+           .equals("isFile", true)
+           .match("filename", "\\d+")
+           .select(r => ({
+             pid : r.filename,
+             path: r.canonicalPath
+           }))
+}
+
+/**
+ * <odoc>
+ * <key>ow.java.parseHSPerf(aByteArrayOrFile, retFlat) : Map</key>
+ * Given aByteArray or a file path for a java (hotspot jvm) hsperf file (using ow.java.getLocalJavaPIDs or similar) will return the java performance information parsed into a map.
+ * If retFlat = true the returned map will be a flat map with each java performance metric and correspondent value plus additional calculations with the prefix "__"
+ * </odoc>
+ */
+OpenWrap.java.prototype.parseHSPerf = function(aByteArray, retFlat) {
+    if (isString(aByteArray)) aByteArray = io.readFileBytesRO(aByteArray)
+
+    if (!isByteArray(aByteArray)) throw "aByteArray argument provided not a java byte array"
+    retFlat    = _$(retFlat, "retFlat").isBoolean().default(false)
+
+    var buffer = aByteArray, pos
+
+    var readName = function(aNameLen) {
+        var sb = ""
+        while(aNameLen-- > 0) {
+            var ch = buffer[pos++] & 0xff
+            if (ch != 0) sb += String.fromCharCode(ch)
+        }
+        return sb
+    }
+
+    var readInt = function() {
+        var v = Number(java.math.BigInteger([ buffer[pos++], buffer[pos++], buffer[pos++], buffer[pos++] ].reverse()).intValue())
+        return (v < 0 ? Math.pow(2,32) + v : v)
+    }
+
+    var readLong = function() {
+        var v = Number(java.math.BigInteger([ buffer[pos++], buffer[pos++], buffer[pos++], buffer[pos++], buffer[pos++], buffer[pos++], buffer[pos++], buffer[pos++] ].reverse()).longValue())
+        return (v < 0 ? Math.pow(2,32) + v : v)
+    }
+
+    var res = {}
+    try {
+        pos = 0
+        var value = readInt()
+        if (value != 0xc0c0feca) return 4
+
+        readInt()
+        var length = readInt()
+        if (length > buffer.length) return 4
+
+        readInt()
+        readInt()
+        readInt()
+        readInt()
+
+        var count = readInt()
+        while(count-- > 0) {
+            var start = pos
+            var len = readInt()
+
+            if (start + len > length) return 4
+
+            var nameStart = readInt()
+            if (nameStart + len > length) return 4
+
+            var slen = readInt()
+            var kind = readInt()
+
+            var valStart = readInt()
+            if (valStart + len > length || valStart < nameStart) return 4
+
+            pos = start + nameStart
+            var nameLen = valStart - nameStart
+
+            var propName = readName(nameLen)
+            var s = ""
+            var type = kind & 0xff
+            switch(type) {
+            case 0x4a: s += readLong()   ; break
+            case 66  : s = readName(slen); break
+            default  : s = "0"
+            }
+            res[propName] = s
+
+            pos = start + len
+        }
+    } catch(e) {
+        throw e
+    }
+
+    if (!retFlat) {
+        var res2 = {}
+        Object.keys(res).forEach(k => {
+            nk = k.replace(/\.self$/, "_self")
+            nk = nk.replace(/(\.)0*(\d+)(\.)?/g, "[$2]$3")
+    
+            if (nk.indexOf("[") > 0) {
+                var cp = ""
+                nk.split("[").forEach((k2, i) => {
+                    if (i > 0) cp += "["
+                    if (k2 != "") {
+                        var obj = $$(res2).get(cp + k2)
+                        if (isUnDef(obj)) $$(res2).set(cp + k2, [])
+                    }
+                    cp += k2
+                })
+            }
+            $$(res2).set(nk, res[k])
+        })
+
+        res2.sun.rt.__createVmBeginDate = new Date(Number(res2.sun.rt.createVmBeginTime))
+        res2.sun.rt.__createVmEndDate   = new Date(Number(res2.sun.rt.createVmEndTime))
+        res2.sun.rt.__vmInitDoneDate    = new Date(Number(res2.sun.rt.vmInitDoneTime))
+        res2.sun.rt.__totalRunningTime  = Number(res2.sun.os.hrt.ticks) / 1000000
+
+        var accTime = 0
+        for(var i in res2.sun.gc.collector) {
+            if (res2.sun.gc.collector[i].lastEntryTime > 0) {
+                res2.sun.gc.collector[i].__lastEntryDate = new Date(Number(res2.sun.rt.createVmBeginTime) + Number(res2.sun.gc.collector[i].lastEntryTime/1000000))
+                res2.sun.gc.collector[i].__lastExitDate  = new Date(Number(res2.sun.rt.createVmBeginTime) + Number(res2.sun.gc.collector[i].lastExitTime/1000000))
+                res2.sun.gc.collector[i].__lastExecTime  = res2.sun.gc.collector[i].__lastExitDate.getTime() - res2.sun.gc.collector[i].__lastEntryDate.getTime()
+                res2.sun.gc.collector[i].__avgExecTime   = (res2.sun.gc.collector[i].time/1000000) / res2.sun.gc.collector[i].invocations
+
+                accTime += res2.sun.gc.collector[i].time/1000000
+            }
+        }
+        for(var i in res2.sun.gc.generation) {
+            res2.sun.gc.generation[i].__totalUsed = $from(res2.sun.gc.generation[i].space).sum("used")
+        }
+
+        res2.sun.rt.__percAppTime       = 100 - ((accTime / res2.sun.rt.__totalRunningTime) * 100)
+
+        return res2
+    } else {
+        return res
+    }
+}
 
 /**
  * <odoc>

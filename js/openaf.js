@@ -562,6 +562,158 @@ const printTable = function(anArrayOfEntries, aWidthLimit, displayCount, useAnsi
 
 /**
  * <odoc>
+ * <key>printTree(aObj, aWidth, aOptions) : String</key>
+ * Given aObj(ect) will return a tree with the object elements. Optionaly you can specificy aWidth and/or aOptions:
+ * noansi (boolean) no ansi character sequences, curved (boolean) for UTF curved characters, wordWrap (boolean) to wrap long string values, compact (boolean) to compact tree lines, fullKeySize (boolean) to
+ * pad the each entry key, fullValSize (boolean) to pad the entire key and value and withValues (boolean) to include or not each key values
+ * </odoc>
+ */
+const printTree = function(aM, aWidth, aOptions, aPrefix) {
+	if (!isMap(aM) && !isArray(aM)) throw "Not a map or array"
+	var out  = ""
+	aPrefix  = _$(aPrefix).isString().default("")
+	aOptions = _$(aOptions).isMap().default({})
+
+	ow.loadFormat();
+	if (!ow.format.isWindows()) {
+		if (isUnDef(aOptions.noansi) && __initializeCon()) {
+			aOptions.noansi = !__conAnsi
+		}
+	} else {
+		if (__initializeCon()) {
+			if (!ansiWinTermCap()) ansiStart()
+			if (isUnDef(aOptions.noansi)) aOptions.noansi = !__conAnsi
+		}
+	}
+
+	aOptions = merge(merge({
+	  noansi: false,
+	  curved: true,
+	  fullKeySize: true,
+	  fullValSize: false,
+	  withValues: true,
+      wordWrap: true,
+	  compact: true
+	}, __flags.TREE), aOptions)
+  
+	var slines, line, endc, strc, ssrc, midc
+	if (aOptions.compact) {
+		slines = 2
+		line = (aOptions.noansi ? "|" : "│") 
+		endc = (aOptions.noansi ? "\\ " : (aOptions.curved ? "╰ " : "└ "))
+		//strc = (aOptions.noansi ? "/ " : "┬ ")
+		strc = (aOptions.noansi ? "/ " :  (aOptions.curved ? "╭ " : "┌ "))
+		ssrc = (aOptions.noansi ? "- " : "─ ")
+		midc = (aOptions.noansi ? "| " : "├ ")
+	} else {
+		slines = 3
+		line = (aOptions.noansi ? "|" : "│") 
+		endc = (aOptions.noansi ? "\\- " : (aOptions.curved ? "╰─ " : "└─ "))
+		strc = (aOptions.noansi ? "/- " :  (aOptions.curved ? "╭─ " : "┌─ "))
+		ssrc = (aOptions.noansi ? "-- " : "── ")
+		midc = (aOptions.noansi ? "|- " : "├─ ")
+	}
+
+	aWidth = _$(aWidth).isNumber().default(Number(__con.getTerminal().getWidth()))
+  
+	var size = Object.keys(aM).length, ksize = __, vsize = __
+  
+	var miniCache = {}
+
+	var _clr = __, _ac = __, _al = __
+	if (!aOptions.noansi) {
+		_clr = aO => {
+			switch(descType(aO)) {
+			case "number" : return _ac(__colorFormat.number, String(aO)+_ac("RESET",""))
+			case "string" : return _ac(__colorFormat.string, String(aO)+_ac("RESET",""))
+			case "boolean": return _ac(__colorFormat.boolean, String(aO)+_ac("RESET",""))
+			case "java"   : return _ac(__colorFormat.string, String(aO.toString())+_ac("RESET",""))
+			default: return _ac(__colorFormat.default, String(aO)+_ac("RESET",""))
+			}
+		}
+		_ac  = ansiColor
+		_al  = ansiLength
+	} else {
+		_clr = s => s
+		_ac  = (o, s) => s
+		_al  = s => s.length
+	}
+
+	var _get = (k, v) => {
+	  if (isDef(miniCache[k])) return miniCache[k]
+  
+	  var _k = (isNumber(k) ? "[" + k + "]" : k) 
+	  if (aOptions.withValues) {
+		miniCache[k] = _ac(__colorFormat.key, _k) + (isDef(ksize) ? repeat(ksize - _k.length, " ") : "") + (!(isMap(v) || isArray(v)) ? ": " + _clr(v) : "")
+	  } else {
+		miniCache[k] = _k
+	  }
+	  return miniCache[k]
+	}
+  
+	if (aOptions.fullKeySize) {
+	  ksize = 0
+	  Object.keys(aM).forEach(k => {
+		var _k = (isNumber(k) ? "[" + k + "]" : k) 
+		if (_k.length > ksize) ksize = _k.length
+	  })
+	}
+  
+	if (aOptions.fullValSize) {
+	  vsize = 0
+	  Object.keys(aM).forEach(k => {
+		  var lv = _al(_get(k, aM[k]))
+		  if (lv > vsize) vsize = lv
+	  })
+	}
+
+	var _wf = (m, p) => {
+		if (!aOptions.wordWrap) return m
+
+		p = _$(p).isString().default("") + " "
+		if (!isString(m)) return m
+		var ss = aWidth
+		var ps = _al(p)
+		var ms = _al(m.substring(m.indexOf(": ")))
+
+		if (m.indexOf("\n") < 0) {
+			//if (ts <= 0 || m.substring(m.indexOf(": ")).length <= ts) { return m }
+			if (m.indexOf(": ") < 0 || ps + ms - 2 < ss) return m
+		}
+
+		return m.substring(0, m.indexOf(": ") + 2) + 
+		       ow.format.string.wordWrap(m.substring(m.indexOf(": ") + 2), ss-ps-1).split("\n").map((_l, ii) => {
+			if (ii == 0) return _l
+			return ansiColor("RESET", p) + ansiColor(__colorFormat.string, _l)
+		}).join("\n")
+	}
+  
+	Object.keys(aM).forEach((k, i) => {
+	  var suffix = "", v = _get(k, aM[k]), lv = _al(v)
+	  var aPrefix2 = (i < (size-1) ? line : " ") + repeat((isDef(ksize) ? ksize : _al(k)) + slines, " ")
+
+	  if (isMap(aM[k]) || isArray(aM[k])) {
+		suffix = printTree(aM[k], aWidth, aOptions, aPrefix + (i < (size-1) ? line : " ") + repeat((isDef(vsize) ? vsize : lv) + slines, " "))
+	  }
+  
+	  if (i > 0 && size <= (i+1)) {
+		out += aPrefix + endc + _wf(v, aPrefix + aPrefix2) + (isDef(vsize) ? repeat(vsize - lv+1, " ") : " ") + suffix
+	  } else {
+		if (i == 0) {
+		  out += (size == 1 ? ssrc : strc) + _wf(v, aPrefix + aPrefix2) + (isDef(vsize) ? repeat(vsize - lv+1, " ") : " ") + suffix + _ac("RESET", "") + "\n"
+		} else {
+		  out += aPrefix + midc + _wf(v, aPrefix + aPrefix2) + (isDef(vsize) ? repeat(vsize - lv+1, " ") : " ") + suffix + _ac("RESET", "") + "\n"
+		}
+	  }
+	})
+  
+	out = (out.endsWith("\n") ? out.substring(0, out.length - 2) : out)
+  
+	return out
+}
+
+/**
+ * <odoc>
  * <key>printMap(aMap, aWidth, aTheme, useAnsi) : String</key>
  * Returns a ASCII map representation of aMap optionally with a give aWidth, aTheme and/or useAnsi boolean. aTheme can be "utf" or "plain" depending on the
  * terminal capabilities.
@@ -2307,6 +2459,9 @@ const __codeVerify = function(aCode, aFile) {
 		throw "OAF VALIDATION OF '" + aFile + "' failed.";
 	}
 }
+
+const loadDebug = aScript => ow.loadDebug().load(aScript)
+const requireDebug = (aScript, aForce) => ow.loadDebug().require(aScript, aForce)
 
 /**
  * <odoc>
@@ -4481,7 +4636,7 @@ if (isUnDef(__offlineHelp)) {
  * <odoc>
  * <key>setOfflineHelp(aBoolean)</key>
  * Forces help (odoc) to be retrieved locally (if aBoolean is true) or reestablishes the normal behaviour
- * of retriving from online first (if aBoolean is false)
+ * of retrieving from online first (if aBoolean is false)
  * </odoc>
  */
 const setOfflineHelp = function(aBoolean) {
@@ -6627,11 +6782,22 @@ const loadJSYAML = function() {
 loadCompiledLib("openafsigil_js");
 
 var __flags = _$(__flags).isMap().default({
-	OJOB_SEQUENTIAL  : true,
-	OJOB_HELPSIMPLEUI: false,
-	OAF_CLOSED       : false,
-	VISIBLELENGTH    : false,
-	MD_NOMAXWIDTH    : true
+	OJOB_SEQUENTIAL            : true,
+	OJOB_HELPSIMPLEUI          : false,
+	OAF_CLOSED                 : false,
+	VISIBLELENGTH              : false,
+	MD_NOMAXWIDTH              : true,
+	OPENMETRICS_LABEL_MAX      : true,   // If false openmetrics label name & value length won't be restricted,
+	TREE: {
+		fullKeySize: true,
+		fullValSize: false,
+		withValues : true,
+		wordWrap   : true,
+		compact    : true
+	},
+	CONSOLE: {
+		view: "tree"
+	}
 })
 
 /**
@@ -6658,6 +6824,27 @@ const _i$ = (aValue, aPrefixMessage) => {
 }
 
 var __correctYAML = false;
+
+/**
+ * <odoc>
+ * <key>newFn() : Function</key>
+ * Builds a new Function handling any debug needs if necessary.
+ * </odoc>
+ */
+const newFn = function() {
+	var args = []
+	for(var i in arguments) {
+		args.push(arguments[i])
+	}
+	
+	if (isDef(global.__debugLoadPreParser)) {
+		var code = args.pop()
+		code = ow.debug.debug(code, __, true)
+		args.push(code)
+	}
+	//return af.eval("(function(" + args.join(",") + "){" + code + "})")
+	return Function.apply(null, args)
+}
 
 /**
  * <odoc>
@@ -6919,6 +7106,239 @@ AF.prototype.protectSystemExit = function(shouldProtect, aMessage) {
 		java.lang.System.setSecurityManager(new JavaAdapter(java.lang.SecurityManager, { checkExit: (status) => { }, checkPermission: (perm) => { }}));
 	}
 };
+/**
+ * <odoc>
+ * <key>io.pipeLn(aFunc)</key>
+ * Starts a wait on stdin calling aFunc everytime a line is sent to stdin. The wait cycle breaks
+ * when aFunc returns true.
+ * </odoc>
+ */
+IO.prototype.pipeLn = function(aFunc) {
+	var br = new java.io.BufferedReader(new java.io.InputStreamReader(java.lang.System.in))
+
+	var cont = true
+	while(cont) {
+		var line = br.readLine()
+		if (line != null) cont = !aFunc(line); else cont = false
+	}
+}
+/**
+ * <odoc>
+ * <key>io.pipeCh(aFunc)</key>
+ * Starts a wait on stdin calling aFunc everytime a character is sent to stdin. The wait cycle breaks
+ * when aFunc returns true.
+ * </odoc>
+ */
+IO.prototype.pipeCh = function(aFunc) {
+	var br = new java.io.BufferedReader(new java.io.InputStreamReader(java.lang.System.in))
+  
+	var cont = true
+	while(cont) {
+	  var c = br.read()
+	  if (c != null) cont = !aFunc(c); else cont = false
+	}
+}
+/**
+ * <odoc>
+ * <key>io.readFileBytesRO(aFile) : ByteArray</key>
+ * Tries to read aFile in read-only mode (even if being used by another process) and returns the corresponding byte array.
+ * </odoc>
+ */
+IO.prototype.readFileBytesRO = function(aFile) {
+	var buffer = newJavaArray(java.lang.Byte.TYPE, io.fileInfo(aFile).size)
+	var fc = java.nio.channels.FileChannel.open((new java.io.File(aFile)).toPath(), java.nio.file.StandardOpenOption.READ)
+	var dst = java.nio.ByteBuffer.wrap(buffer)
+	fc.read(dst)
+	fc.close()
+	return buffer
+}
+/**
+ * <odoc>
+ * <key>io.readFileTARBytes(aTARFile, aFilePath, isGzip) : ByteArray</key>
+ * Given aTARFile (or stream) will try to retrieve aFilePath and return the corresponding byte array. If aTARFile is a stream
+ * you should specify with isGzip = true/false if it has been "gzipped".
+ * </odoc>
+ */
+IO.prototype.readFileTARBytes = function(aTARFile, aFilePath, isGzip) {
+	var br
+	io.readFileTAR2Stream(aTARFile, isGzip, _is => {
+		if (_is != "null") {
+			var _e = _is.getNextTarEntry()
+			while(_e != null && _e.getName() != aFilePath) {
+				_e = _is.getNextTarEntry()	
+			}
+			if (_e != null && _e.getName() == aFilePath) {
+				br = Packages.org.apache.commons.io.IOUtils.toByteArray(_is)
+			}
+		}
+	})
+	return br
+}
+/**
+ * <odoc>
+ * <key>io.readFileTARStream(aTARFile, aFilePath, isGzip, aFunc)</key>
+ * Given aTARFile (or stream) will try to retrieve aFilePath and call aFunc(tion) with the corresponding Java input stream. If aTARFile is a stream
+ * you should specify with isGzip = true/false if it has been "gzipped".
+ * </odoc>
+ */
+IO.prototype.readFileTARStream = function(aTARFile, aFilePath, isGzip, aFunc) {
+	io.readFileTAR2Stream(aTARFile, isGzip, _is => {
+		if (_is != "null") {
+			var _e = _is.getNextTarEntry()
+			while(_e != null && _e.getName() != aFilePath) {
+				_e = _is.getNextTarEntry()	
+			}
+			if (_e != null && _e.getName() == aFilePath) {
+				aFunc(_is)
+			}
+		}
+	})
+}
+/**
+ * <odoc>
+ * <key>io.readFileTAR2Stream(aTARfile, isGzip, aFunc)</key>
+ * Given aTARFile (or stream) will call aFunc(tion) with the corresponding Java TAR input stream. If aTARFile is a stream
+ * you should specify with isGzip = true/false if it has been "gzipped". Note: for direct usage use io.readFileTARStream
+ * </odoc>
+ */
+IO.prototype.readFileTAR2Stream = function(aTARfile, isGzip, aFunc) {
+	isGzip = _$(isGzip, "isGzip").isBoolean().default(false)
+	aFunc  = _$(aFunc, "aFunc").isFunction().$_()
+
+	var isJ, isGZ
+	if (isJavaObject(aTARfile)) {
+		isJ = true
+	} else {
+		isJ = false
+		isGZ = isGzip || (aTARfile.endsWith(".tar.gz") || aTARfile.endsWith(".tgz"))
+	}
+
+	var iss
+	if (!isJ) {
+		if (isGZ) 
+			iss = io.readFileGzipStream(aTARfile)
+		else
+			iss = io.readFileStream(aTARfile)
+	} else {
+		if (isGZ)
+			iss = java.util.zip.GZIPInputStream(aTARfile)
+		else
+			iss = aTARfile
+	}
+	var _is = Packages.org.apache.commons.compress.archivers.tar.TarArchiveInputStream(iss)
+
+	aFunc(_is)
+
+	_is.close()
+	iss.close()
+}
+/**
+ * <odoc>
+ * <key>io.writeFileTAR4Stream(aTARfile, isGzip, aFunc)</key>
+ * Given aTARfile (or output stream (with isGzip = true/false)) will call aFunc with the Java TAR output stream.
+ * Note: for direct usage use io.writeFileTARStream
+ * </odoc>
+ */
+IO.prototype.writeFileTAR4Stream = function(aTARfile, isGzip, aFunc) {
+	isGzip = _$(isGzip, "isGzip").isBoolean().default(false)
+	aFunc  = _$(aFunc, "aFunc").isFunction().$_()
+
+	var isJ, isGZ
+	if (isJavaObject(aTARfile)) {
+		isJ = true
+	} else {
+		isJ = false
+		isGZ = isGzip || (aTARfile.endsWith(".tar.gz") || aTARfile.endsWith(".tgz"))
+	}
+
+	var oss
+	if (!isJ) {
+		if (isGZ) 
+			oss = io.writeFileGzipStream(aTARfile)
+		else
+			oss = io.writeFileStream(aTARfile)
+	} else {
+		if (isGZ)
+			oss = java.util.zip.GZIPOutputStream(aTARfile)
+		else
+			oss = aTARfile
+	}
+	var _os = Packages.org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(oss)
+	_os.setLongFileMode(Packages.org.apache.commons.compress.archivers.tar.TarArchiveOutputStream.LONGFILE_GNU)
+
+	aFunc(_os)
+
+	Packages.org.apache.commons.io.IOUtils.closeQuietly(oss)
+	Packages.org.apache.commons.io.IOUtils.closeQuietly(_os)
+}
+/**
+ * <odoc>
+ * <key>io.writeFileTARBytes(aTARfile, aFilePath, isGzip, aArrayBytes)</key>
+ * Given aTARfile (or output stream (with isGzip = true/false)) will write aArrayBytes into aFilePath in the TAR file/stream.
+ * Note: for multiple files use io.writeFileTARStream
+ * </odoc>
+ */
+IO.prototype.writeFileTARBytes = function(aTARFile, aFilePath, isGzip, aArrayBytes) {
+	io.writeFileTARStream(aTARFile, isGzip, aFn => {
+		aFn(aFilePath, af.fromBytes2InputStream(aArrayBytes))
+	})
+}
+/**
+ * <odoc>
+ * <key>io.writeFileTARStream(aTARfile, isGzip, aFunc)</key>
+ * Given aTARfile (or output stream (with isGzip = true/false)) will call aFunc(tion) providing, as argument, a writer function
+ * with two arguments: aFilePath and a Java input stream for the contents.
+ * </odoc>
+ */
+IO.prototype.writeFileTARStream = function(aTARFile, isGzip, aFunc) {
+	io.writeFileTAR4Stream(aTARFile, isGzip, _os => {
+		if (_os != "null") {
+			aFunc((aFilePath, aStream) => {
+				var f = new java.io.File(aFilePath)
+				var _e = _os.createArchiveEntry(f, aFilePath)
+				_e.setSize(aStream.available())
+				_os.putArchiveEntry(_e)
+				Packages.org.apache.commons.io.IOUtils.copyLarge(aStream, _os)
+				_os.closeArchiveEntry()
+			})
+		}
+	})
+}
+/**
+ * <odoc>
+ * <key>io.listFilesTAR(aTARfile, isGzip) : Array</key>
+ * Given aTARfile (or output stream (with isGzip = true/false)) will return an array with the TAR file entries. Each entry will
+ * have: isDirectory (boolean), isFile (boolean), canonicalPath (string), filepath (string), filename (string), size (number),
+ * lastModified (date), groupId (string), group (string), userId (string) and user (string). 
+ * </odoc> 
+ */
+IO.prototype.listFilesTAR = function(aTARfile, isGzip) {
+	var files = []
+	
+	io.readFileTAR2Stream(aTARfile, isGzip, _is => {
+		if (_is != "null") {
+			var _e = _is.getNextTarEntry()
+			while(_e != null) {
+				files.push({
+					isDirectory  : _e.isDirectory(),
+					isFile       : _e.isFile(),
+					canonicalPath: String(_e.getName()),
+					filepath     : String(_e.getName()),
+					filename     : String(_e.getName()).substring(String(_e.getName()).lastIndexOf("/")+1),
+					size         : Number(_e.getSize()),
+					lastModified : new Date(_e.getModTime()),
+					groupId      : Number(_e.getGroupId()),
+					group        : String(_e.getGroupName()),
+					userId       : Number(_e.getUserId()),
+					user         : String(_e.getUserName())
+				})
+				_e = _is.getNextTarEntry()
+			}
+		}
+	})
+
+	return files
+}
 /**
  * <odoc>
  * <key>io.readFileYAML(aYAMLFile) : Object</key>
@@ -9226,6 +9646,137 @@ const $ssh = function(aMap) {
 
     return new __ssh(aMap);
 };
+
+/**
+ * <odoc>
+ * <key>$csv(aMap) : $csv</key>
+ * Provides a shortcut to access CSV functionality. Optionally you can provide options through aMap.\
+ * \
+ * Examples:\
+ *   $csv().fromInFile("test.csv").toOutArray()\
+ *   $csv().fromInFile("test.csv").toOutFn(m => print( af.toSLON(m) ))\
+ *   $csv().fromInString( $csv().fromInArray( io.listFiles(".").files ) ).toOutArray()
+ * </odoc>
+ */
+const $csv = function(aMap) {
+	var _s = {
+		quoteMode: "MINIMAL", withHeader: true
+	}
+	aMap = _$(aMap, "aMap").isMap().default({})
+	_s = merge(_s, aMap)
+
+	var _to, _from
+	var csv = new CSV()
+
+	var _r = {
+		fromInFn: fn => {
+			var wasUnDef = false
+			if (isUnDef(_to)) {
+				_to = af.newOutputStream()
+				wasUnDef = true
+			}
+			csv.toStream(_to, function() { return fn() })
+			_to.close()
+			return (wasUnDef ? _to.toString() : true)
+		},
+		fromInArray: (ar, fn) => {
+			ar = _$(ar, "array").isArray().default([])
+			var ari = ar.length
+			fn = _$(fn, "fn").isFunction().default(() => (ari >= 0 ? ar[ar.length - ari--] : __))
+
+			if (ari <= 0) return ""
+			
+			_s.withHeaders = Object.keys(ar[0])
+			csv.setStreamFormat(_s)
+			return _r.fromInFn(fn)
+		},
+		fromInString: s => {
+			_from = af.fromString2InputStream(s)
+			return _r
+		},
+		toOutStream: aS => {
+			_to = aS
+			return _r
+		},
+		toOutFile: (aF, append) => {
+			append = _$(append, "append").isBoolean().default(false)
+			_to = io.writeFileStream(aF, append)
+			if (append) _r.setHeader(false)
+			return _r
+		},
+		fromInFile: aF => {
+			_from = io.readFileStream(aF)
+			return _r
+		},
+		fromInStream: aS => {
+			_from = aS
+			return _r 
+		},
+		toOutFn: fn => {
+			if (isUnDef(_s.withHeader)) _r.setHeader(true)
+			if (!isJavaObject(_from)) throw "Require 'fromStream'"
+
+			csv.setStreamFormat(_s)
+			csv.fromStream(_from, function(m) { fn(m) })
+			_from.close()
+			
+			return true
+		},
+		toOutArray: () => {
+			var ar = []
+
+			_r.toOutFn(m => {
+				ar.push(m)
+			})			
+
+			return ar
+		},
+		setFormat: aF => {
+			aF = _$(aF, "format").oneOf(["default", "excel", "informix_unload_csv", "informix_unload", "mysql", "rfc4180", "oracle", "postgresql_csv", "postgresql_text", "tdf"]).$_()
+			_s.format = aF.toUpperCase()
+			return _r
+		},
+		setHeader: aH => {
+			aH = _$(aH, "header").isBoolean().default(true)
+			_s.withHeader = aH
+			return _r
+		},
+		withHeaders: aHs => {
+			aHs = _$(aHs, "headers").isArray().$_()
+			_s.withHeaders = aHs
+			return _r
+		},
+		setQuoteMode: aM => {
+			aM = _$(aM, "quoteMode").oneOf(["all", "all_non_null", "minimal", "non_numeric", "none"]).$_()
+			_s.quoteMode = aM.toUpperCase()
+			return _r
+		},
+		withDelimiter: aD => {
+			aD = _$(aD, "delimiter").isString().default(",")
+			_s.withDelimiter = aD
+			return _r
+		},
+		withEscape: aE => {
+			aE = _$(aE, "escape").isString().default("\"")
+			_s.withEscape = aE
+			return _r
+		},
+		withNull: aN => {
+			aN = _$(aN, "null").isString().default("_NA")
+			_s.withNullString = aN
+			return _r
+		},
+		getSettings: () => {
+			return _s
+		},
+		setSettings: s => {
+			_s = s
+			return _r
+		}
+	}
+
+	return _r
+}
 
 /**
  * <odoc>
