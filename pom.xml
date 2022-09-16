@@ -180,7 +180,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-io</artifactId>
-      <version>9.4.47.v20220610</version>
+      <version>11.0.12</version>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
