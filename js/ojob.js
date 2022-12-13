@@ -5,49 +5,55 @@ var ojob_shouldRun = true;
 var ojob_args = {};
 var nocolor = false;
 
-if (Object.keys(params).length == 1 && Object.keys(params)[0] == "") ojob_showHelp();
+var kparams = Object.keys(params)
+if (kparams.length == 1 && kparams[0] == "") ojob_showHelp();
 
 // Check parameters
-if (isDef(params["-h"]) && params["-h"] == "") {
+if (kparams.indexOf("-h") >= 0 && params["-h"] == "") {
 	delete params["-h"];
 	ojob_showHelp();
 }
 
-if (isDef(params["-compile"]) && params["-compile"] == "") {
+if (kparams.indexOf("-global") >= 0 && params["-global"] == "") {
+	delete params["-global"]
+	ojob_global()
+}
+
+if (kparams.indexOf("-compile") >= 0 && params["-compile"] == "") {
 	delete params["-compile"];
 	ojob_compile();
 }
 
-if (isDef(params["-tojson"]) && params["-tojson"] == "") {
+if (kparams.indexOf("-tojson") >= 0 && params["-tojson"] == "") {
 	delete params["-tojson"];
 	ojob_tojson();
 }
 
-if (isDef(params["-jobs"]) && params["-jobs"] == "") {
+if (kparams.indexOf("-jobs") >= 0 && params["-jobs"] == "") {
 	delete params["-jobs"];
 	ojob_jobs();
 }
 
-if (isDef(params["-todo"]) && params["-todo"] == "") {
+if (kparams.indexOf("-todo") >= 0 && params["-todo"] == "") {
 	delete params["-todo"];
 	ojob_todo();
 }
 
-if (isDef(params["-deps"]) && params["-deps"] == "") {
+if (kparams.indexOf("-deps") >= 0 && params["-deps"] == "") {
 	delete params["-deps"];
 	ojob_draw();
 }
 
-if (isDef(params["-nocolor"]) && params["-nocolor"] == "") {
+if (kparams.indexOf("-nocolor") >= 0 && params["-nocolor"] == "") {
 	nocolor = true;
 }
 
-if (isDef(params["-jobhelp"]) && params["-jobhelp"] == "") {
+if (kparams.indexOf("-jobhelp") >= 0 && params["-jobhelp"] == "") {
 	delete params["-jobhelp"];
 	ojob_jobhelp();
 }
 
-if (isDef(params["-which"]) && params["-which"] == "") {
+if (kparams.indexOf("-which") >= 0 && params["-which"] == "") {
 	delete params["-which"]
 	ojob_which()
 }
@@ -59,7 +65,7 @@ if (isDef(params["-which"]) && params["-which"] == "") {
 //	});
 //}
 
-if (Object.keys(params).length >= 1 && ojob_shouldRun) {
+if (kparams.length >= 1 && ojob_shouldRun) {
 	ojob_runFile();
 }
 
@@ -72,6 +78,7 @@ function ojob_showHelp() {
 	print("  -deps          Draws a list of dependencies of todo jobs on a file.");
 	print("  -jobhelp (job) Display any available help information for a job.");
 	print("  -which         Determines from where an oJob will be loaded from.")
+	print("  -global        List global jobs for this installation.")
 	print("");
 	print("(version " + af.getVersion() + ", " + Packages.openaf.AFCmdBase.LICENSE + ")");
 	ojob_shouldRun = false;
@@ -83,7 +90,7 @@ function ojob__getFile() {
 	} else {
 		printErr("Didn't recognize the aYamlFile.yaml\n");
 		ojob_showHelp();
-		return undefined;
+		return __;
 	}
 }
 
@@ -123,7 +130,7 @@ function ojob_draw() {
 	function getDeps(aJobName) {
 		var j = $from(oj.jobs).equals("name", aJobName).first();
 
-		if (isUnDef(j)) return undefined;
+		if (isUnDef(j)) return __;
 
 		if (isDef(j.deps)) {
 			return j.deps;
@@ -208,6 +215,23 @@ function ojob_draw() {
 	ojob_shouldRun = false;
 }
 
+function ojob_global() {
+	var lst = $from(io.listFiles(__flags.OJOB_LOCALPATH).files)
+			    .equals("isFile", true)
+				.match("filename", "(\.ya?ml|\.json)$")
+	            .sort("filename")
+				.select(r => { 
+					var oj = (r.filepath.endsWith(".json") ? io.readFileJSON(r.filepath) : io.readFileYAML(r.filepath))
+					return {
+						oJob: r.filename,
+						description: (isMap(oj) && isMap(oj.help) ? oj.help.text : "n/a"),
+						"# todo": (isMap(oj) && isArray(oj.todo)) ? oj.todo.length : "n/a"
+					} 
+				})
+	print(printTable(lst))
+	ojob_shouldRun = false
+}
+
 function ojob_which() {
 	var aFileOrPath = ojob__getFile()
 
@@ -246,7 +270,7 @@ function ojob_jobhelp() {
 	} else {
 		/*printErr("Didn't recognize the job to try to obtain help from.\n");
 		ojob_showHelp();
-		return undefined;*/
+		return __;*/
 		job = "help";
 	}
 
@@ -303,12 +327,6 @@ function ojob_todo() {
 function ojob_runFile() {
 	if (ojob_shouldRun) {
 		var file = ojob__getFile();
-
-		//__expr = $from(params).select(function(r) { var rr={}; var kk = Object.keys(r)[0]; return kk+"="+r[kk]; }).join(" ");
-		//__expr = "";
-		//for(var ii in params) {
-		//	__expr += ii + "=" + params[ii].replace(/ /g, "\\ ") + " ";
-		//}
 
 		if (isDef(file)) {
 			oJobRunFile(file, ojob_args, __, (nocolor) ? { conAnsi: false } : __);

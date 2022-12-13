@@ -6,6 +6,73 @@ OpenWrap.java = function() {
 	return ow.java;
 };
 
+/**
+ * <odoc>
+ * <key>ow.java.getDigestAlgs() : Array</key>
+ * Retrieves the current JVM list of digest algorithms (and provider) to be used with ow.java.digestAsHex.
+ * </odoc> 
+ */
+OpenWrap.java.prototype.getDigestAlgs = function() {
+    var data = []
+    var providers = af.fromJavaArray(java.security.Security.getProviders())
+
+    for(var provider of providers) {
+        var svcs = provider.getServices()
+        for(var service of svcs) {
+            if (String(service.getType()).toLowerCase() == "messagedigest") {
+                data.push({ 
+                    provider: String(provider.toString()), 
+                    algorithm: String(service.getAlgorithm()) 
+                })
+            }
+        }
+    }
+    
+    return data
+}
+
+/**
+ * <odoc>
+ * <key>ow.java.digestAsHex(aAlg, aMessage) : String</key>
+ * Given an avaiable JVM aAlg(orithm) (check with ow.java.getDigestAlgs) will return the corresponding aMessage
+ *  (which can be a string, byte array, ByteBuffer, File or InputStream) digest in hexadecimal format.
+ * </odoc>
+ */
+OpenWrap.java.prototype.digestAsHex = function(aAlg, aMsg) {
+    _$(aAlg, "aAlg").isString().$_()
+    return String(Packages.org.apache.commons.codec.digest.DigestUtils(aAlg).digestAsHex(aMsg)) 
+}
+
+/**
+ * <odoc>
+ * <key>ow.java.checkDigest(aDigestString, aMessage) : boolean</key>
+ * Given aDigestString (e.g. [algorithm]:[digest]) and aMessage will verify the digest verifies returning true or false
+ * </odoc>
+ */
+OpenWrap.java.prototype.checkDigest = function(aDigest, aMsg) {
+    _$(aDigest, "aDigest").isString().$_()
+    _$(aMsg, "aMsg").$_()
+
+    var oafi = [ "md2", "md5", "sha1", "sha256", "sha384", "sha512" ]
+    var alg = aDigest.substring(0, aDigest.indexOf(":")).toLowerCase()
+    var msg = aDigest.substring(alg.length + 1)
+    var lst = ow.java.getDigestAlgs()
+    if (oafi.indexOf(alg) >= 0 || $from(lst).equals("algorithm", alg).any()) {
+        switch(alg) {
+        case "md2": return md2(aMsg) == msg
+        case "md5": return md5(aMsg) == msg
+        case "sha1": return sha1(aMsg) == msg
+        case "sha256": return sha256(aMsg) == msg
+        case "sha384": return sha384(aMsg) == msg
+        case "sha512": return sha512(aMsg) == msg
+        default:
+            return ow.java.digestAsHex($from(lst).equals("algorithm", alg).at(0).algorithm, aMsg) == msg
+        }
+    } else {
+        throw "'" + alg + "' not supported with this java version."
+    }
+}
+
 OpenWrap.java.prototype.maven = function() {
     ow.loadObj();
     this.urls = [
@@ -1246,6 +1313,107 @@ OpenWrap.java.prototype.getLibraryPath = function() {
 
 /**
  * <odoc>
+ * <key>ow.java.ini() : Object</key>
+ * Returns an object to handle Windows INI / Java properties kind of files. Available methods are:\
+ * \
+ *   load(content)   - Given a INI/properties file content converts to an internal format\
+ *   loadFile(aFile) - Loads a file with load()\
+ *   get()           - Returns a map of the internal format representation\
+ *   put(aMap)       - Read aMap into the internal format representation (arrays not fully supported)\
+ *   save()          - Returns a INI/properties string\
+ *   saveFile(aFile) - Saves a file using save()\
+ * \
+ * Examples:\
+ * \
+ *   ow.java.ini().loadFile("/etc/os-release").get()\
+ *   ow.java.ini().put(myMap).save()
+ * </odoc>
+ */
+OpenWrap.java.prototype.ini = function() {
+    var data = {}
+
+    var _r = {
+        readProperties: content => {
+            var props = new java.util.Properties()
+            props.load(af.fromString2InputStream(content))
+
+            var r = {}
+            for(var o of props) {
+                o[1] = String(o[1])
+                if (o[1].toLowerCase() == "true" || o[1].toLowerCase() == "false") o[1] = toBoolean(o[1]) 
+                if (isNumber(o[1])) o[1] = Number(o[1])
+                r[o[0]] = o[1] 
+            }
+            return r
+        },
+        load: content => {
+            var t = content.split("\n")
+
+            // remove comments and empty lines
+            t = t.map(r => r.trim())
+                 .filter(r => !r.startsWith(";") && !r.startsWith("#"))
+                 .filter(r => r.length > 0)
+
+            var path = "", buf = ""
+            var plns = l => {
+                if (isUnDef(l) || l.startsWith("[")) {
+                    if (path == "") 
+                        data = merge(data, _r.readProperties(buf))
+                    else 
+                        $$(data).set(path, merge($$(data).get(path), _r.readProperties(buf)))
+
+                    buf = ""
+                    if (isDef(l)) {
+                        var sec = l.match(/^\[(.+)\]$/)
+
+                        if (isArray(sec) && sec.length > 1) {
+                            if (l.startsWith("[.")) 
+                                path += sec[1]
+                            else
+                                path = sec[1]
+                        }
+                    }
+                } else {
+                    buf += l + "\n"
+                }
+            }
+            
+            t.forEach(plns)
+            if (path == "") 
+                data = merge(data, _r.readProperties(buf))
+            else 
+                $$(data).set(path, merge($$(data).get(path), _r.readProperties(buf)))
+            return _r
+        },
+        loadFile: aFile => _r.load(io.readFileString(aFile)),
+        get: () => { return data },
+        put: m => {
+            data = m
+            return _r
+        },
+        save: () => {
+            var s = "", ss = "", psec = ""
+            traverse(data, (aK, aV, aP, aO) => {
+                if (aP.startsWith(".")) aP = aP.substr(1)
+                if (!isArray(aV) && !isMap(aV)) {
+                    if (aP != psec) {
+                        psec = aP
+                        if (s.length != 0) s += "\n"
+                        s += "[" + psec + "]\n"
+                    }
+                    s += aK + "=" + aV + "\n"
+                }
+            })
+            s += ss
+            return s
+        },
+        saveFile: aFile => io.writeFileString(aFile, _r.save())
+    }
+    return _r
+}
+
+/**
+ * <odoc>
  * <key>ow.java.getAddressType(aAddress) : Map</key>
  * Given aAddress tries to return a map with the following flags: isValidAddress, hostname, ipv4, ipv6 and privateAddress
  * </odoc>
@@ -1325,7 +1493,7 @@ OpenWrap.java.prototype.getJarVersion = function(aJarFile) {
     plugin("ZIP");
     var zip = new ZIP();
 
-    Object.keys( zip.list(aJarFile) ).map(r => {
+    Object.keys( zip.list(aJarFile) ).forEach(r => {
         var v = ow.java.getClassVersion(aJarFile + "::" + r);
         if (vers.indexOf(v) < 0 && isDef(v)) {
             vers.push(v);

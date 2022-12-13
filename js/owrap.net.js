@@ -113,6 +113,61 @@ OpenWrap.net.prototype.getTLSCertificates = function(aHost, aPort, withJava, aPa
 
 /**
  * <odoc>
+ * <key>ow.net.getStoredCertificates(aStoreFile, aPassword) : Array</key>
+ * Given a Java certificate store (aStoreFile) will retrieve a list of aliases, issuer DN, subject DN, expire notBefore and notAfter dates.
+ * Optionally aPassword can be provided if different from the default one.
+ * </odoc>
+ */
+OpenWrap.net.prototype.getStoredCertificates = function(aStoreFile, aPassword) {
+    _$(aStoreFile, "aStoreFile").isString().$_()
+    aPassword = _$(aPassword, "aPassword").isString().default("changeit")
+
+    var ks = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
+    var is = io.readFileStream(aStoreFile)
+    ks.load(is, (new java.lang.String(Packages.openaf.AFCmdBase.afc.dIP(aPassword))).toCharArray())
+    is.close()
+
+    var res = []
+    var it = ks.aliases()
+    while(it.hasNext()) {
+        var alias = it.next()
+        var c = ks.getCertificate(alias)
+        res.push({
+            alias    : alias,
+            issuerDN : c.getIssuerDN(),
+            subjectDN: c.getSubjectDN(),
+            notBefore: new Date(c.getNotBefore().toGMTString()),
+            notAfter : new Date(c.getNotAfter().toGMTString()) 
+        })
+    }
+
+    return res
+}
+
+/**
+ * <odoc>
+ * <key>ow.net.getCAStoredCertificates(aPassword) : Array</key>
+ * Will retrieve a list of aliases, issuer DN, subject DN, expire notBefore and notAfter dates from the current Java "cacerts" file.
+ * Optionally aPassword can be provided if different from the default one.
+ * </odoc>
+ */
+OpenWrap.net.prototype.getCAStoredCertificates = function(aPassword) {
+    return ow.net.getStoredCertificates(ow.format.getJavaHome() + "/lib/security/cacerts", aPassword)
+}
+
+/**
+ * <odoc>
+ * <key>ow.net.getJSSECAStoredCertificates(aPassword) : Array</key>
+ * Will retrieve a list of aliases, issuer DN, subject DN, expire notBefore and notAfter dates from the current Java "jssecacerts" file.
+ * Optionally aPassword can be provided if different from the default one.
+ * </odoc>
+ */
+OpenWrap.net.prototype.getJSSECAStoredCertificates = function(aPassword) {
+    return ow.net.getStoredCertificates(ow.format.getJavaHome() + "/lib/security/jssecacerts", aPassword)
+}
+
+/**
+ * <odoc>
  * <key>ow.net.getSSLPublicCertificates(aHost, aPort) : Array</key>
  * Given aHost and aPort for a HTTPs connection it will retrieve the array of peer certificates available.
  * You can retrieve the specific public key by using the method .getPublicKey for each array element. Usually you be
@@ -494,6 +549,89 @@ OpenWrap.net.prototype.getReverseDoH = function(tIP, aProvider) {
 OpenWrap.net.prototype.getIP2Host = function(aIP) {
     return String(java.net.InetAddress.getByName(aIP).getCanonicalHostName());
 };
+
+/**
+ * <odoc>
+ * <key>ow.net.ipv4SubNetInfo(aCIDRorAddress, aMask) : Map</key>
+ * Given an IPv4 aCIDR or anAddress with aMask will return a map with the corresponding subnet info including
+ * netmask, broadcast address, address count, low &amp; high address, etc...
+ * </odoc>
+ */
+OpenWrap.net.prototype.ipv4SubNetInfo = function(aCIDR, aMask) {
+    _$(aCIDR, "aCIDRorAddress").isString().$_()
+    aMask = _$(aMask, "aMask").isString().default(__)
+
+    var su
+    if (isDef(aMask)) {
+        su = new org.apache.commons.net.util.SubnetUtils(aCIDR, aMask)
+    } else {
+        su = new org.apache.commons.net.util.SubnetUtils(aCIDR)
+    }
+
+    su = su.getInfo()
+    return {
+        cidr: String(su.getCidrSignature()),
+        netmask: String(su.getNetmask()),
+        address: String(su.getAddress()),
+        networkAddress: String(su.getNetworkAddress()),
+        addressCount: Number(su.getAddressCountLong()),
+        broadcast: String(su.getBroadcastAddress()),
+        low: String(su.getLowAddress()),
+        high: String(su.getHighAddress())
+    }
+}
+
+/**
+ * <odoc>
+ * <key>ow.net.getAddressInfo(aAddress) : Map</key>
+ * Given an IPv4 or IPv6 aAddress will return a map with hostname, address and corresponding address flags
+ * to determine which type of address it is (is it a private address? is it a loopback? is it a multicast address?)
+ * </odoc>
+ */
+OpenWrap.net.prototype.getAddressInfo = function(aAddr) {
+    _$(aAddr, "aAddr").$_()
+
+    var ia = java.net.InetAddress.getByName(aAddr)
+    return {
+        hostname: ia.getHostName(),
+        canonicalHostName: ia.getCanonicalHostName(),
+        hostAddress: ia.getHostAddress(),
+        isIPv4: ow.net.isIPv4(aAddr),
+        isIPv6: ow.net.isIPv6(aAddr),
+        isLoopback: ia.isLoopbackAddress(),
+        isPrivateAddress: ia.isSiteLocalAddress(),
+        isMulticast: ia.isMulticastAddress(),
+        isAnyLocalAddress: ia.isAnyLocalAddress(),
+        isLinkLocalAddress: ia.isLinkLocalAddress(),
+        isMulticastGlobal: ia.isMCGlobal(),
+        isMulticastNode: ia.isMCNodeLocal(),
+        isMulticastLink: ia.isMCLinkLocal(),
+        isMulticastSite: ia.isMCSiteLocal(),
+        isMulticastOrg: ia.isMCOrgLocal()
+    }
+}
+
+/**
+ * <odoc>
+ * <key>ow.net.ipv4SubNetInRange(aTestAddress, aCIDRorAddress, aMask) : boolean</key>
+ * Given IPv4 aTestAddress and a aCIDR or anAddress with aMask will return true if the aTestAddress is part of the subnet
+ * represented by aCIDR or aAddress + aMask (false otherwise).
+ * </odoc>
+ */
+OpenWrap.net.prototype.ipv4SubNetInRange = function(aAddr, aCIDR, aMask) {
+    _$(aAddr, "aTestAddress").$_()
+    _$(aCIDR, "aCIDRorAddress").isString().$_()
+    aMask = _$(aMask, "aMask").isString().default(__)
+
+    var su
+    if (isDef(aMask)) {
+        su = org.apache.commons.net.util.SubnetUtils(aCIDR, aMask)
+    } else {
+        su = org.apache.commons.net.util.SubnetUtils(aCIDR)
+    }
+
+    return su.getInfo().isInRange(aAddr)
+}
 
 /**
  * <odoc>

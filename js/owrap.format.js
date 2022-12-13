@@ -28,6 +28,56 @@ OpenWrap.format.prototype.string = {
     },
 	/**
 	 * <odoc>
+	 * <key>ow.format.string.genPass(aSize, aSets, aExclude, aWeights) : String</key>
+	 * Tries to generate a random password with aSize (defaults to 12) optionally given an array of aSets (between lowercase, uppercase, numbers, symbols and symbols2)
+	 * and also aExclude a string of characters given an optional percentage of aWeights probability for each aSets.
+	 * </odoc>
+	 */
+	genPass: (aSize, aSets, aExclude, aWeights) => {
+		var sets = {
+			lowercase: "abcdefghijklmnopqrstuvwxyz",
+			uppercase: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+			numbers  : "1234567890",
+			symbols  : "!@#$%*+_-?",
+			symbols2 : "\",./:;'<=>(){}?@[\\]^`~&"
+		}
+
+		var weight = {
+			lowercase: 40,
+			uppercase: 36,
+			numbers  : 15,
+			symbols  : 9,
+			symbols2 : 9
+		}
+
+		aSize    = _$(aSize, "aSize").isNumber().default(12)
+		aSets    = _$(aSets, "aSets").isArray().default(["lowercase","uppercase","numbers","symbols"])
+		aWeights = _$(aWeights, "aWeigths").isMap().default({})
+		aWeights = merge(weight, aWeights)
+		aExclude = _$(aExclude, "aExclude").isString().default("")
+
+		ow.loadObj()
+
+		var pass = "", numberOfSets = sets.length
+
+		var ar = aSets.map(r => ({
+			s: sets[r], 
+			w: weight[r]
+		}))
+
+		var pass = "", sr = new java.security.SecureRandom()
+		for(var i = 0; i < aSize; i++) {
+			var s, c;
+			do {
+				s = String( ow.obj.oneOf( ar, "w" ).s )
+				c = s.charAt( sr.nextInt(s.length) )
+			} while(aExclude.indexOf(c) >= 0)
+			pass += c 
+		}
+		return pass
+	},
+	/**
+	 * <odoc>
 	 * <key>ow.format.string.getSurrogatePair(astralCodePoint) : Array</key>
 	 * Returns an array of two 8 bit codes given an unicode astralCodePoint of 16 bits
 	 * </odoc>
@@ -102,16 +152,15 @@ OpenWrap.format.prototype.string = {
 	 * ow.format.string.closest("/user/1", anArrayOfStrings); // Returns /user\
 	 * ow.format.string.closest("/u1", anArrayOfStrings); // Returns /u\
 	 * ow.format.string.closest("/userna", anArrayOfStrings); // Returns /user\
-	 * ow.format.string.closest("/usernam", anArrayOfStrings); // Returns /username\
-	 * \
+	 * ow.format.string.closest("/usernam", anArrayOfStrings); // Returns /username
 	 * </odoc>
 	 *
 	 * from https://github.com/ianstormtaylor/closest-match
 	 */
 	closest: function(aString, aList, aThreshold) {
-		var threshold = (isDefined(aThreshold)) ? aThreshold : 3;
+		var threshold = _$(aThreshold, "aThreshold").isNumber().default(3)
 		
-		if (!aString || !aList) return false;
+		if (!isString(aString) || !isArray(aList)) return false;
 	
 		var distance, match;
 		for (var i = 0, candidate; candidate = aList[i]; i++) {
@@ -123,7 +172,7 @@ OpenWrap.format.prototype.string = {
 			}
 		}
 	
-		if (distance > aThreshold) return false;
+		if (distance > threshold) return false;
 		return match;
 	},
 
@@ -559,14 +608,14 @@ OpenWrap.format.prototype.string = {
 			ansiStart(); print(o.join("")); printnl( jansi.Ansi.ansi().cursorUpLine(numberOfLines + 2) ); ansiStop();
 		}
 	},
-        /**
-         * <odoc>
-         * <key>ow.format.string.grid(aMatrix, aX, aY, aBgPattern, shouldReturn) : String</key>
-         * Will generate a aX per aY grid to be displayed with aBgPattern (defaults to " "). Each grid cell with use the contents on aMatrix
-         * array of an array. Each cell content can be a map with obj (a Map), a xspan/yspan for in cell spacing, a type (either map, table, func or string) 
-         * and a title. If shouldReturn = true it will just return the string content instead of trying to print it.
-         + </odoc>
-         */
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.grid(aMatrix, aX, aY, aBgPattern, shouldReturn) : String</key>
+	 * Will generate a aX per aY grid to be displayed with aBgPattern (defaults to " "). Each grid cell with use the contents on aMatrix
+	 * array of an array. Each cell content can be a map with obj (a Map), a xspan/yspan for in cell spacing, a type (either map, table, func or string) 
+	 * and a title. If shouldReturn = true it will just return the string content instead of trying to print it.
+	 * </odoc>
+	 */
 	grid: function(aElems, aX, aY, aPattern, shouldReturn) {
 		plugin("Console");
 		var _con_ = new Console();
@@ -597,7 +646,7 @@ OpenWrap.format.prototype.string = {
 			
 					switch(col.type) {
 					case "map"  : p = printMap(col.obj, cs-1, "utf", true); break; 
-					case "tree" : p = printTree(col.obj, cs-1); break;
+					case "tree" : p = printTreeOrS(col.obj, cs-1); break;
 					case "table": p = printTable(col.obj, cs-1, __, true, "utf"); break;
 					case "func" : p = String(newFn("mx", "my", col.obj)((aX * yspan)-1, cs-1)).split(/\r?\n/).map(r => r.substring(0, cs-1)).join("\n"); break;
 					default: p = String(col.obj).split(/\r?\n/).map(r => r.substring(0, cs-1)).join("\n");
@@ -626,6 +675,21 @@ OpenWrap.format.prototype.string = {
 		});
 	
 		return ow.format.string.renderLines(elems, aX * aElems.length, aY, aPattern, shouldReturn);
+	},
+	/**
+	 * <odoc>
+	 * <key>ow.format.string.wildcardTest(aString, aPattern, caseSensitive) : Boolean</key>
+	 * Given aString will try to apply aPattern using '*' wildcards (to match zero or more characters) or '?' question-mark to
+	 * match a single character. Will return true if the aPattern can be applied to aString. Optionally if caseSensitive=true the pattern will be tested
+	 * with case sensitive.
+	 * </odoc>
+	 */
+	wildcardTest: (str, pattern, scase) => {
+		_$(str, "str").isString().$_()
+		_$(pattern, "pattern").isString().$_()
+		scase = _$(scase, "scase").isBoolean().default(false)
+
+		return (new RegExp("^" + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$1').replace(/\*/g, '.*').replace(/\?/g, '.') + "$", (scase ? __ : 'i'))).test(str)
 	}
 };
 	
@@ -739,6 +803,59 @@ OpenWrap.format.prototype.streamSHPrefix = function(aPrefix, anEncoding, aSepara
 		);
 	};
 };
+
+/**
+ * <odoc>
+ * <key>ow.format.streamHandle(aHandle, inHandle, errHandle, outHandle, bufferSize) : Function</key>
+ * Returns a function to help automated interaction with a running process. The function aHandle receives: aType (in/err); aTxt, 
+ * inHandle (function), errHandle (function) and an outHandle (function). Optionally you can provide an alternative inHandle function to print
+ * stdout text, an errHandle function to print stderr text, an outHandle function to send text to stdin and/or a non default bufferSize.\
+ * \
+ * Example:\
+ * \
+ * var res = $sh("myProcess.sh --something")\
+ *           .cb(expect((aType, aTxt, inHandle, errHandle, outHandle) => {\
+ *              if (aType == "in") {\
+ *                 inHandle(aTxt)\
+ *                 if (/ name\?/.test(aTxt))                return outHandle("Scott\n")\
+ *	               if (aTxt.indexOf("Anything else?") >= 0) return outHandle("nope!\n")\
+ *              }\
+ *           }))\
+ *           .get(0)\
+ * \
+ * </odoc>
+ */
+OpenWrap.format.prototype.streamHandle = function(aHandle, inHandle, errHandle, outHandle, bufferSize) {
+	aHandle    = _$(aHandle, "aHandle").isFunction().default((aType, aTxt, inHandle, errHandle, outHandle) => {
+		if (aType == "in")  inHandle(aTxt)
+		if (aType == "err") errHandle(aTxt)
+	})
+	bufferSize = _$(bufferSize, "bufferSize").isNumber().default(__) 
+	inHandle   = _$(inHandle, "inHandle").isFunction().default(printnl)
+	errHandle  = _$(errHandle, "errHandle").isFunction().default(printErrnl) 
+	outHandle  = _$(outHandle, "outHandle").isFunction().default((txt, inp) => {
+		inp.flush()
+		ioStreamWrite(inp, txt)
+		inp.flush()
+	})
+
+	return function(out, err, inp) { 
+		$doAll([
+			$do(() => {
+				ioStreamRead(out, f => { 
+					aHandle("in", f, inHandle, errHandle, txt => outHandle(txt, inp))
+				}, bufferSize, false)
+			}),
+			$do(() => {
+				ioStreamRead(err, f => { 
+					aHandle("err", f, inHandle, errHandle, txt => outHandle(txt, inp))
+				}, bufferSize, false)
+			})
+		])
+
+		return 0
+	}
+}
 
 /**
  * <odoc>
@@ -1550,7 +1667,8 @@ OpenWrap.format.prototype.getJavaVersion = function() {
  * </odoc>
  */
 OpenWrap.format.prototype.getUserHome = function() {
-	return String(java.lang.System.getProperty("user.home"));
+	var d = String(java.lang.System.getProperty("user.home"))
+	return d
 };
 
 /**

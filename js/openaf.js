@@ -568,34 +568,43 @@ const printTable = function(anArrayOfEntries, aWidthLimit, displayCount, useAnsi
  * pad the each entry key, fullValSize (boolean) to pad the entire key and value and withValues (boolean) to include or not each key values
  * </odoc>
  */
-const printTree = function(aM, aWidth, aOptions, aPrefix) {
+const printTree = function(aM, aWidth, aOptions, aPrefix, isSub) {
+    isSub = _$(isSub, "isSub").isBoolean().default(false)
 	if (!isMap(aM) && !isArray(aM)) throw "Not a map or array"
+
 	var out  = ""
-	aPrefix  = _$(aPrefix).isString().default("")
-	aOptions = _$(aOptions).isMap().default({})
+	aPrefix  = _$(aPrefix, "aPrefix").isString().default("")
+	aOptions = _$(aOptions, "aOptions").isMap().default({})
+    aWidth   = _$(aWidth, "aWidth").isNumber().default(__)
 
-	ow.loadFormat();
-	if (!ow.format.isWindows()) {
-		if (isUnDef(aOptions.noansi) && __initializeCon()) {
-			aOptions.noansi = !__conAnsi
-		}
-	} else {
-		if (__initializeCon()) {
-			if (!ansiWinTermCap()) ansiStart()
-			if (isUnDef(aOptions.noansi)) aOptions.noansi = !__conAnsi
-		}
-	}
+    // Don't repeat options if already done as a sub-call
+    if (!isSub) {
+        ow.loadFormat();
+        if (!ow.format.isWindows()) {
+            if (isUnDef(aOptions.noansi) && __initializeCon()) {
+                aOptions.noansi = !__conAnsi
+            }
+        } else {
+            if (__initializeCon()) {
+                if (!ansiWinTermCap()) ansiStart()
+                if (isUnDef(aOptions.noansi)) aOptions.noansi = !__conAnsi
+            }
+        }
 
-	aOptions = merge(merge({
-	  noansi: false,
-	  curved: true,
-	  fullKeySize: true,
-	  fullValSize: false,
-	  withValues: true,
-      wordWrap: true,
-	  compact: true
-	}, __flags.TREE), aOptions)
+        // Merge with default options
+        aOptions = merge(merge({
+            noansi: false,
+            curved: true,
+            fullKeySize: true,
+            fullValSize: false,
+            withValues: true,
+            wordWrap: true,
+            compact: true,
+            minSize: 5
+          }, __flags.TREE), aOptions)
+    }
   
+    // Decide on decorations to use
 	var slines, line, endc, strc, ssrc, midc
 	if (aOptions.compact) {
 		slines = 2
@@ -614,61 +623,110 @@ const printTree = function(aM, aWidth, aOptions, aPrefix) {
 		midc = (aOptions.noansi ? "|- " : "├─ ")
 	}
 
-	aWidth = _$(aWidth).isNumber().default(Number(__con.getTerminal().getWidth()))
+	if (isUnDef(aWidth)) aWidth = Number(__con.getTerminal().getWidth())
   
-	var size = Object.keys(aM).length, ksize = __, vsize = __
-  
+	var aMKeys = Object.keys(aM), size = aMKeys.length, ksize = __, vsize = __
 	var miniCache = {}
 
+    // Prepare aux functions
 	var _clr = __, _ac = __, _al = __
 	if (!aOptions.noansi) {
+		_dt = aO => {
+			if (isUnDef(aO)) return "undefined"
+			if (isJavaClass(aO)) return "java"
+			if (isJavaObject(aO)) return "java"
+			if (isBoolean(aO)) return "boolean"
+			if (isNumber(aO)) return "number"
+			if (isString(aO)) return "string"
+		}
 		_clr = aO => {
-			switch(descType(aO)) {
-			case "number" : return _ac(__colorFormat.number, String(aO)+_ac("RESET",""))
-			case "string" : return _ac(__colorFormat.string, String(aO)+_ac("RESET",""))
-			case "boolean": return _ac(__colorFormat.boolean, String(aO)+_ac("RESET",""))
-			case "java"   : return _ac(__colorFormat.string, String(aO.toString())+_ac("RESET",""))
-			default: return _ac(__colorFormat.default, String(aO)+_ac("RESET",""))
+			switch(_dt(aO)) {
+			case "number" : return _ac(__colorFormat.number, String(aO))+_ac("RESET","")
+			case "string" : return _ac(__colorFormat.string, String(aO))+_ac("RESET","")
+			case "boolean": return _ac(__colorFormat.boolean, String(aO))+_ac("RESET","")
+			case "java"   : return _ac(__colorFormat.string, String(aO.toString()))+_ac("RESET","")
+			default       : return _ac(__colorFormat.default, String(aO))+_ac("RESET","")
 			}
 		}
-		_ac  = ansiColor
-		_al  = ansiLength
+		_ac  = (aAnsi, aString) => {
+			if (isDef(__ansiColorCache[aAnsi])) return __ansiColorCache[aAnsi](aString)
+			var res = ansiColor(aAnsi, aString, true)
+			return res
+		}
+		_al  = m => {
+			//var l = ansiLength(m, true)
+			var s = m.replace(/\033\[[0-9;]*m/g, "")
+			if (__flags.VISIBLELENGTH)
+				return Number(visibleLength(s))
+			else
+				return Number(s.length)
+		}
 	} else {
 		_clr = s => s
 		_ac  = (o, s) => s
 		_al  = s => s.length
 	}
 
+    // Render key and value
 	var _get = (k, v) => {
 	  if (isDef(miniCache[k])) return miniCache[k]
   
 	  var _k = (isNumber(k) ? "[" + k + "]" : k) 
 	  if (aOptions.withValues) {
-		miniCache[k] = _ac(__colorFormat.key, _k) + (isDef(ksize) ? repeat(ksize - _k.length, " ") : "") + (!(isMap(v) || isArray(v)) ? ": " + _clr(v) : "")
+		miniCache[k] = _ac(__colorFormat.key, _k) + 
+                       (isDef(ksize) ? repeat(ksize - _k.length, " ") : "") + 
+                       (!(isMap(v) || isArray(v)) ? ": " + _clr(v) : "")
 	  } else {
 		miniCache[k] = _k
 	  }
 	  return miniCache[k]
 	}
   
-	if (aOptions.fullKeySize) {
-	  ksize = 0
-	  Object.keys(aM).forEach(k => {
-		var _k = (isNumber(k) ? "[" + k + "]" : k) 
-		if (_k.length > ksize) ksize = _k.length
-	  })
-	}
-  
-	if (aOptions.fullValSize) {
-	  vsize = 0
-	  Object.keys(aM).forEach(k => {
-		  var lv = _al(_get(k, aM[k]))
-		  if (lv > vsize) vsize = lv
-	  })
-	}
+    // Determine max sizes of keys and values
+    if (aOptions.fullKeySize || aOptions.fullValSize) {
+        if (aOptions.fullKeySize) ksize = 0
+        if (aOptions.fullValSize) vsize = 0
+        aMKeys.forEach(k => {
+            if (aOptions.fullKeySize) {
+                var _k = (isNumber(k) ? "[" + k + "]" : k) 
+                if (_k.length > ksize) ksize = _k.length
+            }
+            if (aOptions.fullValSize) {
+                var lv = _al(_get(k, aM[k]))
+                if (lv > vsize) vsize = lv
+            }
+        }) 
+    }
 
+    var _tw = (ps, s, mx) => {
+        if ((ps.length + aOptions.minSize) >= mx || mx <= 0) throw "Insufficient width (length = " + (ps.length + aOptions.minSize) + "; max = " + mx + ")"
+        var ar = []
+        var i = 0, mxp = Math.floor(mx * 0.25)
+        do {
+			var sub = s.substr(i, mx)
+            if (sub.indexOf("\n") >= 0) {
+				var ni = sub.indexOf("\n")
+				ar.push(s.substr(i, ni))
+				i += ni + 1
+			} else {
+				if (s.length > i+mx+1 && s.substr(i, mx+1).match(/ [^ ]+$/)) {
+					var mxp = sub.lastIndexOf(" ")
+					ar.push(s.substr(i, mxp))
+					i += mxp + 1
+				} else {
+					ar.push(sub)
+					i += mx
+				}
+			}
+        } while(i < s.length)
+        return ar
+    }
+	
+    // Text wrap function
 	var _wf = (m, p) => {
-		if (!aOptions.wordWrap) return m
+		if (!aOptions.wordWrap) {
+            return m
+        }
 
 		p = _$(p).isString().default("") + " "
 		if (!isString(m)) return m
@@ -681,19 +739,21 @@ const printTree = function(aM, aWidth, aOptions, aPrefix) {
 			if (m.indexOf(": ") < 0 || ps + ms - 2 < ss) return m
 		}
 
-		return m.substring(0, m.indexOf(": ") + 2) + 
-		       ow.format.string.wordWrap(m.substring(m.indexOf(": ") + 2), ss-ps-1).split("\n").map((_l, ii) => {
-			if (ii == 0) return _l
-			return ansiColor("RESET", p) + ansiColor(__colorFormat.string, _l)
-		}).join("\n")
+		var _res = m.substring(0, m.indexOf(": ") + 2) + 
+                _tw(m.substring(0, m.indexOf(": ") + 2), m.substring(m.indexOf(": ") + 2), ss-ps-1).map((_l, ii) => {
+                    if (ii == 0) return _l
+                    return _ac("RESET", p) + _ac(__colorFormat.string, _l)
+                }).join("\n")
+
+        return _res
 	}
   
-	Object.keys(aM).forEach((k, i) => {
+	aMKeys.forEach((k, i) => {
 	  var suffix = "", v = _get(k, aM[k]), lv = _al(v)
 	  var aPrefix2 = (i < (size-1) ? line : " ") + repeat((isDef(ksize) ? ksize : _al(k)) + slines, " ")
 
 	  if (isMap(aM[k]) || isArray(aM[k])) {
-		suffix = printTree(aM[k], aWidth, aOptions, aPrefix + (i < (size-1) ? line : " ") + repeat((isDef(vsize) ? vsize : lv) + slines, " "))
+		suffix = printTree(aM[k], aWidth, aOptions, aPrefix + (i < (size-1) ? line : " ") + repeat((isDef(vsize) ? vsize : lv) + slines, " "), true)
 	  }
   
 	  if (i > 0 && size <= (i+1)) {
@@ -707,9 +767,44 @@ const printTree = function(aM, aWidth, aOptions, aPrefix) {
 	  }
 	})
   
-	out = (out.endsWith("\n") ? out.substring(0, out.length - 2) : out)
-  
+	out = (out.endsWith("\n") ? out.substring(0, out.length - _al(_ac("RESET", "") + "\n")) : out)
+  	
 	return out
+}
+
+/**
+ * <odoc>
+ * <key>printTreeOrS(aObj, aWidth, aOptions) : String</key>
+ * Tries to use printTree with the provided arguments. In case printTree throws an exception (like insuffisance width)
+ * if will fallback to colorify or stringify (if the noansi option is true).
+ * </odoc>
+ */
+const printTreeOrS = function(aM, aWidth, aOptions) {
+	try {
+		return printTree(aM, aWidth, aOptions)
+	} catch(e) {
+		aOptions = merge(__flags.TREE, aOptions)
+		if (aOptions.fullKeySize) {
+			aOptions.fullKeySize = false
+			try {
+				return printTree(aM, aWidth, aOptions)
+			} catch(e1) {
+				aOptions = merge({ noansi: false }, aOptions)
+				if (aOptions.noansi) {
+					return stringify(aM)
+				} else {
+					return colorify(aM)
+				}
+			}
+		} else {
+			aOptions = merge({ noansi: false }, aOptions)
+			if (aOptions.noansi) {
+				return stringify(aM)
+			} else {
+				return colorify(aM)
+			}
+		}
+	}
 }
 
 /**
@@ -939,6 +1034,7 @@ const printMap = function(aValueR, aWidth, aTheme, useAnsi) {
 	}
 	
 	aWidth = _$(aWidth).isNumber().default(__con.getTerminal().getWidth() - 2);
+	Packages.openaf.asciitable.render.WidthAnsiLongestWordTab.setCallback(function(str) { return visibleLength(str) })
 	var rt = new Packages.openaf.asciitable.render.AnsiAsciiTableRenderer(true);
 	rt.setTheme(aTheme);
 	rt.setWidth(new Packages.openaf.asciitable.render.WidthAnsiLongestWordTab(aWidth));
@@ -992,9 +1088,36 @@ function __initializeCon() {
 	}
 }
 
+var __ansiColorCache = {}
+const __ansiColorPrep = function(aAnsi) {
+	var jansi = JavaImporter(Packages.org.fusesource.jansi)
+	var aString = "RRR"
+
+	var nAnsi = []
+	aAnsi.split(",").forEach(r => {
+		if (r.startsWith("BG(")) {
+			var bg = r.match(/BG\((\d+)\)/)
+			if (!isNull(bg)) aString = "\033[48;5;" + bg[1] + "m" + aString
+		} else if (r.startsWith("FG(")) {
+			var fg = r.match(/FG\((\d+)\)/)
+			if (!isNull(fg)) aString = "\033[38;5;" + fg[1] + "m" + aString
+		} else {
+			nAnsi.push(r)
+		}
+	})
+
+	var o 
+	if (nAnsi.length > 0) {
+		o = String(jansi.Ansi.ansi().render("@|" + nAnsi.join(",").toLowerCase() + " " + aString + "|@"))
+	} else {
+		o = aString
+	}
+
+	return new Function("s", "return \"" + o.replace("RRR", "\"+s+\"") + "\"")
+}
 /**
  * <odoc>
- * <key>ansiColor(aAnsi, aString, force) : String</key>
+ * <key>ansiColor(aAnsi, aString, force, noCache) : String</key>
  * Returns the ANSI codes together with aString, if determined that the current terminal can handle ANSI codes (overridden
  * by force = true), with the attributes defined in aAnsi. Please use with ansiStart() and ansiStop().
  * The attributes separated by commas can be:\
@@ -1006,35 +1129,23 @@ function __initializeCon() {
  * \
  * </odoc>
  */
-const ansiColor = function(aAnsi, aString, force) {
-	if (!__initializeCon()) return aString;
+const ansiColor = function(aAnsi, aString, force, noCache) {
+	if (!force && !__initializeCon()) return aString;
 	aAnsi = _$(aAnsi, "aAnsi").isString().default("");
 	aString = _$(aString, "aString").isString().default("");
 	force = _$(force, "force").isBoolean().default(false);
+	noCache = _$(noCache, "noCache").isBoolean().default(!__flags.ANSICOLOR_CACHE)
 
 	var con = __con;
 	var ansis = force || (__conAnsi && (java.lang.System.console() != null));
-	var jansi = JavaImporter(Packages.org.fusesource.jansi);
 	var res = "";
 	
 	if (ansis && aAnsi.length > 0) {
-		var nAnsi = [];
-		aAnsi.split(",").forEach(r => {
-			if (r.startsWith("BG(")) {
-				var bg = r.match(/BG\((\d+)\)/);
-				if (!isNull(bg)) aString = "\033[48;5;" + bg[1] + "m" + aString;
-			} else if (r.startsWith("FG(")) {
-				var fg = r.match(/FG\((\d+)\)/);
-				if (!isNull(fg)) aString = "\033[38;5;" + fg[1] + "m" + aString;
-			} else {
-				nAnsi.push(r);
-			}
-		});
-		if (nAnsi.length > 0) {
-			res = jansi.Ansi.ansi().render("@|" + nAnsi.join(",").toLowerCase() + " " + aString + "|@");
-		} else {
-			res = aString;
-		}
+		if (noCache) return __ansiColorPrep(aAnsi)(aString)
+		if (isDef(__ansiColorCache[aAnsi])) return __ansiColorCache[aAnsi](aString)
+
+		__ansiColorCache[aAnsi] = __ansiColorPrep(aAnsi)
+		return __ansiColorCache[aAnsi](aString)
 		//var res = Packages.openaf.JAnsiRender.render(aAnsi.toLowerCase() + " " + aString);
 		return String(res); 
 	} else {
@@ -1153,7 +1264,7 @@ const ansiLength = function(aString, force) {
 	}
 
 	if (__flags.VISIBLELENGTH)
-		return Number((new java.lang.String(s)).codePointCount(0, s.length))
+		return Number(visibleLength(s))
 	else
 		return Number(s.length)
 }
@@ -1907,6 +2018,27 @@ const now = function() {
 
 /**
  * <odoc>
+ * <key>nowE() : Number</key>
+ * Returns the current epoch time in seconds.
+ * </odoc>
+ */
+const nowE = function() {
+	return Number(java.time.Instant.now().getEpochSecond())
+}
+
+/**
+ * <odoc>
+ * <key>nowNanoE() : Number</key>
+ * Returns the current epoch time in nanoseconds.
+ * </odoc>
+ */
+const nowNanoE = function() {
+	var t = java.time.Instant.now()
+	return $f("%.0f%09.0f", t.getEpochSecond(), t.getNano())
+}
+
+/**
+ * <odoc>
  * <key>nowUTC() : Number</key>
  * Will return the current system time in milliseconds.
  * </odoc>
@@ -2086,10 +2218,105 @@ const bcrypt = function(aText, aVerifyHash, hashingRounds) {
  * </odoc>
  */
 const splitBySeparator = function(aString, aSep) {
-	if (isUnDef(aString) || aString == null) return [];
-	if (isUnDef(aSep)) aSep = ";";
+	if (isUnDef(aString) || aString == null) return []
+	if (isUnDef(aSep)) aSep = ";"
 
-	return aString.replace(new RegExp(aSep, "g"), "\\" + aSep).replace(new RegExp("\\\\\\\\(?=" + aSep + ")", "g") , "").split("\\" + aSep + "");
+	return aString.replace(new RegExp(aSep, "g"), "\\" + aSep)
+					.replace(new RegExp("\\\\\\\\(?=" + aSep + ")", "g") , "")
+					.split("\\" + aSep + "")
+}
+
+/**
+ * <odoc>
+ * <key>splitKVBySeparator(aString, aOptions) : Map</key>
+ * Given aString with multiple key/value entries will return a map with the same. Optionally you can provide aOptions:\
+ * \
+ *    sep  - the key/value entries separator (defaults to " ")\
+ *    ksep - the key separator from a value (defaults to "=")\
+ *    esc  - the escape character (defaults to "\\")\
+ *    qto  - the quote character (defaults to "\"")\
+ *    nul  - the null representation (defaults to null)\
+ * \
+ * </odoc>
+ */
+const splitKVBySeparator = function(aString, aOptions) {
+	_$(aString, "aString").isString().$_()
+	aOptions = _$(aOptions, "aOptions").isMap().default({})
+	aOptions = merge({
+		sep : " ",
+		ksep: "=",
+		esc : "\\",
+		qto : "\"",
+		nul : null
+	}, aOptions)
+	
+	aSep = aOptions.sep
+	var aKSep = aOptions.ksep
+	var aEsc  = aOptions.esc
+	var aQto  = aOptions.qto
+	
+	var res = {}, isK = true, isV = false, isQ = false, buf = "", k = __, v = __
+	aString = aString.trim()
+
+	for(var i = 0; i < aString.length; i++) {
+		// ignore more than one separator
+		if (!isQ && i > 0 && aString[i-1] == aSep && aString[i] == aSep) continue
+		// if it's a key/value separator switch to value
+		if (!isQ && isK && aString[i] == aKSep) {
+			if (i == 0 || aString[i - 1] != aEsc) {
+				isK = false
+				isV = true
+				k = buf
+                v = __
+				buf = ""
+				continue
+			}
+		}
+		// if it's a separator and it's value switch to key
+		if (!isQ && isV && aString[i] == aSep) {
+			if (aString[i - 1] != aEsc) {
+				isK = true
+				isV = false
+				v = buf
+				buf = ""
+				res[k] = v
+				continue
+			}
+		}
+		// if it's an alone key
+		if (!isQ && isK && aString[i] == aSep) {
+			isK = true
+			isV = false
+			k = buf
+            v = __
+			buf = ""
+			res[k] = aOptions.nul 
+			continue
+		}
+		// if it's a quote
+		if (aString[i] == aQto) {
+			// if it's a beginning of a quote
+			if (i == 0 || (!isQ && aString[i-1] != aEsc)) { isQ = true; continue }
+			// if it's the end of a quote
+			if (isQ && aString[i-1] != aEsc) { isQ = false; continue }
+		}
+		// if it reached this far it's text
+		if (i > 0 && aString[i-1] == aEsc && aString[i] == aEsc) {
+			// If escape is escaped
+			buf += aEsc
+		} else {
+			// Unless it's escape keep it
+			if (aString[i] != aEsc) buf += aString[i]
+		}
+	}
+	if (buf.length > 0) {
+		if (isK) { k = buf; v = __ }
+        if (isV) { v = buf }
+		buf = ""
+		res[k] = (isUnDef(v) ? aOptions.nul : v)
+	}
+
+	return res
 }
 
 /**
@@ -2103,17 +2330,30 @@ const splitBySeparator = function(aString, aSep) {
 const processExpr = function(aSep, ignoreCase, aSource) {
     aSource = _$(aSource, "aSource").isString().default(__expr);
 	aSep    = _$(aSep, "aSep").isString().default(";");
-	var args = splitBySeparator(aSource, aSep);
-	var pairs = {};
+	var pairs = {}
 
-	for(var argIdx in args) {
-		var arg = args[argIdx];
-
-		var pair = splitBySeparator(arg, "=");
-		if (!ignoreCase)
-			pairs[String(pair[0])] = (isUnDef(pair[1]) ? "" : pair[1]);
-		else
-			pairs[String(pair[0]).toLowerCase()] = (isUnDef(pair[1]) ? "" : pair[1]);
+	if (!__flags.ALTERNATIVE_PROCESSEXPR) {
+		var args = splitBySeparator(aSource, aSep);
+	
+		for(var argIdx in args) {
+			var arg = args[argIdx];
+	
+			var pair = splitBySeparator(arg, "=");
+			if (!ignoreCase)
+				pairs[String(pair[0])] = (isUnDef(pair[1]) ? "" : pair[1]);
+			else
+				pairs[String(pair[0]).toLowerCase()] = (isUnDef(pair[1]) ? "" : pair[1]);
+		}
+	} else {
+		var args = splitKVBySeparator(aSource, { sep: aSep, nul: "" })
+	
+		Object.keys(args).forEach(arg => {
+			if (!ignoreCase) {
+				pairs[arg] = args[arg]
+			} else {
+				pairs[arg.toLowerCase()] = args[arg]
+			}
+		})
 	}
 
 	//load __pmIn to pairs
@@ -2124,7 +2364,7 @@ const processExpr = function(aSep, ignoreCase, aSource) {
 			pairs[String(attrname).toLowerCase()] = __pmIn[attrname];
 	}
 
-	return pairs;
+	return pairs
 }
 
 /**
@@ -2273,7 +2513,7 @@ const getOPackRemoteDB = function() {
  */
 const getOPackLocalDB = function() {
 	var fileDB = getOpenAFPath() + "/" + PACKAGESJSON_DB;
-    var homeDB = String(java.lang.System.getProperty("user.home")) + "/" + PACKAGESJSON_USERDB;
+    var homeDB = __gHDir() + "/" + PACKAGESJSON_USERDB;
 	var packages = {};
 	var exc, homeDBCheck = false;
 
@@ -3373,6 +3613,29 @@ const inherit = function(Child, Parent) {
 
 /**
  * <odoc>
+ * <key>visibleLength(aString) : Number</key>
+ * More complete af.visibleLength function
+ * </odoc>
+ */
+const __visibleLength = "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"
+var __visibleLength2
+const visibleLength = str => {
+	if (isUnDef(__visibleLength2)) __visibleLength2 = af.fromBytes2String(io.gunzip(af.fromBase64(__visibleLength)))
+	
+	str = str.replace(/\033\[[0-9;]*m/g, "")
+	var l = 0
+	for(var i = 0; i < str.length; i++) {
+		var _c = str.charCodeAt(i)
+		if (_c <= 254)
+			l += 1
+		else
+	   		l += Number(__visibleLength2[str.charCodeAt(i) - 32])
+	}
+	return l
+}
+
+/**
+ * <odoc>
  * <key>$$from : Array</key>
  * Shortcut for the JLinq library for easy query and access to arrays/objects. To see all the available options
  * please refer to http://hugoware.net/Projects/jlinq and the list of available functions by executing,
@@ -3429,7 +3692,7 @@ var $from = function(a) {
  *   $path(arr, "a[*].b | [0]"); \
  * \
  * [Functions]: \
- *   abs(x), avg(x), contains(x, y), ceil(x), floor(x), join(x, arr), keys(obj), length(x), map(expr, arr), max(x), max_by(x, y), merge(a, b), min(a), min_by(a, b), not_null(a), reverse(arr), sort(arr), sort_by(a, y), starts_with(a, b), sum(a), to_array(a), to_string(a), to_number(a), type(a), values(a)\
+ *   abs(x), avg(x), contains(x, y), ceil(x), floor(x), join(x, arr), keys(obj), length(x), map(expr, arr), max(x), max_by(x, y), merge(a, b), min(a), min_by(a, b), not_null(a), reverse(arr), sort(arr), sort_by(a, y), starts_with(a, b), ends_with(a, b), sum(a), to_array(a), to_string(a), to_number(a), type(a), values(a)\
  *   $path(arr, "a[?contains(@, 'b') == `true`]")\
  * \
  * Custom functions:\
@@ -3541,10 +3804,7 @@ const pidCheck = function(aPid) {
 				return true;
 			} 
 		} else {
-			af.sh("kill -0 " + aPid);
-			if (__exitcode == 0) {
-				return true;
-			} 
+			if ($sh("kill -0 " + aPid).get(0).exitcode == 0) return true
 		}
 	} catch(e) {
 	}
@@ -4401,11 +4661,10 @@ const require = function(aScript, force) {
 // OpenWrap
 //
 
-const OpenWrap = function() {}
+var OpenWrap = function() {}
 //if (isUnDef(OpenWrap))
 //	OpenWrap = function() {}
 
-const ow = new OpenWrap();
 //if (isUnDef(ow))
 //	ow = new OpenWrap();
 
@@ -4524,6 +4783,8 @@ OpenWrap.prototype.loadOJob = function() { loadCompiledLib("owrap_oJob_js"); if 
  * </odoc>
  */
 OpenWrap.prototype.loadJava = function() { loadCompiledLib("owrap_java_js"); if (isUnDef(ow.java)) { ow.java = new OpenWrap.java(); pods.declare("ow.java", ow.java); }; return ow.java; };
+
+var ow = new OpenWrap()
 
 /**
  * <odoc>
@@ -6593,16 +6854,18 @@ const clearInterval = function(uuid) {
 
 /**
  * <odoc>
- * <key>range(aCount, aStart) : Array</key>
+ * <key>range(aCount, aStart, aStep) : Array</key>
  * Generates an array with aCount of numbers starting at 1. Optionally you can provide a different
- * aStart number.
+ * aStart number and/or aStep increment.
  * </odoc>
  */
-const range = (aCount, aStart) => {
+const range = (aCount, aStart, aStep) => {
 	aStart = _$(aStart, "aStart").isNumber().default(1)
 	aCount = _$(aCount, "aCount").isNumber().default(1)
+	aStep  = _$(aStep, "aStep").isNumber().default(1)
 
-	return Array.from(Array(aCount).keys(), n => n + aStart)
+
+	return Array.from(Array(aCount).keys(), n => (n + aStart) * aStep)
 }
 
 /**
@@ -6651,6 +6914,8 @@ const oJobRunFile = function(aYAMLFile, args, aId, aOptionsMap, isSubJob) {
 	} else {
 		oo = ow.loadOJob();
 	}
+
+	aOptionsMap = _$(aOptionsMap, "aOptionsMap").isMap().default({ shareArgs: false })
 
 	oo.runFile(aYAMLFile, args, aId, isSubJob, aOptionsMap);
 }
@@ -6783,11 +7048,13 @@ loadCompiledLib("openafsigil_js");
 
 var __flags = _$(__flags).isMap().default({
 	OJOB_SEQUENTIAL            : true,
+	OJOB_SHAREARGS             : true,
 	OJOB_HELPSIMPLEUI          : false,
 	OJOB_LOCALPATH             : getOpenAFPath() + "ojobs",
 	OAF_CLOSED                 : false,
-	VISIBLELENGTH              : false,
+	VISIBLELENGTH              : true,
 	MD_NOMAXWIDTH              : true,
+	ANSICOLOR_CACHE            : true,
 	OPENMETRICS_LABEL_MAX      : true,   // If false openmetrics label name & value length won't be restricted,
 	TREE: {
 		fullKeySize: true,
@@ -6798,7 +7065,11 @@ var __flags = _$(__flags).isMap().default({
 	},
 	CONSOLE: {
 		view: "tree"
-	}
+	},
+	ALTERNATIVE_HOME           : String(java.lang.System.getProperty("java.io.tmpdir")),
+	ALTERNATIVE_PROCESSEXPR    : true,
+	HTTP_TIMEOUT               : __,
+    HTTP_CON_TIMEOUT           : __
 })
 
 /**
@@ -6825,6 +7096,12 @@ const _i$ = (aValue, aPrefixMessage) => {
 }
 
 var __correctYAML = false;
+
+const __gHDir = () => {
+	var d = String(java.lang.System.getProperty("user.home"))
+	if (io.fileInfo(d).permissions.indexOf("w") < 0) d = __flags.ALTERNATIVE_HOME
+	return d
+}
 
 /**
  * <odoc>
@@ -9045,7 +9322,7 @@ const $doWait = function(aPromise, aWaitTimeout) {
 	return aPromise;
 }
 
-const $sh = function(aString) {
+const $sh = function(aString, aIn) {
     var __sh = function(aCmd, aIn) {
         this.q = [];
         this.wd = __;
@@ -9288,7 +9565,7 @@ const $sh = function(aString) {
         return this;
     };
 
-    return new __sh(aString);
+    return new __sh(aString, aIn);
 };
 
 const $ssh = function(aMap) {
@@ -9676,6 +9953,7 @@ const $csv = function(aMap) {
 				_to = af.newOutputStream()
 				wasUnDef = true
 			}
+			csv.setStreamFormat(_s)
 			csv.toStream(_to, function() { return fn() })
 			_to.close()
 			return (wasUnDef ? _to.toString() : true)
@@ -9884,7 +10162,7 @@ if (isUnDef(OPENAFPROFILE)) OPENAFPROFILE = ".openaf_profile";
 (function() {
 	var prof = "";
 	try {
-		var fprof = java.lang.System.getProperty("user.home") + "/" + OPENAFPROFILE;
+		var fprof = __gHDir() + "/" + OPENAFPROFILE;
 		if (io.fileExists(fprof)) {
 			loadCompiled(fprof);
 		}

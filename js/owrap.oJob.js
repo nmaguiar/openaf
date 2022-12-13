@@ -6,9 +6,10 @@
  * job todo register and oJob::oJob for oJob instances registry.
  * </odoc>
  */
- OpenWrap.oJob = function(isNonLocal) { 
+OpenWrap.oJob = function(isNonLocal) { 
 	//startLog();
 	//if (isDef(ow.oJob)) return ow.oJob;
+	if (isUnDef(ow.oJob)) ow.oJob = this
 
 	this.__promises = [];
 	var parent = this;
@@ -61,15 +62,14 @@
 		parent.__sch = new ow.server.scheduler();
 	//}));
 	//this.__promises.push($do(() => { 
-		ow.loadFormat();
-		plugin("Threads");
+		//ow.loadFormat();
 	//}));
 	//this.__promises.push($do(() => {
-		parent.getTodoCh().create(0, "simple");
-		parent.getJobsCh().create(0, "simple");
-		parent.getLogCh().create(0, "simple");
-		parent.getMainCh().create(0, "simple");
-		parent.getMetricsCh().create(0, "simple");
+		parent.getTodoCh().create(0, "simple")
+		parent.getJobsCh().create(0, "simple")
+		parent.getLogCh().create(0, "simple")
+		parent.getMainCh().create(0, "simple")
+		parent.getMetricsCh().create(0, "simple")
 
 		parent.getMainCh().set(
 			{ "uuid": parent.__id },
@@ -81,7 +81,6 @@
 			}
 		);
 	//}));
-
 	//this.__sch = new ow.server.scheduler();
 	this.__ojob = { recordLog: true, logArgs: false, numThreads: __, logToConsole: true, logOJob: false };
 	this.__help = {};
@@ -127,7 +126,7 @@
 
 	this.__codepage = __;
 
-	if (String(java.lang.System.getProperty("os.name")).match(/Windows/)) {
+	if (ow.format.isWindows()) {
 		$do(() => {
 			if (isUnDef(__conAnsi)) __initializeCon();
 			var res = __con.getTerminal().getOutputEncoding();
@@ -201,6 +200,10 @@ OpenWrap.oJob.prototype.verifyIntegrity = function(aFileOrPath) {
 				valid = false;
 			}
 		}
+                if (OJOB_INTEGRITY[aFileOrPath].indexOf(":") >= 0) {
+                        ow.loadJava()
+                        valid = ow.java.checkDigest(OJOB_INTEGRITY[aFileOrPath], stream)
+                }
 
 		stream.close();
 		return valid;
@@ -228,7 +231,7 @@ OpenWrap.oJob.prototype.load = function(jobs, todo, ojob, args, aId, init, help)
 
 	if (isArray(ojob.langs)) {
 		var pp = this;
-		ojob.langs.map(l => {
+		ojob.langs.forEach(l => {
 			if (isDef(l.lang)) pp.__langs[l.lang] = l;
 		});
 	}
@@ -478,7 +481,7 @@ OpenWrap.oJob.prototype.load = function(jobs, todo, ojob, args, aId, init, help)
 		} else {
 			if (isMap(this.__ojob.metrics)) {
 				if (isDef(this.__ojob.metrics.add) && isMap(this.__ojob.metrics.add)) {
-					Object.keys(this.__ojob.metrics.add).map(r => {
+					Object.keys(this.__ojob.metrics.add).forEach(r => {
 						ow.metrics.add(r, newFn(this.__ojob.metrics.add[r]) );
 					});
 				}
@@ -757,7 +760,7 @@ OpenWrap.oJob.prototype.__loadFile = function(aFile, removeTodos, isInclude) {
 		}
 		
 		// Check for internal signature
-		if (isDef(res.__jwt) && isDef(OJOB_SIGNATURE_KEY)) {
+		if (isDef(res) && isDef(res.__jwt) && isDef(OJOB_SIGNATURE_KEY)) {
 			ow.loadObj();
 
 			if (!ow.obj.signVerify(OJOB_SIGNATURE_KEY, res)) {
@@ -776,18 +779,18 @@ OpenWrap.oJob.prototype.__loadFile = function(aFile, removeTodos, isInclude) {
 	}
 	
 	if (isDef(aFile)) {
-		ow.oJob.authorizedDomains.map(d => {
+		ow.oJob.authorizedDomains.forEach(d => {
 			if (aFile.startsWith(d) && !io.fileExists(aFile)) {
-				aFile = "https://" + aFile;
+				aFile = "https://" + aFile
 			}
 		});
 
     	if (aFile.match(/^https?:\/\//i) && !aFile.match(/\.ya?ml$/i) && !aFile.match(/\.js(on)?$/i)) {
-			var pp = (new java.net.URI(aFile)).getPath();
+			var pp = (new java.net.URI(aFile)).getPath()
 			if (pp == "") {
-				aFile += "/";
+				aFile += "/"
 			} else {
-				if (!pp.endsWith("/") && aFile.indexOf("?") < 0) aFile += ".json";
+				if (!pp.endsWith("/") && aFile.indexOf("?") < 0) aFile += ".json"
 			}
         }
 
@@ -835,7 +838,7 @@ OpenWrap.oJob.prototype.__loadFile = function(aFile, removeTodos, isInclude) {
 
 	if (!isInclude) this.__file = aOrigFile;
 
-	return this.loadJSON(res, removeTodos);
+	return this.loadJSON(res, removeTodos)
 };
 
 /**
@@ -948,7 +951,10 @@ OpenWrap.oJob.prototype.runFile = function(aFile, args, aId, isSubJob, aOptionsM
  * </odoc>
  */
 OpenWrap.oJob.prototype.previewFile = function(aFile) {
-	return this.__loadFile(aFile);
+	var res = this.__loadFile(aFile);
+	if (isDef(res.include)) res.include = []
+	if (isDef(res.jobsInclude)) res.jobsInclude = []
+	return res
 };
 
 /**
@@ -1678,8 +1684,8 @@ OpenWrap.oJob.prototype.start = function(provideArgs, shouldStop, aId, isSubJob)
 		}
 	}
 
-	global.args = args
-	global.init = this.init
+	global.args = merge(global.args, args)
+	global.init = merge(global.init, this.init)
 
     // Show help if enabled and determined
     if (this.__ojob.showHelp) {
@@ -1739,10 +1745,11 @@ OpenWrap.oJob.prototype.start = function(provideArgs, shouldStop, aId, isSubJob)
 		var job = __; //last = __;
 		//var listTodos = $path(this.getTodoCh().getSortedKeys(), "[?ojobId==`" + (this.getID() + altId) + "`]");
 		var listTodos = $from(this.getTodoCh().getSortedKeys()).useCase(true).equals("ojobId", (this.getID() + altId)).select();
+		this.__ojob.shareArgs = _$(this.__ojob.shareArgs).isBoolean().default(__flags.OJOB_SHAREARGS)
 		while(listTodos.length > 0) {
 			var todo = this.getTodoCh().get(listTodos.shift());
 			job = this.getJobsCh().get({ name: todo.name });
-			var argss = args;
+			var argss = (this.__ojob.shareArgs) ? merge(args, $get("res")) : args
 			//var argss = merge(args, last);
 			//if (isDef(todo.args)) argss = this.__processArgs(merge(args, last), todo.args, aId);
 			if (isDef(todo.args)) argss = this.__processArgs(argss, todo.args, aId);
@@ -1968,7 +1975,7 @@ OpenWrap.oJob.prototype.runJob = function(aJob, provideArgs, aId, noAsync, rExec
 						}
 						depInfo[dep].result = true;
 					} else {
-						if (isUnDef(depInf) && !parent.__ojob.depsWait && isUnDef(listTodos)) listTodos = $from(this.getTodoCh().getSortedKeys()).useCase(true).equals("ojobId", (this.getID() + altId)).select();
+						if (isUnDef(depInf) && !parent.__ojob.depsWait && isUnDef(listTodos)) listTodos = $from(this.getTodoCh().getAll()).useCase(true).equals("ojobId", (this.getID() + altId)).select();
 						if (isUnDef(depInf) && !parent.__ojob.depsWait && $from(listTodos).equals("name", dep).none()) {
 							// No wait for unexisting deps (depsWait) then exit
 							return true;
@@ -2386,6 +2393,7 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 			var ig = __
 			var res = []
 			var buf = ""
+			var iDot = 0
 		  
 			for(var i = 0; i < s.length; i++) {
 			  if (isUnDef(ig) && (s[i] == '"' || s[i] == "'")) {
@@ -2393,7 +2401,11 @@ OpenWrap.oJob.prototype.addJob = function(aJobsCh, _aName, _jobDeps, _jobType, _
 			  } else {
 				if (s[i] == ig) ig = __
 			  }
-			  if (isUnDef(ig) && s[i] == ".") {
+			  
+			  if (s[i] == "(") iDot++
+			  if (s[i] == ")") iDot--
+
+			  if (iDot <= 0 && isUnDef(ig) && s[i] == ".") {
 				res.push(buf)
 				buf = ""
 			  } else {
@@ -2763,9 +2775,25 @@ OpenWrap.oJob.prototype.addTodo = function(aOJobID, aJobsCh, aTodoCh, aJobName, 
 
 /**
  * <ojob>
+ * <key>ow.oJob.outputParse(aObj) : Object</key>
+ * Given aObj, resulting of calling ow.oJob.output with __format=pm or __format=args, will revert back to the original 
+ * map, array or object.
+ * </ojob>
+ */
+OpenWrap.oJob.prototype.outputParse = function(aObj) {
+	var p = _$(aObj).default(__pm)
+
+	if (isArray(p._list)) return p._list
+	if (isMap(p._map))    return p._map
+	if (isDef(p.result))  return p.result
+	return p
+}
+
+/**
+ * <ojob>
  * <key>ow.oJob.output(aObj, args, aFunc) : Map</key>
  * Tries to output aObj in different ways give the args provided. If args.__format or args.__FORMAT is provided it will force 
- * displaying values as "json", "prettyjson", "slon", "yaml", "table", "tree", "map", "pm" (on the __pm variable with _list, _map or result) or "human". In "human" it will use the aFunc
+ * displaying values as "json", "prettyjson", "slon", "ndjson", "xml", "yaml", "table", "tree", "map", "res", "args", "jsmap", "csv", "pm" (on the __pm variable with _list, _map or result) or "human". In "human" it will use the aFunc
  * provided or a default that tries printMap or sprint. If a format isn't provided it defaults to human or global.__format if defined. 
  * </ojob>
  */
@@ -2773,64 +2801,92 @@ OpenWrap.oJob.prototype.output = function(aObj, args, aFunc) {
  	args = _$(args).default({});
  	aFunc = _$(aFunc, "aFunction").isFunction().default((obj) => {
  		if (isArray(obj) || isMap(obj))
-			print(printTree(obj, __, { noansi: !__conAnsi }))
+			print(printTreeOrS(obj, __, { noansi: !__conAnsi }))
  		else
  			sprint(obj);
  	});
 
- 	var format = (isDef(global.__format) ? global.__format : "human");
+ 	var format = (isDef(global.__format) ? global.__format : "human")
+	var path   = __
 
- 	if (isDef(args.__FORMAT)) format = String(args.__FORMAT).toLowerCase();
- 	if (isDef(args.__format)) format = String(args.__format).toLowerCase();
+ 	if (isDef(args.__FORMAT)) format = String(args.__FORMAT).toLowerCase()
+ 	if (isDef(args.__format)) format = String(args.__format).toLowerCase()
+
+	if (isDef(args.__PATH)) path = String(args.__PATH).toLowerCase()
+ 	if (isDef(args.__path)) path = String(args.__path).toLowerCase()
+
+	var res = isDef(path) ? $path(aObj, path) : aObj
 
  	switch (format) {
  		case "json":
- 			sprint(aObj, "");
+ 			sprint(res, "");
  			break;
 		case "prettyjson":
-			sprint(aObj);
+			sprint(res);
 			break;
 		case "slon":
-			print(ow.format.toSLON(aObj));
+			print(ow.format.toSLON(res));
 			break;
+		case "ndjson":
+			if (isArray(res)) res.forEach(e => print(stringify(e, __, "")))
+			break
+		case "xml":
+			print(af.fromObj2XML(res))
+			break
  		case "yaml":
- 			yprint(aObj);
+ 			yprint(res);
  			break;
  		case "table":
- 			if (isArray(aObj)) print(printTable(aObj, __, __, __conAnsi, (isDef(this.__codepage) ? "utf" : __)));
+ 			if (isArray(res)) print(printTable(res, __, __, __conAnsi, (isDef(this.__codepage) ? "utf" : __)));
  			break;
 		case "tree":
-			print(printTree(aObj, __, { noansi: !__conAnsi }))
+			print(printTreeOrS(res, __, { noansi: !__conAnsi }))
 			break;
+		case "res":
+			$set("res", res)
+			break
+		case "args":
+			if (isArray(res)) 
+				args._list = res
+			else
+				if (isMap(res))
+					args._map = res
+				else
+					args.result = res
+			break
 		case "jsmap":
-			var res = ow.template.html.parseMap(aObj, true);
+			var res = ow.template.html.parseMap(res, true);
 			return "<html><style>" + res.css + "</style><body>" + res.out + "</body></html>";
  		case "pm":
  			var _p;
- 			if (isArray(aObj)) _p = {
- 				_list: aObj
+ 			if (isArray(res)) _p = {
+ 				_list: res
  			};
- 			if (isMap(aObj)) _p = {
- 				_map: aObj
+ 			if (isMap(res)) _p = {
+ 				_map: res
  			};
  			if (isUnDef(_p)) _p = {
- 				result: aObj
+ 				result: res
  			};
  			__pm = merge(__pm, _p);
  			break;
  		case "csv":
- 			if (isArray(aObj)) {
+ 			if (isArray(res)) {
  				var csv = new CSV();
- 				csv.toCsv(aObj);
+ 				csv.toCsv(res);
  				print(csv.w());
  			}
  			break;
  		case "map":
-			print(printMap(obj, __, (isDef(this.__codepage) ? "utf" : __), __conAnsi))
+			print(printMap(res, __, (isDef(this.__codepage) ? "utf" : __), __conAnsi))
 			break
 		default   :
-			aFunc(aObj)
+			if (format.startsWith("set_")) {
+				$set(format.substring(4), res)
+			} else {
+				aFunc(res)
+			}
  	}
 }
 
-ow.oJob = new OpenWrap.oJob();
+//ow.oJob = new OpenWrap.oJob();

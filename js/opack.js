@@ -136,7 +136,7 @@ function getHTTPOPack(aURL) {
 		return zipCache[aURL];
 	}
 
-	log("Retrieiving " + aURL);
+	log("Retrieving " + aURL);
 	try {
 		var http = execHTTPWithCred(aURL.replace(/ /g, "%20"), "GET", "", {}, true);
 		var opack = new ZIP(http);
@@ -218,7 +218,7 @@ function removeRemoteDB(aPackage, aDB) {
 // OpenPack local register add
 function addLocalDB(aPackage, aTarget) {
 	var fileDB = getOpenAFPath() + "/" + PACKAGESJSON_DB;
-	var homeDB = String(java.lang.System.getProperty("user.home")) + "/" + PACKAGESJSON_USERDB;
+	var homeDB = __gHDir() + "/" + PACKAGESJSON_USERDB;
 	var homeDBCheck = io.fileExists(homeDB);
 	var fileDBCheck = io.fileExists(fileDB);
 	var includeInFileDB = true;
@@ -408,7 +408,7 @@ function verifyDeps(packag) {
 // OpenPack local register remove
 function removeLocalDB(aPackage, aTarget) {
 	var fileDB = getOpenAFPath() + "/" + PACKAGESJSON_DB;
-	var homeDB = String(java.lang.System.getProperty("user.home")) + "/" + PACKAGESJSON_USERDB;
+	var homeDB = __gHDir() + "/" + PACKAGESJSON_USERDB;
 	var homeDBCheck = io.fileExists(homeDB);
 	var includeInFileDB = true;
 
@@ -715,9 +715,14 @@ function execHTTPWithCred(aURL, aRequestType, aIn, aRequestMap, isBytes, aTimeou
 	} catch(e) {
 		if (String(e).indexOf("code: 401") >= 0) {
 			// Ensure bucket default exists
-			try { $sec(__, "opack").get("opack::") } catch(e) { $sec(__, "opack").set("opack::", {}) }
+			var si
+			try {
+				try { $sec(__, "opack").get("opack::") } catch(e1) { $sec(__, "opack").set("opack::", {}) }
 				
-			var si = $sec(__, "opack").get("opack::" + host + "::" + path)
+				si = $sec(__, "opack").get("opack::" + host + "::" + path)
+			} catch(ee) {
+			}
+
 			if (isMap(si) && (isUnDef(__remoteUser) || isUnDef(__remotePass))) { __remoteUser = Packages.openaf.AFCmdBase.afc.dIP(si.u); __remotePass = Packages.openaf.AFCmdBase.afc.dIP(si.p) }
 			if (isDef(__remoteUser) && isDef(__remotePass)) __remoteHTTP.login(Packages.openaf.AFCmdBase.afc.dIP(__remoteUser), Packages.openaf.AFCmdBase.afc.dIP(__remotePass), aURL)
 
@@ -893,7 +898,7 @@ function getPackage(packPath) {
 						output = af.fromBytes2String(http);
 						retry = false;
 					} catch(e1) {
-						logErr("Error while retrieiving remote package: " + String(e1));
+						logErr("Error while retrieving remote package: " + String(e1));
 					}
 				}
 				packag = fromJsonYaml(output);
@@ -1052,17 +1057,16 @@ function __opack_info(args) {
 function __opack_list(args) {
 	var packages = getLocalDB(true);
 
-	/*var sortIds = {};
-	for(let i in packages) {
-		if (isDef(packages[i].name)) 
-			sortIds[packages[i].name.toLowerCase()] = i;
-	}*/
-
 	var usea = __conStatus || __initializeCon(); 
 
 	//var packsIds = Object.keys(sortIds).sort(), ar = [];
 	var ar = [];
-	var packsIds = $from(packages).sort("name").attach("key", r=>ow.format.string.separatorsToUnix(r._key)).distinct("_key");
+	var packsIds = $from(packages)
+	               .attach("iname", r => r.name.toLowerCase())
+				   .attach("key", r => ow.format.string.separatorsToUnix(r._key))
+				   .sort("iname")
+				   .distinct("_key")
+
 	for (var packageId in packsIds) {
 		//packag = packages[packsIds[packageId]];
 		var packag = packsIds[packageId];
@@ -1180,7 +1184,7 @@ function install(args) {
 		if (io.fileInfo(getOpenAFPath()).permissions.indexOf("w") >= 0) {
 			output = getOpenAFPath() + packag.name;
 		} else {
-			output = String(java.lang.System.getProperty("user.home")) + "/.openaf-opack-" + packag.name; 
+			output = __gHDir() + "/.openaf-opack-" + packag.name; 
 		}
 	}
 	log("Install folder: " + output);

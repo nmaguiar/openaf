@@ -492,10 +492,12 @@ OpenWrap.obj.prototype.fromObj2Array = function(aObj, aKey) {
 
 /**
  * <odoc>
- * <key>ow.obj.filter(anArray, aMap) : Object</key>
- * Given anArray will use $from with the options on aMap basically making all $from options map parameters. Example:\
+ * <key>ow.obj.filter(anObject, aMap) : Object</key>
+ * Given anObject (either a map or array) will use $from with the options on aMap basically making all $from options map parameters. 
+ * If a "path" string is included it will fallback to $path. Example:\
  * \ 
  * filter:\
+ *   #fromKey: arr\
  *   where:\
  *   - cond: equals\
  *     args:\
@@ -519,17 +521,22 @@ OpenWrap.obj.prototype.fromObj2Array = function(aObj, aKey) {
  * \
  * </odoc>
  */
-OpenWrap.obj.prototype.filter = function(aArray, aMap) {
+OpenWrap.obj.prototype.filter = function(aObj, aMap) {
 	aMap = _$(aMap, "aMap").isMap().default({})
-	aArray = _$(aArray, "aArray").isArray().default([])
+	aObj = _$(aObj, "aObj").default(__)
 
+	if (!isArray(aObj) && !isMap(aObj)) throw "Object provided to filter is not an array or a map."
+
+    if (isString(aMap.path)) return $path(aObj, aMap.path)
+	
+	aMap.fromKey = _$(aMap.fromKey, "fromKey").isString().default(__)
 	aMap.where = _$(aMap.where, "where").isArray().default([])
 	aMap.select = _$(aMap.select, "select").default(__)
 	aMap.transform = _$(aMap.transform, "transform").isArray().default([])
 	aMap.selector = _$(aMap.selector, "selector").isMap().default(__)
-	aArray = _$(aArray, "aArray").isArray().default([])
+	aObj = _$(aObj, "aObj").default([])
 
-	var f = $from(aArray)
+	var f = $from(aObj, aMap.fromKey)
 
 	aMap.where.forEach(w => {
 		if (isString(w.cond)) f = f[w.cond].apply(f, w.args)
@@ -1674,6 +1681,9 @@ OpenWrap.obj.prototype.http = function(aURL, aRequestType, aIn, aRequestMap, isB
 	this.__ufn = "file"
 	this.__forceBasic = false
 	options = _$(options, "options").isMap(options).default({})
+
+	aTimeout = _$(aTimeout, "aTimeout").isNumber().default(__flags.HTTP_TIMEOUT)
+	options.timeout = _$(options.timeout, "options.timeout").isNumber().default(__flags.HTTP_CON_TIMEOUT)
 
 	var clt = new Packages.okhttp3.OkHttpClient.Builder()
 
@@ -3084,7 +3094,9 @@ OpenWrap.obj.prototype.signVerify = function(aKey, aMap) {
     var v = clone(aMap);
     delete v.__jwt;
 
-    switch(fn) {
+    ow.loadJava()
+    return ow.java.checkDigest(fn + ":" + hash, stringify(sortMapKeys(v), __, ""))
+    /*switch(fn) {
     case "sha512": 
         var vhash = sha512(stringify(sortMapKeys(v), __, ""));
         if (vhash == hash) return true; else return false;
@@ -3096,7 +3108,7 @@ OpenWrap.obj.prototype.signVerify = function(aKey, aMap) {
         if (vhash == hash) return true; else return false;
     default:
         throw "Hash algorithm not supported";
-    }
+    }*/
 };
 
 /**
